@@ -109,6 +109,7 @@ http://127.0.0.1:3006/sse
 
 - [ChatGPT + DevSpace](docs/chatgpt-devspace.md)
 - [Gemini / DeepSeek + MCP SuperAssistant](docs/gemini-mcp-superassistant.md)
+- [本地魔改版 MCP SuperAssistant 扩展](docs/local-fixed-extension.md)
 - [固定域名方案](docs/fixed-domain.md)
 - [终端 Agent 中控](docs/agent-console-workflows.md)
 - [排错](docs/troubleshooting.md)

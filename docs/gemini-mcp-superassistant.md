@@ -2,6 +2,14 @@
 
 Gemini、DeepSeek 等网页端可以通过 MCP SuperAssistant 浏览器扩展连接本地 MCP 服务。
 
+如果商店版扩展不稳定，或者需要本地修改过的站点权限，可以使用仓库里的本地解包版：
+
+```text
+extensions/mcp-superassistant-local-fixed
+```
+
+安装方式见：[本地魔改版 MCP SuperAssistant 扩展](local-fixed-extension.md)。
+
 ## 连接地址
 
 默认本地 SSE 地址：
@@ -47,4 +55,3 @@ Server Connected
 ```
 
 如果服务端实际返回工具，但 UI 不显示，需要检查工具 schema 兼容性，例如 `outputSchema` 字段。
-
