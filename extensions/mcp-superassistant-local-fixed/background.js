@@ -12091,10 +12091,13 @@ class x_ extends yg {
     var r;
     this._cachedToolOutputValidators.clear(), this._cachedKnownTaskTools.clear(), this._cachedRequiredTaskTools.clear();
     for (const n of t) {
-      if (n.outputSchema) {
-        const s = this._jsonSchemaValidator.getValidator(n.outputSchema);
-        this._cachedToolOutputValidators.set(n.name, s);
-      }
+      if (n.outputSchema)
+        try {
+          const s = this._jsonSchemaValidator.getValidator(n.outputSchema);
+          this._cachedToolOutputValidators.set(n.name, s);
+        } catch (s) {
+          console.warn("[MCP SDK] Skipping outputSchema validation in CSP-restricted extension context:", n.name, s);
+        }
       const o = (r = n.execution) == null ? void 0 : r.taskSupport;
       (o === "required" || o === "optional") && this._cachedKnownTaskTools.add(n.name), o === "required" && this._cachedRequiredTaskTools.add(n.name);
     }
