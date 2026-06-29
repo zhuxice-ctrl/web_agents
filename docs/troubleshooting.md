@@ -20,6 +20,35 @@
 Test-NetConnection -ComputerName 127.0.0.1 -Port 7676
 ```
 
+## ChatGPT 显示 We couldn't connect your account
+
+这通常不是项目目录错误，而是 ChatGPT 无法通过公网 MCP URL 连接到本地 DevSpace。
+
+先检查本地服务：
+
+```powershell
+Get-NetTCPConnection -LocalPort 7676 -ErrorAction SilentlyContinue
+```
+
+如果本地端口正在监听，再看隧道日志。
+
+Cloudflare Tunnel 如果反复出现类似：
+
+```text
+failed to dial a quic connection
+timeout: no recent network activity
+```
+
+可以把隧道协议从默认 QUIC 改成 HTTP/2：
+
+```powershell
+cloudflared tunnel --protocol http2 --url http://127.0.0.1:7676 --no-autoupdate
+```
+
+然后把新的 `https://.../mcp` 地址重新填到 ChatGPT。
+
+注意：直接访问 `http://127.0.0.1:7676/mcp` 返回 `401 Unauthorized` 通常是正常的，表示 DevSpace 有授权保护，不代表服务坏了。
+
 ## Gemini 显示 Server Connected 但没有工具
 
 可能是：
@@ -41,5 +70,5 @@ Test-NetConnection -ComputerName 127.0.0.1 -Port 7676
 提交前搜索：
 
 ```powershell
-rg "Users|AppData|trycloudflare|ngrok-free|TOKEN|authtoken|secret"
+rg "Users|AppData|trycloudflare|ngrok-free|TOKEN|authtoken|secret|Profile [0-9]|127\\.0\\.0\\.1:[0-9]+"
 ```
