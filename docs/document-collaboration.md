@@ -26,6 +26,7 @@ agent-sessions/
     blackboard.md
     outbox/
       gpt-controller.md
+      gpt3.md
       gemini.md
       deepseek.md
       zhipu.md
@@ -68,7 +69,7 @@ STATE: BUILD
 
 ```text
 ACTION: ASK
-MODELS: Gemini, DeepSeek, Zhipu
+MODELS: GPT3, Gemini, DeepSeek
 REASON: ...
 QUESTION: ...
 ```

@@ -9,6 +9,7 @@ English summary: A Windows-first template for connecting web ChatGPT, Gemini, De
 - ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。
 - Gemini、DeepSeek 等网页端通过 MCP SuperAssistant 访问本地文件。
 - 可选：用一个终端中控网页 GPT / Gemini / DeepSeek / Zhipu 等网页模型，并组织成 agent 工作流。
+- 可选：把第二个 ChatGPT 浏览器账号作为 `gpt3` worker agent 接入同一个工作流。
 - 可选：让多个网页模型通过会话文档 `chat.md` / `protocol.md` / `outbox` 协作，减少终端复制转述。
 
 本仓库只提供通用模板，不包含任何个人路径、账号、域名、token 或本地数据。

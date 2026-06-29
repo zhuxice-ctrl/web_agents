@@ -22,9 +22,23 @@
     "collaborationMode": "file",
     "controllerModel": "gpt",
     "selectedAssistants": [
+      "gpt3",
       "gemini",
-      "deepseek",
-      "zhipu"
+      "deepseek"
+    ],
+    "gptAccounts": [
+      {
+        "name": "GPT - main",
+        "model": "gpt",
+        "profileDirectory": "Profile 1",
+        "remoteDebuggingPort": 9222
+      },
+      {
+        "name": "GPT3",
+        "model": "gpt3",
+        "profileDirectory": "Profile 2",
+        "remoteDebuggingPort": 9222
+      }
     ],
     "sendTimeoutMs": 90000
   }

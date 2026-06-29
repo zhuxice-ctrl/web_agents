@@ -8,7 +8,7 @@
 
 支持两类协作方式：
 
-- 主控模式：ChatGPT 作为 coordinator，Gemini / DeepSeek / Zhipu 作为 worker agent。
+- 主控模式：ChatGPT 作为 coordinator，GPT3 / Gemini / DeepSeek / Zhipu 作为 worker agent。
 - 会商模式：多个网页模型像聊天室一样平等讨论，再整理共识。
 - 文档协作模式：多个网页模型读写同一个会话目录，而不是由终端复制长回复。
 
@@ -23,6 +23,7 @@ Enter / 继续                 推进下一步
 /resume                     恢复历史会话
 
 /gpt 你好                   只发给 ChatGPT
+/gpt3 你好                  只发给第二个 ChatGPT 账号
 /gemini 你好                只发给 Gemini
 /ds 你好                    只发给 DeepSeek
 /zhipu 你好                 只发给 Zhipu
@@ -64,14 +65,12 @@ Enter / 继续                 推进下一步
 你是多模型 agent 工作流的 coordinator（负责人）。
 用户任务：...
 
-请先拆解任务，并给 Gemini、DeepSeek、Zhipu 三个 worker agent 分派工作。
+请先拆解任务，并给当前启用的 worker agent 分派工作。
 输出：
 1. 总目标
 2. 关键约束
-3. 给 Gemini 的任务
-4. 给 DeepSeek 的任务
-5. 给 Zhipu 的任务
-6. 期望返回格式
+3. 给每个 worker 的任务
+4. 期望返回格式
 ```
 
 Worker prompt：
@@ -147,6 +146,24 @@ capacity
 ```
 
 网页端没有稳定的额度 API，因此只能做启发式检测。
+
+## 第二个 ChatGPT 账号
+
+可以把另一个 Edge profile 里的 ChatGPT 账号命名为 `gpt3`，作为 worker agent 使用：
+
+```json
+{
+  "agentConsole": {
+    "selectedAssistants": ["gpt3", "gemini", "deepseek"],
+    "gptAccounts": [
+      { "name": "GPT - main", "model": "gpt", "profileDirectory": "Profile 1" },
+      { "name": "GPT3", "model": "gpt3", "profileDirectory": "Profile 2" }
+    ]
+  }
+}
+```
+
+注意：这仍然是网页自动化，不是 API。Edge 普通窗口占用 profile 时，终端可能无法接管对应账号；脚本应提示用户关闭普通 Edge 后再启动，而不是强行关闭用户窗口。
 
 ## 模型识别
 
