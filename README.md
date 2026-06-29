@@ -9,6 +9,7 @@ English summary: A Windows-first template for connecting web ChatGPT, Gemini, De
 - ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。
 - Gemini、DeepSeek 等网页端通过 MCP SuperAssistant 访问本地文件。
 - 可选：用一个终端中控网页 GPT / Gemini / DeepSeek / Zhipu 等网页模型，并组织成 agent 工作流。
+- 可选：让多个网页模型通过会话文档 `chat.md` / `protocol.md` / `outbox` 协作，减少终端复制转述。
 
 本仓库只提供通用模板，不包含任何个人路径、账号、域名、token 或本地数据。
 
@@ -50,6 +51,7 @@ workspace/
     start-gemini-backend.example.ps1
     start-chatgpt-devspace.example.ps1
     start-agent-console.example.ps1
+  agent-sessions/        # 本地运行时生成，不应提交
 ```
 
 ## 快速理解
@@ -105,12 +107,32 @@ http://127.0.0.1:3006/sse
 5. 把终端显示的公网 MCP URL 填到 ChatGPT。
 6. 如果需要长期稳定，使用自己的域名配置固定 HTTPS 地址。
 
+## 终端 Agent 推荐协作方式
+
+推荐默认使用“文档协作模式”：
+
+```text
+用户 -> 终端 Agent
+终端 Agent -> 发送短指令给网页模型
+网页模型 -> 通过本地文件工具读写会话目录
+多个模型 -> 在 chat.md 里交流
+终端 Agent -> 检测文件变化并推进下一步
+```
+
+这样比把每个网页模型的长回复复制给下一个网页更稳定，也更容易恢复历史会话。
+
+详见：
+
+- [文档协作模式](docs/document-collaboration.md)
+- [终端 Agent 中控](docs/agent-console-workflows.md)
+
 ## 文档
 
 - [ChatGPT + DevSpace](docs/chatgpt-devspace.md)
 - [Gemini / DeepSeek + MCP SuperAssistant](docs/gemini-mcp-superassistant.md)
 - [本地魔改版 MCP SuperAssistant 扩展](docs/local-fixed-extension.md)
 - [固定域名方案](docs/fixed-domain.md)
+- [文档协作模式](docs/document-collaboration.md)
 - [终端 Agent 中控](docs/agent-console-workflows.md)
 - [排错](docs/troubleshooting.md)
 - [隐私检查清单](docs/privacy-checklist.md)

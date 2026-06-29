@@ -10,20 +10,28 @@
 
 - 主控模式：ChatGPT 作为 coordinator，Gemini / DeepSeek / Zhipu 作为 worker agent。
 - 会商模式：多个网页模型像聊天室一样平等讨论，再整理共识。
+- 文档协作模式：多个网页模型读写同一个会话目录，而不是由终端复制长回复。
 
 ## 推荐命令设计
 
 ```text
-直接输入文字                 和 ChatGPT 聊天；ChatGPT 可按需调用 Gemini
-/主控 任务内容               ChatGPT 当 coordinator，其他模型当 worker agent
-/会商 2 任务内容             多个模型平等讨论 2 轮
-/all 任务内容                多模型平等会商 1 轮
+直接输入文字                 创建/补充当前任务，并按当前工作流推进
+Enter / 继续                 推进下一步
+/auto                       按目标持续推进，直到完成/准备执行/需要用户确认
+/final                      基于会话文档汇总
+/new 任务内容               新建会话
+/resume                     恢复历史会话
 
 /gpt 你好                   只发给 ChatGPT
 /gemini 你好                只发给 Gemini
 /ds 你好                    只发给 DeepSeek
 /zhipu 你好                 只发给 Zhipu
 
+/use                        勾选参与模型
+/mode                       选择总控模型，none 表示普通聊天室
+/collab file                文档协作模式，推荐默认
+/collab relay               网页转述模式，备用
+/where                      查看当前会话文件位置
 /models                     查看当前网页模型识别结果
 /reset                      关闭模型页签，重新打开干净页面
 /read path                  读取本地文件内容到终端查看
@@ -40,13 +48,15 @@
 流程：
 
 ```text
-1. ChatGPT 拆解用户任务。
-2. ChatGPT 给 Gemini / DeepSeek / Zhipu 分派 worker 任务。
-3. 每个 worker 只执行分派给自己的部分。
-4. ChatGPT 审查 worker 结果。
-5. 如有必要，ChatGPT 追问某个 worker 一轮。
-6. ChatGPT 输出最终结论。
+1. 总控模型读取当前会话文档。
+2. 总控判断下一步是 ASK、STOP 还是 BUILD。
+3. 如果 ASK，只询问当前真正需要的 worker 模型。
+4. Worker 模型读写同一份会话文档。
+5. 总控再次读取文档并判断是否继续。
+6. 目标足够清楚、信息足够或需要执行时停下。
 ```
+
+不要固定“必须跑几轮”。Agent 工作流应该像正常协作一样：完成目标就停，需要用户确认就停。
 
 推荐 prompt 结构：
 
@@ -87,15 +97,29 @@ Coordinator 的任务分派：...
 流程：
 
 ```text
-1. GPT 发言。
-2. Gemini 阅读前面发言并回应。
-3. DeepSeek 阅读前面发言并回应。
-4. Zhipu 阅读前面发言并回应。
-5. 重复指定轮数。
-6. 最后由一个模型整理共识、分歧和行动建议。
+1. 参与模型按顺序读取会话文档。
+2. 每个模型把本轮意见追加到 chat.md。
+3. 每轮结束后根据 STATE 判断是否继续。
+4. 全部模型都认为 STOP，或任一模型提出 BUILD 时停下。
 ```
 
-建议限制轮数，默认 1 到 3 轮，最多不要超过 10 轮，避免网页端长时间生成或触发额度限制。
+会商模式也不建议硬跑固定轮次。可以保留轮次命令作为兼容入口，但默认应由目标完成状态决定是否继续。
+
+## 文档协作模式
+
+推荐默认使用文档协作模式。终端只给网页模型发送短指令，让模型通过本地文件工具打开会话目录：
+
+```text
+agent-sessions/<session>/
+  task.json
+  protocol.md
+  chat.md
+  outbox/
+```
+
+模型把意见写进 `chat.md` 和自己的 `outbox/*.md`。终端检测文件变化后继续调度。
+
+详见 [文档协作模式](document-collaboration.md)。
 
 ## 备用账号
 
