@@ -25,7 +25,11 @@
     "*://bigmodel.cn/*",
     "*://chat.z.ai/*",
     "*://doubao.com/*",
-    "*://www.doubao.com/*"
+    "*://www.doubao.com/*",
+    "*://grok.com/*",
+    "*://x.com/*",
+    "*://twitter.com/*",
+    "*://aistudio.google.com/*"
   ],
   "content_scripts": [
     {
@@ -39,7 +43,11 @@
         "*://bigmodel.cn/*",
         "*://chat.z.ai/*",
         "*://doubao.com/*",
-        "*://www.doubao.com/*"
+        "*://www.doubao.com/*",
+        "*://grok.com/*",
+        "*://x.com/*",
+        "*://twitter.com/*",
+        "*://aistudio.google.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

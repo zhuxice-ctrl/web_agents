@@ -1,5 +1,5 @@
 import type { ExtensionConfig, McpStatus, ModelParticipant } from "./types";
-import { PROVIDERS } from "../adapters/providers";
+import { getDefaultParticipants } from "../providers/catalog";
 
 export const DEFAULT_SERVER_URI = "http://127.0.0.1:3006/sse";
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:3007";
@@ -35,9 +35,4 @@ export const DEFAULT_MCP_STATUS: McpStatus = {
   message: "尚未检查本地 MCP 服务"
 };
 
-export const DEFAULT_PARTICIPANTS: ModelParticipant[] = PROVIDERS.map((provider) => ({
-  provider: provider.id,
-  label: provider.label,
-  enabled: false,
-  status: "not_open"
-}));
+export const DEFAULT_PARTICIPANTS: ModelParticipant[] = getDefaultParticipants();

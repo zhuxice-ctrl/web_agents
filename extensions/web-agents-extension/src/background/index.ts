@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG } from "../shared/defaults";
-import { getProviderDefinition } from "../adapters/providers";
+import { getProviderById } from "../providers/catalog";
 import type { ExtensionConfig, ProviderId } from "../shared/types";
 import type { ExtensionRequest, ExtensionResponse } from "../shared/messages";
 import { isExtensionRequest } from "../shared/messages";
@@ -94,7 +94,7 @@ async function sendToTab<T extends ExtensionRequest["type"]>(
 }
 
 async function openProvider(providerId: ProviderId): Promise<ExtensionResponse<"tabs:open-provider">> {
-  const provider = getProviderDefinition(providerId);
+  const provider = getProviderById(providerId);
 
   if (!provider) {
     return { ok: false, type: "tabs:open-provider", error: "暂不支持该模型页面。" };
