@@ -9,7 +9,10 @@ export type ToolExecutionCardState = {
   note?: string;
 };
 
+export const TERMINAL_CARD_TTL_MS = 3600;
+
 const CARD_ATTRIBUTE = "data-web-agents-tool-card";
+const dismissTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
 
 function statusText(status: ToolExecutionCardStatus): string {
   switch (status) {
@@ -26,57 +29,68 @@ function statusText(status: ToolExecutionCardStatus): string {
   }
 }
 
+function shouldAutoDismiss(status: ToolExecutionCardStatus): boolean {
+  return status !== "running";
+}
+
 function createStyles(documentRef: Document): HTMLStyleElement {
   const style = documentRef.createElement("style");
   style.textContent = `
     [${CARD_ATTRIBUTE}] {
       box-sizing: border-box;
-      max-width: min(760px, calc(100vw - 40px));
-      margin: 10px 0 14px;
-      padding: 10px 12px;
-      border: 1px solid rgba(37, 99, 235, 0.2);
-      border-radius: 8px;
-      background: #f8fbff;
-      color: #17202a;
-      font: 13px/1.45 Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-      letter-spacing: 0;
-      white-space: normal;
-    }
-
-    [${CARD_ATTRIBUTE}] .web-agents-card-header {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 6px;
-      font-weight: 700;
+      max-width: min(560px, calc(100vw - 40px));
+      margin: 6px 0 8px;
+      padding: 5px 8px;
+      border: 1px solid rgba(37, 99, 235, 0.18);
+      border-radius: 999px;
+      background: rgba(248, 251, 255, 0.92);
+      color: #17202a;
+      font: 12px/1.35 Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      letter-spacing: 0;
+      white-space: nowrap;
+      transition:
+        opacity 180ms ease,
+        transform 180ms ease;
     }
 
     [${CARD_ATTRIBUTE}] .web-agents-card-badge {
       display: inline-flex;
       align-items: center;
-      min-height: 20px;
-      padding: 0 7px;
+      min-height: 18px;
+      padding: 0 6px;
       border-radius: 999px;
       background: #dbeafe;
       color: #1d4ed8;
-      font-size: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+
+    [${CARD_ATTRIBUTE}] .web-agents-card-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
       font-weight: 700;
     }
 
-    [${CARD_ATTRIBUTE}] .web-agents-card-result {
-      margin: 8px 0 0;
-      max-height: 220px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
-      color: #334155;
+    [${CARD_ATTRIBUTE}] .web-agents-card-note {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #64748b;
     }
 
-    [${CARD_ATTRIBUTE}] .web-agents-card-note {
-      margin-top: 6px;
-      color: #64748b;
-      font-size: 12px;
+    [${CARD_ATTRIBUTE}][data-status="failed"] .web-agents-card-badge {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    [${CARD_ATTRIBUTE}][data-status="sent"] .web-agents-card-badge {
+      background: #dcfce7;
+      color: #15803d;
     }
   `;
   return style;
@@ -91,9 +105,35 @@ function ensureCard(documentRef: Document, responseElement: HTMLElement, fingerp
   const card = documentRef.createElement("section");
   card.setAttribute(CARD_ATTRIBUTE, "true");
   card.dataset.fingerprint = fingerprint;
+  card.setAttribute("aria-live", "polite");
 
   responseElement.insertAdjacentElement("afterend", card);
   return card;
+}
+
+function clearDismissTimer(card: HTMLElement): void {
+  const timer = dismissTimers.get(card);
+  if (timer) clearTimeout(timer);
+  dismissTimers.delete(card);
+}
+
+function scheduleDismiss(card: HTMLElement, status: ToolExecutionCardStatus): void {
+  clearDismissTimer(card);
+  if (!shouldAutoDismiss(status)) return;
+
+  const timer = setTimeout(() => {
+    if (!card.isConnected) return;
+    card.remove();
+    dismissTimers.delete(card);
+  }, TERMINAL_CARD_TTL_MS);
+  dismissTimers.set(card, timer);
+}
+
+export function removeAllToolExecutionCards(documentRef: Document): void {
+  documentRef.querySelectorAll<HTMLElement>(`[${CARD_ATTRIBUTE}]`).forEach((card) => {
+    clearDismissTimer(card);
+    card.remove();
+  });
 }
 
 export function upsertToolExecutionCard(
@@ -109,31 +149,25 @@ export function upsertToolExecutionCard(
   }
 
   const card = ensureCard(documentRef, responseElement, fingerprint);
-  const resultText = state.resultText ? state.resultText : "等待本地 MCP 返回结果...";
-
+  card.dataset.status = state.status;
   card.replaceChildren();
 
-  const header = documentRef.createElement("div");
-  header.className = "web-agents-card-header";
   const badge = documentRef.createElement("span");
   badge.className = "web-agents-card-badge";
   badge.textContent = statusText(state.status);
-  const title = documentRef.createElement("span");
-  title.textContent = `Web Agents · ${state.call.name} · call_id=${state.call.callId}`;
-  header.append(badge, title);
-  card.append(header);
 
-  const result = documentRef.createElement("pre");
-  result.className = "web-agents-card-result";
-  result.textContent = resultText;
-  card.append(result);
+  const title = documentRef.createElement("span");
+  title.className = "web-agents-card-title";
+  title.textContent = `WA ${state.call.name} #${state.call.callId}`;
+  card.append(badge, title);
 
   if (state.note) {
-    const note = documentRef.createElement("div");
+    const note = documentRef.createElement("span");
     note.className = "web-agents-card-note";
     note.textContent = state.note;
     card.append(note);
   }
 
+  scheduleDismiss(card, state.status);
   return card;
 }

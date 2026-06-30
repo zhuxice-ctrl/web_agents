@@ -6,7 +6,7 @@ import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { formatFunctionResult } from "../mcp/tool-call-protocol";
 import { mountInlineEntry } from "./inline-entry";
 import { sendTextIfComposerIdle } from "./auto-submit";
-import { upsertToolExecutionCard } from "./tool-execution-card";
+import { removeAllToolExecutionCards, upsertToolExecutionCard } from "./tool-execution-card";
 import { collectToolCallsFromDocument, type CollectedToolCall } from "./tool-call-scanner";
 
 const OVERLAY_HOST_ID = "web-agents-overlay-root";
@@ -32,6 +32,7 @@ type PendingFunctionResultSubmit = {
   formattedResult: string;
   resultText: string;
   attempts: number;
+  hasShownWaiting: boolean;
 };
 
 const pendingFunctionResultSubmits: PendingFunctionResultSubmit[] = [];
@@ -290,12 +291,15 @@ async function attemptPendingFunctionResultSubmits(): Promise<void> {
         continue;
       }
 
-      upsertToolExecutionCard(document, pending.item.element, pending.item.fingerprint, {
-        call: pending.item.call,
-        status: "waiting",
-        resultText: pending.resultText,
-        note: result.message
-      });
+      if (!pending.hasShownWaiting) {
+        upsertToolExecutionCard(document, pending.item.element, pending.item.fingerprint, {
+          call: pending.item.call,
+          status: "waiting",
+          resultText: pending.resultText,
+          note: result.message
+        });
+        pending.hasShownWaiting = true;
+      }
 
       if (result.state === "input_busy" || pending.attempts >= MAX_AUTO_SUBMIT_ATTEMPTS) {
         removePendingSubmit(pending);
@@ -332,7 +336,8 @@ function queueFunctionResultSubmit(item: CollectedToolCall, formattedResult: str
     item,
     formattedResult,
     resultText,
-    attempts: 0
+    attempts: 0,
+    hasShownWaiting: false
   });
   schedulePendingFunctionResultSubmit();
 }
@@ -420,6 +425,7 @@ function startInlineEntryObserver(): void {
 void readOverlayOpenState().then((isOpen) => {
   if (isOpen) void ensurePersistentOverlay();
 });
+removeAllToolExecutionCards(document);
 startInlineEntryObserver();
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
