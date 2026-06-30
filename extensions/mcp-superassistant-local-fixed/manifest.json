@@ -30,16 +30,6 @@
     },
     {
       "js": [
-        "content/index.iife.js",
-        "content/grok-local-fixed.js"
-      ],
-      "matches": [
-        "*://*.grok.com/*"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "js": [
         "content/index.iife.js"
       ],
       "matches": [
@@ -156,7 +146,6 @@
     "*://*.perplexity.ai/*",
     "*://*.chat.openai.com/*",
     "*://*.chatgpt.com/*",
-    "*://*.grok.com/*",
     "*://*.gemini.google.com/*",
     "*://*.aistudio.google.com/*",
     "*://*.openrouter.ai/*",
@@ -183,7 +172,7 @@
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.4",
+  "version": "0.6.5",
   "web_accessible_resources": [
     {
       "matches": [

@@ -70,7 +70,6 @@ Server URI: http://127.0.0.1:3006/sse
 - Qwen
 - Kimi
 - Doubao
-- Grok
 - GitHub Copilot
 
 ## 排障
