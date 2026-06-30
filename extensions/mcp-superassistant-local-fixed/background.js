@@ -15379,6 +15379,19 @@ Nu().then(() => {
 });
 x.debug("Background script loaded");
 x.debug("Edit 'chrome-extension/src/background/index.ts' and save to reload.");
+const WEB_AGENT_IMAGE_SAVE_ENDPOINT = "http://127.0.0.1:3017/save-gpt-image";
+async function saveGeneratedImageToLocal(e) {
+  const t = e && e.payload ? e.payload : {};
+  const r = await fetch(WEB_AGENT_IMAGE_SAVE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(t)
+  });
+  const n = await r.json().catch(() => ({}));
+  if (!r.ok || !n.ok)
+    throw new Error(n.error || `HTTP ${r.status}`);
+  return n;
+}
 chrome.runtime.onMessage.addListener((e, t, r) => {
   if (x.debug("[Background] Received message:", {
     type: e.type || e.command,
@@ -15390,6 +15403,16 @@ chrome.runtime.onMessage.addListener((e, t, r) => {
     x.debug("[Background] Received connection status change from MCP client:", e.payload);
     const { isConnected: n, error: o } = e.payload;
     return gt(n), ct(n, o), !1;
+  }
+  if (e.command === "webAgentSaveGeneratedImage") {
+    saveGeneratedImageToLocal(e).then((n) => {
+      r({ success: !0, result: n });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to save generated GPT image:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
   }
   return e.command === "trackAnalyticsEvent" ? e.eventName && e.eventParams ? (Ge(e.eventName, e.eventParams).then(() => r({ success: !0 })).catch((n) => {
     x.error("[Background] Error tracking analytics event from message:", n), r({ success: !1, error: n instanceof Error ? n.message : String(n) });

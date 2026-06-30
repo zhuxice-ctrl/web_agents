@@ -163,6 +163,7 @@
   "default_locale": "zh_CN",
   "description": "web_Agent 本地 MCP 网页助手",
   "host_permissions": [
+    "http://127.0.0.1:3017/*",
     "*://*.perplexity.ai/*",
     "*://*.chat.openai.com/*",
     "*://*.chatgpt.com/*",
@@ -195,7 +196,7 @@
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.1",
+  "version": "0.6.2",
   "web_accessible_resources": [
     {
       "matches": [
