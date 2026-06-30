@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 logs/
 *.log
+.superpowers/
 
 config.local.json
 *.local.ps1
