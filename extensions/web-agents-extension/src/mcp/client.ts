@@ -89,6 +89,7 @@ function normalizeTool(tool: McpTool): McpToolSummary | null {
     name: tool.name,
     description: typeof tool.description === "string" ? tool.description : undefined,
     risk: classifyToolRisk(tool.name),
+    inputSchema: tool.inputSchema,
     ...summarizeSchema(tool.inputSchema)
   };
 }

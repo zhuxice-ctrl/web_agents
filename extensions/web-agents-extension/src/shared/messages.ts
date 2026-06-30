@@ -8,13 +8,18 @@ import type {
   PermissionDecision,
   PreparedTask,
   ProviderId,
-  ResponseSnapshot
+  ResponseSnapshot,
+  WebAgentInstructionTemplate,
+  WebAgentToolCall,
+  WebAgentToolExecutionResult
 } from "./types";
 
 export type ExtensionRequest =
   | { type: "config:get" }
   | { type: "config:set-locale"; locale: ExtensionConfig["locale"] }
   | { type: "mcp:get-status" }
+  | { type: "mcp:get-instruction-template"; provider?: ProviderId }
+  | { type: "mcp:execute-tool-call"; call: WebAgentToolCall }
   | { type: "task:prepare-local-context"; text: string }
   | { type: "permission:evaluate"; toolName: string; path?: string }
   | { type: "tabs:open-provider"; provider: ProviderId }
@@ -26,6 +31,8 @@ export type ExtensionResponseMap = {
   "config:get": ExtensionConfig;
   "config:set-locale": ExtensionConfig;
   "mcp:get-status": McpStatus;
+  "mcp:get-instruction-template": WebAgentInstructionTemplate;
+  "mcp:execute-tool-call": WebAgentToolExecutionResult;
   "task:prepare-local-context": PreparedTask;
   "permission:evaluate": PermissionDecision;
   "tabs:open-provider": OpenProviderResult;

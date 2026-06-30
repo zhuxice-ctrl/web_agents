@@ -5,6 +5,8 @@ import type { ExtensionRequest, ExtensionResponse } from "../shared/messages";
 import { isExtensionRequest } from "../shared/messages";
 import { checkMcpStatus } from "../mcp/client";
 import { prepareTaskWithLocalContext } from "../mcp/local-context";
+import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
+import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
 
 const CONFIG_STORAGE_KEY = "webAgentsConfig";
@@ -150,6 +152,32 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         case "mcp:get-status": {
           const status = await checkMcpStatus(config);
           sendResponse({ ok: true, type: message.type, data: status });
+          return;
+        }
+        case "mcp:get-instruction-template": {
+          const status = await checkMcpStatus(config);
+          const provider = message.provider ?? "unknown";
+          const providerEntry = getProviderById(provider);
+          sendResponse({
+            ok: true,
+            type: message.type,
+            data: {
+              provider,
+              text: buildWebAgentInstructionTemplate({
+                provider,
+                providerLabel: providerEntry?.label,
+                tools: status.tools
+              }),
+              tools: status.tools,
+              mcpState: status.state,
+              generatedAt: new Date().toISOString()
+            }
+          });
+          return;
+        }
+        case "mcp:execute-tool-call": {
+          const result = await executeWebAgentToolCall(config, message.call);
+          sendResponse({ ok: true, type: message.type, data: result });
           return;
         }
         case "task:prepare-local-context": {

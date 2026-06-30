@@ -1,10 +1,16 @@
 import { createSiteAdapter } from "../adapters/runtime";
 import { detectProviderByHostname } from "../providers/catalog";
+import type { ProviderId } from "../shared/types";
+import type { ExtensionResponse } from "../shared/messages";
+import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
+import { formatFunctionResult } from "../mcp/tool-call-protocol";
 import { mountInlineEntry } from "./inline-entry";
+import { collectToolCallsFromDocument } from "./tool-call-scanner";
 
 const OVERLAY_HOST_ID = "web-agents-overlay-root";
 const PANEL_OPEN_STORAGE_KEY = "webAgentsOverlayOpen";
 const INLINE_ENTRY_RETRY_MS = 600;
+const TOOL_CALL_SCAN_RETRY_MS = 700;
 
 type OverlayController = {
   setOpen(isOpen: boolean): void;
@@ -12,6 +18,8 @@ type OverlayController = {
 
 let overlayControllerPromise: Promise<OverlayController | null> | null = null;
 let inlineEntryTimer: number | undefined;
+let toolCallScanTimer: number | undefined;
+const executedToolCallFingerprintsByElement = new WeakMap<HTMLElement, Set<string>>();
 
 function createOverlayStyles(): HTMLStyleElement {
   const style = document.createElement("style");
@@ -189,9 +197,46 @@ function openPersistentPanel(): void {
   });
 }
 
+async function requestInstructionTemplate(provider: ProviderId): Promise<string> {
+  const providerEntry = detectProviderByHostname(window.location.hostname);
+
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: "mcp:get-instruction-template",
+      provider
+    })) as ExtensionResponse<"mcp:get-instruction-template">;
+
+    if (response.ok) {
+      return response.data.text;
+    }
+
+    console.warn("[web-agents] Failed to load MCP instruction template:", response.error);
+  } catch (error) {
+    console.warn("[web-agents] Failed to request MCP instruction template:", error);
+  }
+
+  return buildWebAgentInstructionTemplate({
+    provider,
+    providerLabel: providerEntry?.label,
+    tools: []
+  });
+}
+
+async function insertWebAgentInstructions(): Promise<void> {
+  const provider = detectProviderByHostname(window.location.hostname);
+  const providerId = provider?.id ?? "unknown";
+  const text = await requestInstructionTemplate(providerId);
+  const adapter = createSiteAdapter();
+  const result = await adapter.insertText(text);
+
+  if (!result.ok) {
+    console.warn("[web-agents] Failed to insert instruction template:", result.message);
+  }
+}
+
 function mountInlinePageEntry(): boolean {
   const provider = detectProviderByHostname(window.location.hostname);
-  return mountInlineEntry(document, provider, openPersistentPanel);
+  return mountInlineEntry(document, provider, insertWebAgentInstructions, openPersistentPanel);
 }
 
 function scheduleInlineEntryMount(): void {
@@ -203,18 +248,72 @@ function scheduleInlineEntryMount(): void {
   }, INLINE_ENTRY_RETRY_MS);
 }
 
+async function executeToolCallFromPage(
+  item: ReturnType<typeof collectToolCallsFromDocument>[number]
+): Promise<void> {
+  const elementFingerprints = executedToolCallFingerprintsByElement.get(item.element) ?? new Set<string>();
+  elementFingerprints.add(item.fingerprint);
+  executedToolCallFingerprintsByElement.set(item.element, elementFingerprints);
+
+  let formattedResult: string;
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: "mcp:execute-tool-call",
+      call: item.call
+    })) as ExtensionResponse<"mcp:execute-tool-call">;
+
+    formattedResult = response.ok
+      ? response.data.formattedResult
+      : formatFunctionResult(item.call.callId, `[web_Agent tool execution failed]\n${response.error}`, "error");
+  } catch (error) {
+    formattedResult = formatFunctionResult(
+      item.call.callId,
+      `[web_Agent tool execution failed]\n${error instanceof Error ? error.message : String(error)}`,
+      "error"
+    );
+  }
+
+  const result = await createSiteAdapter().insertText(formattedResult);
+  if (!result.ok) {
+    console.warn("[web-agents] Failed to insert function result:", result.message);
+  }
+}
+
+function scanAndExecuteToolCalls(): void {
+  const provider = detectProviderByHostname(window.location.hostname);
+  const items = collectToolCallsFromDocument(document, provider, new Set());
+
+  for (const item of items) {
+    if (executedToolCallFingerprintsByElement.get(item.element)?.has(item.fingerprint)) continue;
+    void executeToolCallFromPage(item);
+  }
+}
+
+function scheduleToolCallScan(): void {
+  if (toolCallScanTimer !== undefined) return;
+
+  toolCallScanTimer = window.setTimeout(() => {
+    toolCallScanTimer = undefined;
+    scanAndExecuteToolCalls();
+  }, TOOL_CALL_SCAN_RETRY_MS);
+}
+
 function startInlineEntryObserver(): void {
   if (!document.body) return;
 
   scheduleInlineEntryMount();
+  scheduleToolCallScan();
 
   const observer = new MutationObserver(() => {
     scheduleInlineEntryMount();
+    scheduleToolCallScan();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 }
 
-void ensurePersistentOverlay();
+void readOverlayOpenState().then((isOpen) => {
+  if (isOpen) void ensurePersistentOverlay();
+});
 startInlineEntryObserver();
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {

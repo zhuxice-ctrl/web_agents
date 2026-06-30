@@ -16,17 +16,18 @@ describe("inline page entry", () => {
     expect(target?.input.selector).toBe("textarea");
   });
 
-  it("mounts a single WA button inside the composer and opens the panel on click", () => {
+  it("mounts a single WA button inside the composer and inserts instructions on click", () => {
     document.body.innerHTML = `
       <form id="composer">
         <textarea style="width:240px;height:48px"></textarea>
       </form>
     `;
+    const onInsert = vi.fn();
     const onOpen = vi.fn();
     const provider = getProviderById("doubao");
 
-    expect(mountInlineEntry(document, provider, onOpen)).toBe(true);
-    expect(mountInlineEntry(document, provider, onOpen)).toBe(false);
+    expect(mountInlineEntry(document, provider, onInsert, onOpen)).toBe(true);
+    expect(mountInlineEntry(document, provider, onInsert, onOpen)).toBe(false);
 
     const host = document.getElementById(INLINE_ENTRY_HOST_ID);
     const button = host?.shadowRoot?.querySelector("button");
@@ -34,6 +35,25 @@ describe("inline page entry", () => {
 
     expect(document.querySelectorAll(`#${INLINE_ENTRY_HOST_ID}`)).toHaveLength(1);
     expect(host?.parentElement?.id).toBe("composer");
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("opens the panel on shift click", () => {
+    document.body.innerHTML = `
+      <form id="composer">
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+    const onInsert = vi.fn();
+    const onOpen = vi.fn();
+
+    mountInlineEntry(document, getProviderById("doubao"), onInsert, onOpen);
+
+    const button = document.getElementById(INLINE_ENTRY_HOST_ID)?.shadowRoot?.querySelector("button");
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+
+    expect(onInsert).not.toHaveBeenCalled();
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 

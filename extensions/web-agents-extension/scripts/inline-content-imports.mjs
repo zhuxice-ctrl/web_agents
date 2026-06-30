@@ -34,12 +34,12 @@ function parseExportSpecifiers(value) {
   });
 }
 
-async function inlineFirstImport() {
+async function inlineFirstImport(inlineIndex) {
   const contentCode = await readFile(contentPath, "utf8");
-  const importMatch = contentCode.match(/^import\s*\{([^}]+)\}\s*from\s*["']([^"']+)["'];/);
+  const importMatch = contentCode.match(/^\s*import\s*\{([^}]+)\}\s*from\s*["']([^"']+)["'];\s*/m);
 
   if (!importMatch) {
-    return;
+    return false;
   }
 
   const importedSpecifiers = parseImportSpecifiers(importMatch[1]);
@@ -61,24 +61,31 @@ async function inlineFirstImport() {
       throw new Error(`Imported name ${exportedName} is not exported by ${importedPath}`);
     }
 
-    return `const ${localName}=__contentScriptImports[${JSON.stringify(exportedName)}];`;
+    return `const ${localName}=__contentScriptImports${inlineIndex}[${JSON.stringify(exportedName)}];`;
   });
 
   const importedBody = importedCode.slice(0, exportMatch.index).trimEnd();
-  const contentBody = contentCode.slice(importMatch[0].length).trimStart();
-  const inlinedCode = [
-    "const __contentScriptImports=(()=>{",
+  const importStart = importMatch.index ?? 0;
+  const importEnd = importStart + importMatch[0].length;
+  const contentBeforeImport = contentCode.slice(0, importStart).trimEnd();
+  const contentAfterImport = contentCode.slice(importEnd).trimStart();
+  const inlinedBlock = [
+    `const __contentScriptImports${inlineIndex}=(()=>{`,
     importedBody,
     `return {${exportEntries.join(",")}};`,
     "})();",
-    ...aliasLines,
-    contentBody
+    ...aliasLines
   ].join("\n");
 
+  const inlinedCode = [contentBeforeImport, inlinedBlock, contentAfterImport].filter(Boolean).join("\n");
   await writeFile(contentPath, inlinedCode, "utf8");
+  return true;
 }
 
-await inlineFirstImport();
+let inlineIndex = 0;
+while (await inlineFirstImport(inlineIndex)) {
+  inlineIndex += 1;
+}
 
 const finalContentCode = await readFile(contentPath, "utf8");
 if (/^\s*import\s/m.test(finalContentCode) || /\bfrom\s*["']/.test(finalContentCode)) {

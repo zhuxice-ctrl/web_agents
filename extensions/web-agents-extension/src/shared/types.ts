@@ -47,6 +47,7 @@ export type McpToolSummary = {
   risk: "low" | "high" | "unknown";
   schemaState: "valid" | "missing" | "invalid";
   schemaNote?: string;
+  inputSchema?: unknown;
 };
 
 export type McpStatus = {
@@ -99,6 +100,31 @@ export type PermissionDecision = {
   insideAllowedRoot: boolean;
   requiresConfirmation: boolean;
   reason: string;
+};
+
+export type WebAgentToolCall = {
+  name: string;
+  callId: string;
+  description?: string;
+  arguments: Record<string, unknown>;
+  rawText: string;
+};
+
+export type WebAgentToolExecutionResult = {
+  call: WebAgentToolCall;
+  ok: boolean;
+  resultText: string;
+  formattedResult: string;
+  executedAt: string;
+  error?: string;
+};
+
+export type WebAgentInstructionTemplate = {
+  provider: ProviderId;
+  text: string;
+  tools: McpToolSummary[];
+  mcpState: McpConnectionState;
+  generatedAt: string;
 };
 
 export type ParticipantStatus =

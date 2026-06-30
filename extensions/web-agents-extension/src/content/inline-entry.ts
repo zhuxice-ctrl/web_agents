@@ -53,13 +53,15 @@ function createInlineEntryStyles(documentRef: Document): HTMLStyleElement {
   style.textContent = `
     :host {
       all: initial;
-      position: absolute;
-      right: 52px;
-      bottom: 10px;
-      z-index: 2147483645;
-      width: 34px;
-      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 30px;
+      height: 30px;
+      margin: 0 4px;
       font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      vertical-align: middle;
     }
 
     button {
@@ -67,13 +69,13 @@ function createInlineEntryStyles(documentRef: Document): HTMLStyleElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 34px;
-      height: 34px;
+      box-sizing: border-box;
+      width: 30px;
+      height: 30px;
       border-radius: 999px;
-      border: 1px solid rgba(37, 99, 235, 0.22);
-      background: #17202a;
-      color: #ffffff;
-      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+      border: 1px solid rgba(100, 116, 139, 0.28);
+      background: rgba(255, 255, 255, 0.92);
+      color: #17202a;
       cursor: pointer;
       font: 800 11px/1 Inter, "Segoe UI", system-ui, sans-serif;
       letter-spacing: 0;
@@ -81,8 +83,9 @@ function createInlineEntryStyles(documentRef: Document): HTMLStyleElement {
     }
 
     button:hover {
-      background: #2563eb;
-      box-shadow: 0 12px 28px rgba(37, 99, 235, 0.24);
+      border-color: rgba(37, 99, 235, 0.45);
+      background: #eff6ff;
+      color: #1d4ed8;
     }
 
     button:focus-visible {
@@ -96,7 +99,8 @@ function createInlineEntryStyles(documentRef: Document): HTMLStyleElement {
 export function mountInlineEntry(
   documentRef: Document,
   provider: ProviderCatalogEntry | undefined,
-  onOpenPanel: () => void
+  onInsertInstructions: () => void | Promise<void>,
+  onOpenPanel?: () => void
 ): boolean {
   const existing = documentRef.getElementById(INLINE_ENTRY_HOST_ID);
   if (existing?.isConnected) return false;
@@ -105,10 +109,6 @@ export function mountInlineEntry(
   if (!target) return false;
 
   const { container } = target;
-  const currentPosition = documentRef.defaultView?.getComputedStyle(container).position;
-  if (!currentPosition || currentPosition === "static") {
-    container.style.position = "relative";
-  }
 
   const host = documentRef.createElement("div");
   host.id = INLINE_ENTRY_HOST_ID;
@@ -117,8 +117,8 @@ export function mountInlineEntry(
 
   button.type = "button";
   button.textContent = "WA";
-  button.setAttribute("aria-label", "Open Web Agents");
-  button.title = "Open Web Agents";
+  button.setAttribute("aria-label", "Insert Web Agents instructions");
+  button.title = "WA: 插入工具说明；Shift+点击打开面板";
   button.addEventListener("mousedown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -126,7 +126,12 @@ export function mountInlineEntry(
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    onOpenPanel();
+    if (event.shiftKey && onOpenPanel) {
+      onOpenPanel();
+      return;
+    }
+
+    void onInsertInstructions();
   });
 
   shadow.append(createInlineEntryStyles(documentRef), button);
