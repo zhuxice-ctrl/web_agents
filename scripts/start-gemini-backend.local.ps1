@@ -1,9 +1,66 @@
+param(
+  [switch] $Restart
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gatewayScript = Join-Path $repoRoot "scripts/web-agent-image-save-gateway.mjs"
+$allowedDirectoriesFile = Join-Path $repoRoot "config/allowed-directories.local.txt"
 
 Set-Location $repoRoot
+
+function Initialize-AllowedDirectoriesFile {
+  $configDir = Split-Path -Parent $allowedDirectoriesFile
+  if (-not (Test-Path -LiteralPath $configDir)) {
+    New-Item -ItemType Directory -Path $configDir | Out-Null
+  }
+
+  if (-not (Test-Path -LiteralPath $allowedDirectoriesFile)) {
+    @(
+      "# One allowed directory per line. Blank lines and lines starting with # are ignored."
+      "# Changes take effect after restarting the MCP filesystem bridge."
+      $repoRoot
+    ) | Set-Content -LiteralPath $allowedDirectoriesFile -Encoding UTF8
+  }
+}
+
+function Get-AllowedDirectories {
+  Initialize-AllowedDirectoriesFile
+
+  $seen = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
+  $directories = New-Object "System.Collections.Generic.List[string]"
+
+  $repoPath = (Resolve-Path -LiteralPath $repoRoot).ProviderPath
+  [void]$seen.Add($repoPath)
+  [void]$directories.Add($repoPath)
+
+  $lines = Get-Content -LiteralPath $allowedDirectoriesFile -ErrorAction SilentlyContinue
+  foreach ($line in $lines) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith("#")) {
+      continue
+    }
+
+    $expanded = [Environment]::ExpandEnvironmentVariables($trimmed)
+    try {
+      $resolved = (Resolve-Path -LiteralPath $expanded -ErrorAction Stop).ProviderPath
+      $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+      if (-not $item.PSIsContainer) {
+        Write-Warning "Allowed path is not a directory and will be skipped: $resolved"
+        continue
+      }
+      if ($seen.Add($resolved)) {
+        [void]$directories.Add($resolved)
+      }
+    }
+    catch {
+      Write-Warning "Allowed directory does not exist and will be skipped: $expanded"
+    }
+  }
+
+  return @($directories.ToArray())
+}
 
 function Test-HttpHealth {
   param([string]$Uri)
@@ -21,6 +78,25 @@ function Test-PortListening {
   return $connections.Count -gt 0
 }
 
+function Stop-ListeningPort {
+  param([int]$Port)
+  $processIds = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    Where-Object { $_ -and $_ -ne 0 })
+
+  foreach ($processId in $processIds) {
+    Write-Host "Stopping process $processId on port $Port ..." -ForegroundColor Yellow
+    Stop-Process -Id $processId -Force -ErrorAction Stop
+  }
+}
+
+$allowedDirectories = Get-AllowedDirectories
+
+if ($Restart) {
+  Stop-ListeningPort -Port 3006
+  Start-Sleep -Milliseconds 800
+}
+
 $mcpAlreadyRunning = Test-PortListening -Port 3006
 
 Write-Host "Starting web_Agent local image save gateway on http://127.0.0.1:3017 ..." -ForegroundColor Cyan
@@ -29,6 +105,7 @@ $gatewayHealth = Test-HttpHealth -Uri "http://127.0.0.1:3017/health"
 if ($mcpAlreadyRunning -and $gatewayHealth -and $gatewayHealth.ok) {
   Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
   Write-Host "web_Agent image save gateway is already running on http://127.0.0.1:3017 ." -ForegroundColor Yellow
+  Write-Host "Allowed directory changes require restart: powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1 -Restart" -ForegroundColor Yellow
   return
 }
 
@@ -51,6 +128,7 @@ else {
 try {
   if ($mcpAlreadyRunning) {
     Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
+    Write-Host "Allowed directory changes require restart: powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1 -Restart" -ForegroundColor Yellow
     if ($gatewayJob) {
       Write-Host "Image save gateway was started in this window. Keep this window open, or press Ctrl+C to stop it." -ForegroundColor Yellow
       while ($gatewayJob.State -eq "Running") {
@@ -62,17 +140,30 @@ try {
   }
 
   Write-Host "Starting MCP filesystem bridge on http://127.0.0.1:3006/sse ..." -ForegroundColor Cyan
-  npx -y mcp-proxy@latest `
-    --port 3006 `
-    --host 127.0.0.1 `
-    --sseEndpoint /sse `
-    --streamEndpoint /mcp `
-    --shell `
-    -- `
-    npx.cmd `
-    -y `
-    @modelcontextprotocol/server-filesystem@latest `
-    F:\web_agents
+  Write-Host "Allowed directories:" -ForegroundColor Cyan
+  foreach ($directory in $allowedDirectories) {
+    Write-Host "  - $directory"
+  }
+
+  $mcpProxyArgs = @(
+    "-y"
+    "mcp-proxy@latest"
+    "--port"
+    "3006"
+    "--host"
+    "127.0.0.1"
+    "--sseEndpoint"
+    "/sse"
+    "--streamEndpoint"
+    "/mcp"
+    "--shell"
+    "--"
+    "npx.cmd"
+    "-y"
+    "@modelcontextprotocol/server-filesystem@latest"
+  ) + $allowedDirectories
+
+  & npx.cmd @mcpProxyArgs
 }
 finally {
   if ($gatewayJob) {
