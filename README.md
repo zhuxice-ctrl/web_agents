@@ -108,6 +108,38 @@ http://127.0.0.1:3006/sse
 5. 把终端显示的公网 MCP URL 填到 ChatGPT。
 6. 如果需要长期稳定，使用自己的域名配置固定 HTTPS 地址。
 
+## 当前主线：web_Agent 本地插件
+
+当前可用主线是旧插件增强版：
+
+```text
+extensions/mcp-superassistant-local-fixed
+```
+
+它已经改名为 `web_Agent`，并保留网页内 MCP 按钮、右侧栏、连接状态、工具列表、使用说明、工具执行等完整体验。后续新增站点、权限提示、默认配置和使用说明，优先都改在这个插件里。
+
+加载方式：
+
+```text
+chrome://extensions -> 开发者模式 -> 加载已解压的扩展程序
+F:\web_agents\extensions\mcp-superassistant-local-fixed
+```
+
+推荐先启动本地 MCP 后端：
+
+```powershell
+.\scripts\start-gemini-backend.local.ps1
+```
+
+然后在扩展里使用：
+
+```text
+Connection Type: SSE
+Server URI: http://127.0.0.1:3006/sse
+```
+
+当前本地固定版已包含 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、GLM/Zhipu、豆包等站点权限。`extensions/web-agents-extension` 只保留为后续重构实验，不作为当前实机使用入口。
+
 ## 终端 Agent 推荐协作方式
 
 推荐默认使用“文档协作模式”：
