@@ -136,6 +136,15 @@
         "content/index.iife.js"
       ],
       "matches": [
+        "*://*.doubao.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/index.iife.js"
+      ],
+      "matches": [
         "*://*.bigmodel.cn/*",
         "*://*.chat.z.ai/*"
       ],
@@ -170,6 +179,7 @@
     "*://*.github.com/*",
     "*://*.copilot.github.com/*",
     "*://*.kimi.com/*",
+    "*://*.doubao.com/*",
     "*://*.bigmodel.cn/*",
     "*://*.chat.z.ai/*",
     "*://*.chat.qwen.ai/*"
