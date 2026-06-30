@@ -26,7 +26,7 @@ Each provider must be checked against:
 | DeepSeek | `chat.deepseek.com` | `DeepSeekAdapter` | not-started | Baseline regression check required. |
 | Kimi | `kimi.com` | `KimiAdapter` | not-started | Baseline regression check required. |
 | GLM/Z | `chat.z.ai`, `z.ai` | `ZAdapter` | not-started | Baseline regression check required. |
-| Doubao | `doubao.com` | `DoubaoAdapter` | not-started | New provider for this phase. |
+| Doubao | `doubao.com` | `DoubaoAdapter` | not-started | 2026-06-30: code-ready. Manifest, extraction config, and adapter registration are present; browser verification required. |
 | Grok | `grok.com`, `x.com`, `twitter.com` | `GrokAdapter` | not-started | Existing adapter needs verification. |
 | Google AI Studio | `aistudio.google.com` | `AIStudioAdapter` | not-started | Existing adapter needs verification. |
 | Qwen | `chat.qwen.ai`, `qwen.ai` | `QwenAdapter` | not-started | Existing adapter needs verification. |
