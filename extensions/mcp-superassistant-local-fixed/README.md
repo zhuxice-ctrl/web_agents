@@ -116,6 +116,8 @@ cd F:\web_agents
 
 第一版只支持 `png`、`jpg/jpeg`、`webp`、`gif`。音频、视频、Office、PDF 和图片编辑暂不作为稳定能力。
 
+如果图片在同一个文件夹里，先让模型调用 `list_directory` 或 `search_files` 找出图片。结果卡片会在识别到图片路径后显示 `附加最多20张图片到 GPT`，点击后插件会逐张读取并附加，超过 20 张时只取前 20 张。看到 ChatGPT 输入框里的图片预览后，再手动发送。
+
 ## Upstream
 
 MCP SuperAssistant 是上游开源项目。本目录是为了本地桥接和二创准备的可运行固定版，已重命名为 web_Agent。
