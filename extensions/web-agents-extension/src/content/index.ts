@@ -1,7 +1,17 @@
 import { createSiteAdapter } from "../adapters/runtime";
+import { detectProviderByHostname } from "../providers/catalog";
+import { mountInlineEntry } from "./inline-entry";
 
 const OVERLAY_HOST_ID = "web-agents-overlay-root";
 const PANEL_OPEN_STORAGE_KEY = "webAgentsOverlayOpen";
+const INLINE_ENTRY_RETRY_MS = 600;
+
+type OverlayController = {
+  setOpen(isOpen: boolean): void;
+};
+
+let overlayControllerPromise: Promise<OverlayController | null> | null = null;
+let inlineEntryTimer: number | undefined;
 
 function createOverlayStyles(): HTMLStyleElement {
   const style = document.createElement("style");
@@ -122,9 +132,9 @@ function setPanelOpen(button: HTMLButtonElement, panel: HTMLElement, isOpen: boo
   writeOverlayOpenState(isOpen);
 }
 
-async function mountPersistentOverlay(): Promise<void> {
-  if (document.getElementById(OVERLAY_HOST_ID)) return;
-  if (!document.documentElement || !document.body) return;
+async function mountPersistentOverlay(): Promise<OverlayController | null> {
+  if (document.getElementById(OVERLAY_HOST_ID)) return null;
+  if (!document.documentElement || !document.body) return null;
 
   const host = document.createElement("div");
   host.id = OVERLAY_HOST_ID;
@@ -155,12 +165,57 @@ async function mountPersistentOverlay(): Promise<void> {
   const initialOpen = await readOverlayOpenState();
   setPanelOpen(button, panel, initialOpen);
 
+  const controller: OverlayController = {
+    setOpen(isOpen: boolean): void {
+      setPanelOpen(button, panel, isOpen);
+    }
+  };
+
   button.addEventListener("click", () => {
-    setPanelOpen(button, panel, !panel.classList.contains("open"));
+    controller.setOpen(!panel.classList.contains("open"));
+  });
+
+  return controller;
+}
+
+function ensurePersistentOverlay(): Promise<OverlayController | null> {
+  overlayControllerPromise ??= mountPersistentOverlay();
+  return overlayControllerPromise;
+}
+
+function openPersistentPanel(): void {
+  void ensurePersistentOverlay().then((controller) => {
+    controller?.setOpen(true);
   });
 }
 
-void mountPersistentOverlay();
+function mountInlinePageEntry(): boolean {
+  const provider = detectProviderByHostname(window.location.hostname);
+  return mountInlineEntry(document, provider, openPersistentPanel);
+}
+
+function scheduleInlineEntryMount(): void {
+  if (inlineEntryTimer !== undefined) return;
+
+  inlineEntryTimer = window.setTimeout(() => {
+    inlineEntryTimer = undefined;
+    mountInlinePageEntry();
+  }, INLINE_ENTRY_RETRY_MS);
+}
+
+function startInlineEntryObserver(): void {
+  if (!document.body) return;
+
+  scheduleInlineEntryMount();
+
+  const observer = new MutationObserver(() => {
+    scheduleInlineEntryMount();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+void ensurePersistentOverlay();
+startInlineEntryObserver();
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!message || typeof message !== "object" || !("type" in message)) {
