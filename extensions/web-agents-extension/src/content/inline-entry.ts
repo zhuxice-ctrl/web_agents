@@ -2,6 +2,7 @@ import { findInput, type InputCandidate } from "../adapters/dom";
 import type { ProviderCatalogEntry } from "../providers/catalog";
 
 export const INLINE_ENTRY_HOST_ID = "web-agents-inline-entry-root";
+export const MENU_CLOSE_DELAY_MS = 260;
 
 type InlineEntryTarget = {
   input: InputCandidate;
@@ -117,6 +118,15 @@ function createInlineEntryStyles(documentRef: Document): HTMLStyleElement {
       box-shadow: 0 16px 34px rgba(15, 23, 42, 0.24);
     }
 
+    .web-agents-menu::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      bottom: -10px;
+      width: 54px;
+      height: 10px;
+    }
+
     .web-agents-menu[hidden] {
       display: none;
     }
@@ -176,6 +186,13 @@ export function mountInlineEntry(
   const insertButton = createMenuButton(documentRef, "insert", "插入说明");
   const panelButton = createMenuButton(documentRef, "panel", "打开面板");
   const configureButton = createMenuButton(documentRef, "configure", "配置");
+  let closeTimer: number | undefined;
+
+  function clearCloseTimer(): void {
+    if (closeTimer === undefined) return;
+    documentRef.defaultView?.clearTimeout(closeTimer);
+    closeTimer = undefined;
+  }
 
   function setMenuOpen(isOpen: boolean): void {
     menu.hidden = !isOpen;
@@ -183,11 +200,18 @@ export function mountInlineEntry(
   }
 
   function openMenu(): void {
+    clearCloseTimer();
     setMenuOpen(true);
   }
 
   function closeMenu(): void {
+    clearCloseTimer();
     setMenuOpen(false);
+  }
+
+  function scheduleCloseMenu(): void {
+    clearCloseTimer();
+    closeTimer = documentRef.defaultView?.setTimeout(closeMenu, MENU_CLOSE_DELAY_MS);
   }
 
   button.type = "button";
@@ -219,7 +243,9 @@ export function mountInlineEntry(
   });
   button.addEventListener("mouseenter", openMenu);
   host.addEventListener("mouseenter", openMenu);
-  host.addEventListener("mouseleave", closeMenu);
+  host.addEventListener("mouseleave", scheduleCloseMenu);
+  menu.addEventListener("mouseenter", openMenu);
+  menu.addEventListener("mouseleave", scheduleCloseMenu);
   host.addEventListener("focusin", openMenu);
   host.addEventListener("focusout", (event) => {
     const nextTarget = event.relatedTarget;

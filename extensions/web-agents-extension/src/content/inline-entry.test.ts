@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getProviderById } from "../providers/catalog";
-import { INLINE_ENTRY_HOST_ID, findInlineEntryTarget, mountInlineEntry } from "./inline-entry";
+import { INLINE_ENTRY_HOST_ID, MENU_CLOSE_DELAY_MS, findInlineEntryTarget, mountInlineEntry } from "./inline-entry";
 
 describe("inline page entry", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("targets the composer container around a writable input", () => {
     document.body.innerHTML = `
       <form id="composer">
@@ -68,7 +72,8 @@ describe("inline page entry", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the menu when the pointer leaves the inline entry", () => {
+  it("keeps the menu open briefly so the pointer can move from WA to the popup", () => {
+    vi.useFakeTimers();
     document.body.innerHTML = `
       <form id="composer">
         <textarea style="width:240px;height:48px"></textarea>
@@ -82,6 +87,39 @@ describe("inline page entry", () => {
     const menu = host?.shadowRoot?.querySelector<HTMLElement>(".web-agents-menu");
     trigger?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     host?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(menu?.hidden).toBe(false);
+
+    vi.advanceTimersByTime(MENU_CLOSE_DELAY_MS - 1);
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(menu?.hidden).toBe(false);
+
+    menu?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    vi.advanceTimersByTime(1);
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(menu?.hidden).toBe(false);
+  });
+
+  it("hides the menu after the pointer leaves and does not enter the popup", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <form id="composer">
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+
+    mountInlineEntry(document, getProviderById("doubao"), vi.fn(), vi.fn());
+
+    const host = document.getElementById(INLINE_ENTRY_HOST_ID);
+    const trigger = host?.shadowRoot?.querySelector<HTMLButtonElement>(".web-agents-trigger");
+    const menu = host?.shadowRoot?.querySelector<HTMLElement>(".web-agents-menu");
+    trigger?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    host?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+
+    vi.advanceTimersByTime(MENU_CLOSE_DELAY_MS);
 
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
     expect(menu?.hidden).toBe(true);
