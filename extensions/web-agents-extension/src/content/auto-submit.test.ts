@@ -53,6 +53,30 @@ describe("auto-submit helper", () => {
     expect(click).toHaveBeenCalledTimes(1);
   });
 
+  it("supports send buttons that appear only after inserting text", async () => {
+    document.body.innerHTML = `
+      <form>
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+    const form = document.querySelector("form")!;
+    const textarea = document.querySelector("textarea")!;
+    textarea.addEventListener("input", () => {
+      if (!form.querySelector("button")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-label", "Send");
+        button.textContent = "Send";
+        form.append(button);
+      }
+    });
+
+    const result = await sendTextIfComposerIdle(document, undefined, "<function_result>ok</function_result>");
+
+    expect(result.state).toBe("sent");
+    expect(form.querySelector("button")).not.toBeNull();
+  });
+
   it("does not leave function results in the composer when no send control is available", async () => {
     document.body.innerHTML = `
       <form>
