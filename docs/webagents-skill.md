@@ -40,3 +40,13 @@ cd F:\web_agents
 6. 信息足够后写入 `final.md`。
 
 当前版本优先使用文件协作，不默认做浏览器自动化。网页自动化可以后续接入，但不能作为稳定性前提。
+
+浏览器自动化第一版入口：
+
+```powershell
+.\scripts\council-browser.ps1 -DryRun
+.\scripts\council-browser.ps1 -KeepOpen
+.\scripts\council-browser.ps1 -Submit
+```
+
+详见 [webAgents Browser Automation](webagents-browser-automation.md)。

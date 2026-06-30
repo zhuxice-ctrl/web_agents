@@ -1,0 +1,11 @@
+{
+  "name": "web-ai-local-mcp-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:council-browser": "node --test scripts/council-browser.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
