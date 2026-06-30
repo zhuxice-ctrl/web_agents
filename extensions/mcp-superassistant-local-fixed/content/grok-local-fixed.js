@@ -3,6 +3,25 @@
   const CONTAINER_ID = "mcp-popover-container";
   const STYLE_ID = "mcp-grok-local-fixed-style";
   const LOG_PREFIX = "[web_Agent Grok]";
+  const COMPACT_INSTRUCTIONS = [
+    "[web_Agent Grok \u7b80\u6d01\u8bf4\u660e]",
+    "\u4f60\u6b63\u5728\u901a\u8fc7 web_Agent \u8fde\u63a5\u672c\u5730 MCP \u5de5\u5177\u3002",
+    "",
+    "\u91cd\u8981\u89c4\u5219\uff1a",
+    "1. \u6536\u5230\u8fd9\u6bb5\u8bf4\u660e\u540e\uff0c\u53ea\u56de\u590d\uff1a\u5df2\u51c6\u5907\u597d\u3002\u4e0d\u8981\u89e3\u91ca\u3001\u4e0d\u8981\u590d\u8ff0\u534f\u8bae\u3002",
+    "2. \u5f53\u7528\u6237\u8981\u6c42\u672c\u5730\u6587\u4ef6\u6216\u76ee\u5f55\u64cd\u4f5c\u65f6\uff0c\u53ea\u8f93\u51fa\u4e00\u4e2a JSONL \u5de5\u5177\u8c03\u7528\uff0c\u7136\u540e\u505c\u6b62\u3002",
+    "3. \u4e0d\u8981\u5728 JSONL \u524d\u540e\u52a0\u89e3\u91ca\u3001Markdown\u3001\u6b65\u9aa4\u3001\u98ce\u9669\u63d0\u793a\u6216\u603b\u7ed3\u3002",
+    "4. \u5982\u679c\u7f3a\u5c11\u5fc5\u8981\u53c2\u6570\uff0c\u53ea\u7528\u4e00\u53e5\u4e2d\u6587\u8ffd\u95ee\u7f3a\u5c11\u7684\u53c2\u6570\u3002",
+    "5. \u5de5\u5177\u7ed3\u679c\u51fa\u73b0\u540e\uff0c\u518d\u6839\u636e\u7ed3\u679c\u7528\u7b80\u77ed\u4e2d\u6587\u56de\u590d\u7528\u6237\u3002",
+    "",
+    "\u5e38\u7528\u5de5\u5177\uff1alist_allowed_directories, list_directory, read_text_file, write_file, edit_file, create_directory, move_file\u3002",
+    "",
+    "\u793a\u4f8b\uff1a",
+    '{"type":"function_call_start","name":"write_file","call_id":1}',
+    '{"type":"parameter","key":"path","value":"F:\\\\web_agents\\\\hello.md"}',
+    '{"type":"parameter","key":"content","value":"\u4f60\u597d\uff0c\u6765\u81ea web_Agent"}',
+    '{"type":"function_call_end","call_id":1}',
+  ].join("\n");
 
   if (!GROK_HOST_RE.test(window.location.hostname)) {
     return;
@@ -10,6 +29,15 @@
 
   const log = (...args) => console.debug(LOG_PREFIX, ...args);
   const warn = (...args) => console.warn(LOG_PREFIX, ...args);
+
+  function maybeCompactInstructions(text) {
+    const value = String(text || "");
+    const looksLikeInstruction =
+      value.length > 800 &&
+      value.includes("web_Agent") &&
+      (value.includes("function_call_start") || value.includes("list_allowed_directories") || value.includes("MCP"));
+    return looksLikeInstruction ? COMPACT_INSTRUCTIONS : value;
+  }
 
   const inputSelectors = [
     'textarea[placeholder*="\u7545\u6240\u6b32\u95ee"]',
@@ -204,6 +232,7 @@
     };
 
     adapter.insertText = async function insertText(text) {
+      const finalText = maybeCompactInstructions(text);
       const input = findInput();
       if (!input) {
         this.emitExecutionFailed && this.emitExecutionFailed("insertText", "Grok input not found");
@@ -211,12 +240,12 @@
       }
 
       try {
-        const ok = setText(input, text);
+        const ok = setText(input, finalText);
         if (!ok) throw new Error("Unsupported Grok input element");
         this.emitExecutionCompleted &&
           this.emitExecutionCompleted(
             "insertText",
-            { text },
+            { text: finalText },
             { success: true, method: "grok-local-fixed", elementType: input.tagName.toLowerCase() },
           );
         return true;
