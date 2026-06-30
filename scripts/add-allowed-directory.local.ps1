@@ -15,8 +15,8 @@ if (-not (Test-Path -LiteralPath $configDir)) {
 
 if (-not (Test-Path -LiteralPath $allowedDirectoriesFile)) {
   @(
-    "# One allowed directory per line. Blank lines and lines starting with # are ignored."
-    "# Changes take effect after restarting the MCP filesystem bridge."
+    "# One writable directory per line. Blank lines and lines starting with # are ignored."
+    "# Changes take effect immediately; no MCP bridge restart is required."
     $repoRoot
   ) | Set-Content -LiteralPath $allowedDirectoriesFile -Encoding UTF8
 }
@@ -56,4 +56,4 @@ else {
   Write-Host "Added allowed directory: $resolved" -ForegroundColor Green
 }
 
-Write-Host "Restart the MCP filesystem bridge for the new whitelist to take effect." -ForegroundColor Yellow
+Write-Host "No restart is required. Return to the web_Agent tool card and click rerun / Run again." -ForegroundColor Yellow

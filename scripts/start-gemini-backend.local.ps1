@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gatewayScript = Join-Path $repoRoot "scripts/web-agent-image-save-gateway.mjs"
+$filesystemServerScript = Join-Path $repoRoot "scripts/web-agent-filesystem-server.mjs"
 $allowedDirectoriesFile = Join-Path $repoRoot "config/allowed-directories.local.txt"
 
 Set-Location $repoRoot
@@ -18,8 +19,8 @@ function Initialize-AllowedDirectoriesFile {
 
   if (-not (Test-Path -LiteralPath $allowedDirectoriesFile)) {
     @(
-      "# One allowed directory per line. Blank lines and lines starting with # are ignored."
-      "# Changes take effect after restarting the MCP filesystem bridge."
+      "# One writable directory per line. Blank lines and lines starting with # are ignored."
+      "# Changes take effect immediately; no MCP bridge restart is required."
       $repoRoot
     ) | Set-Content -LiteralPath $allowedDirectoriesFile -Encoding UTF8
   }
@@ -105,7 +106,7 @@ $gatewayHealth = Test-HttpHealth -Uri "http://127.0.0.1:3017/health"
 if ($mcpAlreadyRunning -and $gatewayHealth -and $gatewayHealth.ok) {
   Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
   Write-Host "web_Agent image save gateway is already running on http://127.0.0.1:3017 ." -ForegroundColor Yellow
-  Write-Host "Allowed directory changes require restart: powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1 -Restart" -ForegroundColor Yellow
+  Write-Host "Writable whitelist changes take effect immediately; authorize a directory, then rerun the tool card." -ForegroundColor Yellow
   return
 }
 
@@ -128,7 +129,7 @@ else {
 try {
   if ($mcpAlreadyRunning) {
     Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
-    Write-Host "Allowed directory changes require restart: powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1 -Restart" -ForegroundColor Yellow
+    Write-Host "Writable whitelist changes take effect immediately; authorize a directory, then rerun the tool card." -ForegroundColor Yellow
     if ($gatewayJob) {
       Write-Host "Image save gateway was started in this window. Keep this window open, or press Ctrl+C to stop it." -ForegroundColor Yellow
       while ($gatewayJob.State -eq "Running") {
@@ -140,10 +141,11 @@ try {
   }
 
   Write-Host "Starting MCP filesystem bridge on http://127.0.0.1:3006/sse ..." -ForegroundColor Cyan
-  Write-Host "Allowed directories:" -ForegroundColor Cyan
+  Write-Host "Writable allowed directories:" -ForegroundColor Cyan
   foreach ($directory in $allowedDirectories) {
     Write-Host "  - $directory"
   }
+  Write-Host "Standard mode: browsing/reading can cross directories; write/edit/create/move needs whitelist approval." -ForegroundColor Cyan
 
   $mcpProxyArgs = @(
     "-y"
@@ -158,10 +160,9 @@ try {
     "/mcp"
     "--shell"
     "--"
-    "npx.cmd"
-    "-y"
-    "@modelcontextprotocol/server-filesystem@latest"
-  ) + $allowedDirectories
+    "node"
+    $filesystemServerScript
+  )
 
   & npx.cmd @mcpProxyArgs
 }

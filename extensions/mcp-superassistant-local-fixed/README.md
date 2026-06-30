@@ -78,11 +78,19 @@ Server URI: http://127.0.0.1:3006/sse
 - 工具列表为空：刷新网页，确认后端运行，并避免商店版和本地版插件同时启用。
 - 模型说不能访问本地文件：先插入 `使用说明`，并要求它只输出 `jsonl` 工具调用。
 - 没有 `Run` 按钮：模型输出格式不符合插件解析规则。
-- 写入跨目录失败：运行 `.\scripts\mcp-call.local.ps1 call list_allowed_directories '{}'` 查看允许目录。
+- 写入跨目录失败：工具结果会返回授权命令；运行后不需要重启，回到工具卡片点击“重新运行 / Run again”。
 
 ## 权限与路径
 
-当前旧插件走标准本地 MCP 文件系统权限：浏览器插件负责把工具调用转给本地后端，真正能读写哪些目录由后端的 allowed directories 决定。
+当前旧插件走标准本地 MCP 文件系统权限：浏览器插件负责把工具调用转给本地后端，真正的文件权限由后端控制。默认是“标准模式”：浏览/读取可以跨目录；写入、覆盖、编辑、创建目录、移动文件必须在 writable allowed directories 白名单内。
+
+如果写入目标不在白名单内，工具会返回中文授权提示，例如：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\add-allowed-directory.local.ps1 "C:\Users\Lenovo\Desktop"
+```
+
+运行授权命令后，该目录会永久写入 `config\allowed-directories.local.txt`。新白名单会被后端动态读取，不需要重启；回到网页工具卡片点击“重新运行 / Run again”即可继续本次执行。
 
 直接验证命令：
 
