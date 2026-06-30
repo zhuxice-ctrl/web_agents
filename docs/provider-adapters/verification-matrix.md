@@ -27,9 +27,9 @@ Each provider must be checked against:
 | Kimi | `kimi.com` | `KimiAdapter` | not-started | Baseline regression check required. |
 | GLM/Z | `chat.z.ai`, `z.ai` | `ZAdapter` | not-started | Baseline regression check required. |
 | Doubao | `doubao.com` | `DoubaoAdapter` | not-started | 2026-06-30: code-ready. Manifest, extraction config, and adapter registration are present; browser verification required. |
-| Grok | `grok.com`, `x.com`, `twitter.com` | `GrokAdapter` | not-started | Existing adapter needs verification. |
-| Google AI Studio | `aistudio.google.com` | `AIStudioAdapter` | not-started | Existing adapter needs verification. |
-| Qwen | `chat.qwen.ai`, `qwen.ai` | `QwenAdapter` | not-started | Existing adapter needs verification. |
+| Grok | `grok.com`, `x.com`, `twitter.com` | `GrokAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149 with unpacked extension. Page: https://grok.com/. Checks: 1-2 partial. Notes: extension service worker loaded and Grok-specific MCP style/sidebar host appeared, but the Grok UI did not reach a composer before the Edge process exited; popover, text insertion, and submit were not verified. |
+| Google AI Studio | `aistudio.google.com` | `AIStudioAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149 with unpacked extension. Page: https://aistudio.google.com/welcome. Checks: 1-3 partial. Notes: AI Studio MCP style, MCP popover container, and sidebar host appeared on the unauthenticated welcome/marketing page, but the actual app composer required login/get-started access; text insertion and submit were not verified. |
+| Qwen | `chat.qwen.ai`, `qwen.ai` | `QwenAdapter` | blocked | 2026-06-30: blocked. Browser: Edge 149 with unpacked extension. Page: https://chat.qwen.ai/. Checks: none. Notes: navigation failed with ERR_CONNECTION_CLOSED and landed on chrome-error://chromewebdata/; content script, adapter activation, popover, text insertion, submit, and CodeMirror/Monaco extraction were not verified. |
 
 ## Status Values
 
