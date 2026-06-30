@@ -12,6 +12,7 @@
   const warn = (...args) => console.warn(LOG_PREFIX, ...args);
 
   const inputSelectors = [
+    'textarea[placeholder*="\u7545\u6240\u6b32\u95ee"]',
     'textarea[placeholder*="\u5e2e\u52a9"]',
     'textarea[placeholder*="Ask"]',
     'textarea[placeholder*="Grok"]',
@@ -22,6 +23,9 @@
     'textarea',
     'div[role="textbox"][contenteditable="true"]',
     'div[contenteditable="true"]',
+    '[data-placeholder*="\u7545\u6240\u6b32\u95ee"]',
+    '[data-placeholder*="\u5e2e\u52a9"]',
+    '[contenteditable="true"] p',
     '[role="textbox"]',
   ];
 
@@ -41,11 +45,19 @@
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   }
 
+  function normalizeInputElement(element) {
+    if (!element) return null;
+    if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) return element;
+    if (element.isContentEditable || element.getAttribute("contenteditable") === "true") return element;
+    return element.closest('[contenteditable="true"], div[role="textbox"], [role="textbox"]') || element;
+  }
+
   function findInput() {
     for (const selector of inputSelectors) {
       const candidates = Array.from(document.querySelectorAll(selector));
       const visible = candidates.find(isVisible);
-      if (visible) return visible;
+      const normalized = normalizeInputElement(visible);
+      if (normalized && isVisible(normalized)) return normalized;
     }
     return null;
   }
@@ -73,6 +85,59 @@
       const label = `${button.getAttribute("aria-label") || ""} ${button.title || ""} ${button.textContent || ""}`;
       return /submit|send|\u53d1\u9001/i.test(label);
     });
+  }
+
+  function findComposer(input) {
+    if (!input) return null;
+
+    const direct =
+      input.closest("form") ||
+      input.closest('[class*="composer"]') ||
+      input.closest('[class*="input"]') ||
+      input.closest('[class*="prompt"]');
+    if (direct && isVisible(direct)) return direct;
+
+    let node = input.parentElement;
+    let best = null;
+    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+      if (!isVisible(node)) continue;
+      const rect = node.getBoundingClientRect();
+      const buttonCount = node.querySelectorAll("button").length;
+      const looksLikeComposer =
+        rect.width >= Math.min(420, window.innerWidth * 0.45) &&
+        rect.height >= 40 &&
+        rect.height <= 180 &&
+        rect.bottom > window.innerHeight * 0.55 &&
+        buttonCount > 0;
+      if (looksLikeComposer) {
+        best = node;
+        break;
+      }
+    }
+    return best;
+  }
+
+  function findInlineInsertionPoint(input) {
+    const composer = findComposer(input);
+    if (!composer) return null;
+
+    const buttons = Array.from(composer.querySelectorAll("button")).filter(isVisible);
+    const sendButton = findSendButton();
+    if (sendButton && composer.contains(sendButton) && sendButton.parentElement) {
+      return { parent: sendButton.parentElement, before: sendButton };
+    }
+
+    const rightSideButtons = buttons.filter((button) => {
+      const rect = button.getBoundingClientRect();
+      const composerRect = composer.getBoundingClientRect();
+      return rect.left > composerRect.left + composerRect.width * 0.55;
+    });
+    const targetButton = rightSideButtons[0] || buttons[buttons.length - 1];
+    if (targetButton && targetButton.parentElement) {
+      return { parent: targetButton.parentElement, before: targetButton };
+    }
+
+    return { parent: composer, before: null };
   }
 
   function setText(input, text) {
@@ -194,16 +259,28 @@
     style.id = STYLE_ID;
     style.textContent = `
       #${CONTAINER_ID} {
-        position: fixed;
-        right: 148px;
-        bottom: 94px;
         z-index: 2147483647;
         display: inline-flex;
         align-items: center;
         pointer-events: auto;
+        flex: 0 0 auto;
+      }
+      #${CONTAINER_ID}.mcp-grok-inline {
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        margin: 0 4px;
+        transform: none !important;
+      }
+      #${CONTAINER_ID}.mcp-grok-floating {
+        position: fixed;
+        right: 148px;
+        bottom: 94px;
       }
       @media (max-width: 768px) {
-        #${CONTAINER_ID} {
+        #${CONTAINER_ID}.mcp-grok-floating {
           right: 92px;
           bottom: 88px;
         }
@@ -214,6 +291,24 @@
 
   function positionContainer(container) {
     const input = findInput();
+    const insertionPoint = findInlineInsertionPoint(input);
+    if (insertionPoint && insertionPoint.parent) {
+      if (container.parentElement !== insertionPoint.parent) {
+        insertionPoint.parent.insertBefore(container, insertionPoint.before);
+      } else if (insertionPoint.before && container.nextSibling !== insertionPoint.before) {
+        insertionPoint.parent.insertBefore(container, insertionPoint.before);
+      }
+      container.classList.add("mcp-grok-inline");
+      container.classList.remove("mcp-grok-floating");
+      container.style.left = "";
+      container.style.top = "";
+      container.style.right = "";
+      container.style.bottom = "";
+      return;
+    }
+
+    container.classList.add("mcp-grok-floating");
+    container.classList.remove("mcp-grok-inline");
     if (!input) return;
 
     const rect = input.getBoundingClientRect();
