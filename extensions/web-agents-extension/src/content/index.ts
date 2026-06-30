@@ -5,12 +5,16 @@ import type { ExtensionResponse } from "../shared/messages";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { formatFunctionResult } from "../mcp/tool-call-protocol";
 import { mountInlineEntry } from "./inline-entry";
-import { collectToolCallsFromDocument } from "./tool-call-scanner";
+import { sendTextIfComposerIdle } from "./auto-submit";
+import { upsertToolExecutionCard } from "./tool-execution-card";
+import { collectToolCallsFromDocument, type CollectedToolCall } from "./tool-call-scanner";
 
 const OVERLAY_HOST_ID = "web-agents-overlay-root";
 const PANEL_OPEN_STORAGE_KEY = "webAgentsOverlayOpen";
 const INLINE_ENTRY_RETRY_MS = 600;
 const TOOL_CALL_SCAN_RETRY_MS = 700;
+const AUTO_SUBMIT_RETRY_MS = 900;
+const MAX_AUTO_SUBMIT_ATTEMPTS = 20;
 
 type OverlayController = {
   setOpen(isOpen: boolean): void;
@@ -19,7 +23,18 @@ type OverlayController = {
 let overlayControllerPromise: Promise<OverlayController | null> | null = null;
 let inlineEntryTimer: number | undefined;
 let toolCallScanTimer: number | undefined;
+let autoSubmitTimer: number | undefined;
+let autoSubmitInProgress = false;
 const executedToolCallFingerprintsByElement = new WeakMap<HTMLElement, Set<string>>();
+
+type PendingFunctionResultSubmit = {
+  item: CollectedToolCall;
+  formattedResult: string;
+  resultText: string;
+  attempts: number;
+};
+
+const pendingFunctionResultSubmits: PendingFunctionResultSubmit[] = [];
 
 function createOverlayStyles(): HTMLStyleElement {
   const style = document.createElement("style");
@@ -248,35 +263,125 @@ function scheduleInlineEntryMount(): void {
   }, INLINE_ENTRY_RETRY_MS);
 }
 
-async function executeToolCallFromPage(
-  item: ReturnType<typeof collectToolCallsFromDocument>[number]
-): Promise<void> {
+function removePendingSubmit(pending: PendingFunctionResultSubmit): void {
+  const index = pendingFunctionResultSubmits.indexOf(pending);
+  if (index >= 0) pendingFunctionResultSubmits.splice(index, 1);
+}
+
+async function attemptPendingFunctionResultSubmits(): Promise<void> {
+  if (autoSubmitInProgress) return;
+  autoSubmitInProgress = true;
+
+  try {
+    const provider = detectProviderByHostname(window.location.hostname);
+
+    for (const pending of [...pendingFunctionResultSubmits]) {
+      pending.attempts += 1;
+
+      const result = await sendTextIfComposerIdle(document, provider, pending.formattedResult);
+      if (result.state === "sent") {
+        upsertToolExecutionCard(document, pending.item.element, pending.item.fingerprint, {
+          call: pending.item.call,
+          status: "sent",
+          resultText: pending.resultText,
+          note: result.message
+        });
+        removePendingSubmit(pending);
+        continue;
+      }
+
+      upsertToolExecutionCard(document, pending.item.element, pending.item.fingerprint, {
+        call: pending.item.call,
+        status: "waiting",
+        resultText: pending.resultText,
+        note: result.message
+      });
+
+      if (result.state === "input_busy" || pending.attempts >= MAX_AUTO_SUBMIT_ATTEMPTS) {
+        removePendingSubmit(pending);
+      }
+    }
+  } finally {
+    autoSubmitInProgress = false;
+  }
+
+  if (pendingFunctionResultSubmits.length) {
+    schedulePendingFunctionResultSubmit();
+  }
+}
+
+function schedulePendingFunctionResultSubmit(): void {
+  if (autoSubmitTimer !== undefined) return;
+
+  autoSubmitTimer = window.setTimeout(() => {
+    autoSubmitTimer = undefined;
+    void attemptPendingFunctionResultSubmits();
+  }, AUTO_SUBMIT_RETRY_MS);
+}
+
+function queueFunctionResultSubmit(item: CollectedToolCall, formattedResult: string, resultText: string): void {
+  if (
+    pendingFunctionResultSubmits.some(
+      (pending) => pending.item.element === item.element && pending.item.fingerprint === item.fingerprint
+    )
+  ) {
+    return;
+  }
+
+  pendingFunctionResultSubmits.push({
+    item,
+    formattedResult,
+    resultText,
+    attempts: 0
+  });
+  schedulePendingFunctionResultSubmit();
+}
+
+async function executeToolCallFromPage(item: CollectedToolCall): Promise<void> {
   const elementFingerprints = executedToolCallFingerprintsByElement.get(item.element) ?? new Set<string>();
   elementFingerprints.add(item.fingerprint);
   executedToolCallFingerprintsByElement.set(item.element, elementFingerprints);
 
+  upsertToolExecutionCard(document, item.element, item.fingerprint, {
+    call: item.call,
+    status: "running"
+  });
+
   let formattedResult: string;
+  let resultText: string;
+  let status: "executed" | "failed" = "executed";
   try {
     const response = (await chrome.runtime.sendMessage({
       type: "mcp:execute-tool-call",
       call: item.call
     })) as ExtensionResponse<"mcp:execute-tool-call">;
 
-    formattedResult = response.ok
-      ? response.data.formattedResult
-      : formatFunctionResult(item.call.callId, `[web_Agent tool execution failed]\n${response.error}`, "error");
+    if (response.ok) {
+      formattedResult = response.data.formattedResult;
+      resultText = response.data.resultText;
+      status = response.data.ok ? "executed" : "failed";
+    } else {
+      resultText = `[web_Agent tool execution failed]\n${response.error}`;
+      formattedResult = formatFunctionResult(item.call.callId, resultText, "error");
+      status = "failed";
+    }
   } catch (error) {
+    resultText = `[web_Agent tool execution failed]\n${error instanceof Error ? error.message : String(error)}`;
     formattedResult = formatFunctionResult(
       item.call.callId,
-      `[web_Agent tool execution failed]\n${error instanceof Error ? error.message : String(error)}`,
+      resultText,
       "error"
     );
+    status = "failed";
   }
 
-  const result = await createSiteAdapter().insertText(formattedResult);
-  if (!result.ok) {
-    console.warn("[web-agents] Failed to insert function result:", result.message);
-  }
+  upsertToolExecutionCard(document, item.element, item.fingerprint, {
+    call: item.call,
+    status,
+    resultText,
+    note: "本地 MCP 已返回结果，正在等待页面可发送后自动续发。"
+  });
+  queueFunctionResultSubmit(item, formattedResult, resultText);
 }
 
 function scanAndExecuteToolCalls(): void {
@@ -307,6 +412,7 @@ function startInlineEntryObserver(): void {
   const observer = new MutationObserver(() => {
     scheduleInlineEntryMount();
     scheduleToolCallScan();
+    schedulePendingFunctionResultSubmit();
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 }
