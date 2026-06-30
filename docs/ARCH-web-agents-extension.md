@@ -396,14 +396,13 @@ extensions/
 
 ## 10. 分期计划
 
-### Phase 1: 插件源码 MVP
+### Phase 1: Provider Adapter Foundation
 
-- 新建 MV3 插件源码工程。
-- 默认中文 UI。
-- 当前页面识别。
-- 插入原生输入框。
-- MCP 连接状态。
-- 工具列表展示。
+- 建立唯一 provider catalog。
+- 拆分 content script、DOM helper 和 runtime adapter。
+- 支持 ChatGPT、Gemini、DeepSeek、Kimi、GLM、Qwen、豆包、Grok、Google AI Studio 的基础识别和插入规则。
+- 保持默认 insert-only，不自动发送。
+- 建立 Vitest/jsdom 测试基线。
 
 ### Phase 2: 权限与配置同步
 
@@ -443,4 +442,3 @@ extensions/
 - 模拟路径外高风险操作，验证确认流程。
 - 切换中文/英文，确认所有主要 UI 文案切换。
 - 多模型模式下，验证默认只选择当前页面，其他模型必须手动勾选和打开。
-

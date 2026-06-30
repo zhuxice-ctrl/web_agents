@@ -2,6 +2,32 @@
 
 新的可维护浏览器插件源码工程。
 
+## 当前阶段：Provider Adapter Foundation
+
+第一阶段先统一网页 AI 站点适配底座。Provider 信息集中在 `src/providers/catalog.ts`，background、content script、多模型看板和默认参与模型都从这里读取。
+
+当前 provider 范围：
+
+- ChatGPT
+- Gemini
+- DeepSeek
+- Kimi
+- GLM / Zhipu
+- Qwen
+- 豆包
+- Grok
+- Google AI Studio
+
+默认行为仍是 insert-only：插件只把任务写入网页原生输入框，不自动发送。
+
+验证命令：
+
+```powershell
+npm test
+npm run typecheck
+npm run build
+```
+
 ## 技术栈
 
 - Chrome Manifest V3
