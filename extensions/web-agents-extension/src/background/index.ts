@@ -46,23 +46,32 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   return tab ?? null;
 }
 
-async function getTargetTab(tabId?: number): Promise<chrome.tabs.Tab | null> {
-  if (tabId) {
-    try {
-      return await chrome.tabs.get(tabId);
-    } catch {
-      return null;
-    }
+async function getTabById(tabId: number): Promise<chrome.tabs.Tab | null> {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
+
+async function getTargetTab(tabId?: number, senderTabId?: number): Promise<chrome.tabs.Tab | null> {
+  if (typeof tabId === "number") {
+    return getTabById(tabId);
+  }
+
+  if (typeof senderTabId === "number") {
+    return (await getTabById(senderTabId)) ?? getActiveTab();
   }
 
   return getActiveTab();
 }
 
 async function sendToTab<T extends ExtensionRequest["type"]>(
-  request: ExtensionRequest
+  request: ExtensionRequest,
+  senderTabId?: number
 ): Promise<ExtensionResponse<T>> {
   const tabId = "tabId" in request ? request.tabId : undefined;
-  const tab = await getTargetTab(typeof tabId === "number" ? tabId : undefined);
+  const tab = await getTargetTab(typeof tabId === "number" ? tabId : undefined, senderTabId);
   if (!tab?.id) {
     return { ok: false, type: request.type as T, error: "没有找到目标页面。" };
   }
@@ -119,7 +128,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await saveConfig(config);
 });
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   if (!isExtensionRequest(message)) {
     return false;
   }
@@ -154,7 +163,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
         case "tab:detect":
         case "tab:insert-text":
         case "tab:capture-latest": {
-          sendResponse(await sendToTab(message));
+          sendResponse(await sendToTab(message, sender.tab?.id));
           return;
         }
         default:

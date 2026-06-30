@@ -52,5 +52,11 @@
       "js": ["content.js"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": ["*://*/*"],
+      "resources": ["index.html", "assets/*.js", "assets/*.css"]
+    }
   ]
 }
