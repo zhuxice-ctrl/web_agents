@@ -2,6 +2,7 @@ node_modules/
 dist/
 logs/
 *.log
+agent-sessions/
 
 config.local.json
 *.local.ps1
