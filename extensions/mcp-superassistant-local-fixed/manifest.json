@@ -30,22 +30,11 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index.iife.js",
+        "content/grok-local-fixed.js"
       ],
       "matches": [
         "*://*.grok.com/*"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "js": [
-        "content/index.iife.js"
-      ],
-      "matches": [
-        "*://*.x.com/*",
-        "*://*.twitter.com/*",
-        "*://*.x.com/i/grok*",
-        "*://*.twitter.com/i/grok*"
       ],
       "run_at": "document_idle"
     },
@@ -168,8 +157,6 @@
     "*://*.chat.openai.com/*",
     "*://*.chatgpt.com/*",
     "*://*.grok.com/*",
-    "*://*.x.com/*",
-    "*://*.twitter.com/*",
     "*://*.gemini.google.com/*",
     "*://*.aistudio.google.com/*",
     "*://*.openrouter.ai/*",
@@ -196,7 +183,7 @@
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.3",
+  "version": "0.6.4",
   "web_accessible_resources": [
     {
       "matches": [
