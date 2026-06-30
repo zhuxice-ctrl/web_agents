@@ -118,6 +118,22 @@ cd F:\web_agents
 
 如果图片在同一个文件夹里，先让模型调用 `list_directory` 或 `search_files` 找出图片。结果卡片会在识别到图片路径后显示 `附加最多20张图片到 GPT`，点击后插件会逐张读取并附加，超过 20 张时只取前 20 张。看到 ChatGPT 输入框里的图片预览后，再手动发送。
 
+### GPT 生成图片自动保存
+
+启动 `scripts/start-gemini-backend.local.ps1` 后，会同时启动本地图片保存服务：
+
+- MCP 地址：`http://127.0.0.1:3006/sse`
+- 图片保存服务：`http://127.0.0.1:3017`
+- 默认保存目录：`F:\web_agents\generated\gpt-images\`
+
+在 ChatGPT 页面生成新图片时，插件会尝试自动保存 assistant 新生成的图片结果。插件会跳过头像、用户上传预览、历史旧图和小图标。保存成功后页面会显示中文提示和本地绝对路径。
+
+如果提示“本地图片保存服务未连接”，请重新运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1
+```
+
 ## Upstream
 
 MCP SuperAssistant 是上游开源项目。本目录是为了本地桥接和二创准备的可运行固定版，已重命名为 web_Agent。
