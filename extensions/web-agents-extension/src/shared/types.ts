@@ -58,6 +58,22 @@ export type McpStatus = {
   checkedAt?: string;
 };
 
+export type LocalContextAttachment = {
+  path: string;
+  kind: "directory" | "file" | "unknown";
+  toolName: string;
+  content: string;
+  truncated: boolean;
+};
+
+export type PreparedTask = {
+  originalText: string;
+  text: string;
+  usedLocalContext: boolean;
+  attachments: LocalContextAttachment[];
+  message: string;
+};
+
 export type PermissionMode = "strict" | "standard" | "privacy" | "high_privilege";
 
 export type PermissionSnapshot = {

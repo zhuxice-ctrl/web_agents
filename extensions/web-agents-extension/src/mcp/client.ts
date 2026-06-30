@@ -29,6 +29,16 @@ type ToolsListResult = {
   tools?: McpTool[];
 };
 
+export type McpToolCallResult = {
+  content?: Array<{
+    type?: unknown;
+    text?: unknown;
+  }>;
+  structuredContent?: {
+    content?: unknown;
+  };
+};
+
 export function classifyToolRisk(name: string): McpToolSummary["risk"] {
   if (!name) return "unknown";
   return HIGH_RISK_TOOL_PATTERN.test(name) ? "high" : "low";
@@ -191,15 +201,38 @@ async function listToolsFromSse(serverUri: string): Promise<McpToolSummary[]> {
   const session = await openSseSession(serverUri);
 
   try {
-    await session.request("initialize", {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: { name: "web-agents-extension", version: "0.1.0" }
-    });
-    await session.post({ jsonrpc: "2.0", method: "notifications/initialized" });
+    await initializeSession(session);
 
     const result = await session.request<ToolsListResult>("tools/list");
     return (result.tools ?? []).map(normalizeTool).filter((tool): tool is McpToolSummary => Boolean(tool));
+  } finally {
+    await session.close();
+  }
+}
+
+async function initializeSession(session: Awaited<ReturnType<typeof openSseSession>>): Promise<void> {
+  await session.request("initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "web-agents-extension", version: "0.1.0" }
+  });
+  await session.post({ jsonrpc: "2.0", method: "notifications/initialized" });
+}
+
+export async function callMcpTool(
+  config: ExtensionConfig,
+  name: string,
+  args: Record<string, unknown>
+): Promise<McpToolCallResult> {
+  if (config.mcp.transport !== "sse") {
+    throw new Error("Only SSE MCP transport is supported for local tool calls.");
+  }
+
+  const session = await openSseSession(config.mcp.serverUri);
+
+  try {
+    await initializeSession(session);
+    return await session.request<McpToolCallResult>("tools/call", { name, arguments: args });
   } finally {
     await session.close();
   }

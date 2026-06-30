@@ -4,6 +4,7 @@ import type { ExtensionConfig, ProviderId } from "../shared/types";
 import type { ExtensionRequest, ExtensionResponse } from "../shared/messages";
 import { isExtensionRequest } from "../shared/messages";
 import { checkMcpStatus } from "../mcp/client";
+import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
 
 const CONFIG_STORAGE_KEY = "webAgentsConfig";
@@ -149,6 +150,11 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         case "mcp:get-status": {
           const status = await checkMcpStatus(config);
           sendResponse({ ok: true, type: message.type, data: status });
+          return;
+        }
+        case "task:prepare-local-context": {
+          const preparedTask = await prepareTaskWithLocalContext(config, message.text);
+          sendResponse({ ok: true, type: message.type, data: preparedTask });
           return;
         }
         case "permission:evaluate": {

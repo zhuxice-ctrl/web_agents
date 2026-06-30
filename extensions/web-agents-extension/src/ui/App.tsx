@@ -8,6 +8,7 @@ import type {
   Locale,
   McpStatus,
   ParticipantStatus,
+  PreparedTask,
   ProviderId,
   TaskSession
 } from "../shared/types";
@@ -73,6 +74,21 @@ export function App() {
     }
   }, []);
 
+  const prepareTaskForInsert = useCallback(async (): Promise<PreparedTask | null> => {
+    const response = await sendMessage<"task:prepare-local-context">({
+      type: "task:prepare-local-context",
+      text: taskText
+    });
+
+    if (response.ok) {
+      if (response.data.usedLocalContext) setFeedback(response.data.message);
+      return response.data;
+    }
+
+    setFeedback(response.error);
+    return null;
+  }, [taskText]);
+
   const insertCurrentPage = useCallback(async () => {
     if (!taskText.trim()) {
       setFeedback(t("task.empty"));
@@ -81,10 +97,13 @@ export function App() {
 
     setBusy(true);
     try {
-      const response = await sendMessage<"tab:insert-text">({ type: "tab:insert-text", text: taskText });
+      const preparedTask = await prepareTaskForInsert();
+      if (!preparedTask) return;
+
+      const response = await sendMessage<"tab:insert-text">({ type: "tab:insert-text", text: preparedTask.text });
       if (response.ok) {
         const result: InsertResult = response.data;
-        setFeedback(result.message);
+        setFeedback(preparedTask.usedLocalContext ? `${preparedTask.message} ${result.message}` : result.message);
         void detectCurrentPage();
       } else {
         setFeedback(response.error);
@@ -92,7 +111,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [detectCurrentPage, t, taskText]);
+  }, [detectCurrentPage, prepareTaskForInsert, t, taskText]);
 
   const updateParticipant = useCallback(
     (
@@ -176,10 +195,13 @@ export function App() {
         return;
       }
 
+      const preparedTask = await prepareTaskForInsert();
+      if (!preparedTask) return;
+
       updateParticipant(provider, { status: "ready", error: undefined });
       const response = await sendMessage<"tab:insert-text">({
         type: "tab:insert-text",
-        text: taskText,
+        text: preparedTask.text,
         tabId
       });
 
@@ -188,17 +210,17 @@ export function App() {
         const status: ParticipantStatus = result.ok ? "waiting_user_send" : "error";
         updateParticipant(provider, {
           status,
-          insertedPrompt: result.ok ? taskText : undefined,
+          insertedPrompt: result.ok ? preparedTask.text : undefined,
           error: result.ok ? undefined : result.message
         });
-        setFeedback(result.message);
+        setFeedback(preparedTask.usedLocalContext ? `${preparedTask.message} ${result.message}` : result.message);
         if (isCurrentPage) void detectCurrentPage();
       } else {
         updateParticipant(provider, { status: "error", error: response.error });
         setFeedback(response.error);
       }
     },
-    [detectCurrentPage, pageStatus, t, taskSession.participants, taskText, updateParticipant]
+    [detectCurrentPage, pageStatus, prepareTaskForInsert, t, taskSession.participants, taskText, updateParticipant]
   );
 
   const insertSelectedParticipants = useCallback(async () => {

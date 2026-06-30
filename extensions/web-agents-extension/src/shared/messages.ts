@@ -6,6 +6,7 @@ import type {
   ModelParticipant,
   OpenProviderResult,
   PermissionDecision,
+  PreparedTask,
   ProviderId,
   ResponseSnapshot
 } from "./types";
@@ -14,6 +15,7 @@ export type ExtensionRequest =
   | { type: "config:get" }
   | { type: "config:set-locale"; locale: ExtensionConfig["locale"] }
   | { type: "mcp:get-status" }
+  | { type: "task:prepare-local-context"; text: string }
   | { type: "permission:evaluate"; toolName: string; path?: string }
   | { type: "tabs:open-provider"; provider: ProviderId }
   | { type: "tab:detect"; tabId?: number }
@@ -24,6 +26,7 @@ export type ExtensionResponseMap = {
   "config:get": ExtensionConfig;
   "config:set-locale": ExtensionConfig;
   "mcp:get-status": McpStatus;
+  "task:prepare-local-context": PreparedTask;
   "permission:evaluate": PermissionDecision;
   "tabs:open-provider": OpenProviderResult;
   "tab:detect": AdapterStatus;
