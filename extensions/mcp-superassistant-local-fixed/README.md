@@ -1,56 +1,107 @@
-# web_Agent Local Fixed Build
+# web_Agent 本地固定版
 
-This folder contains the current usable unpacked local-fixed build of web_Agent for browser-based AI pages.
-
-Current local version: `0.6.1`.
-
-Use it when the store extension is unavailable, resets your local changes, or does not include the site permissions you need.
-
-In this repo, this extension is the main usable plugin line. New extension rewrites are experimental and should not replace this flow until they reach feature parity.
-
-## Install In Edge / Chrome
-
-1. Open `edge://extensions` or `chrome://extensions`.
-2. Enable `Developer mode`.
-3. Disable the store version of `MCP SuperAssistant` if it is already installed.
-4. Click `Load unpacked`.
-5. Select this folder:
+这是当前可实机使用的 web_Agent 浏览器插件本地解压版，目录为：
 
 ```text
 extensions/mcp-superassistant-local-fixed
 ```
 
-6. Refresh Gemini / DeepSeek / Zhipu pages.
-7. In the extension settings, use:
+当前本地版本：`0.6.1`。
+
+这条分支只负责旧插件小步增强：新增站点权限、修选择器、优化提示词、补中文说明和做小范围 UI polish。新插件重构不放在这里。
+
+## 快速开始
+
+1. 启动本地 MCP 后端：
+
+```powershell
+cd F:\web_agents
+.\scripts\start-gemini-backend.local.ps1
+```
+
+2. 打开 Chrome：
+
+```text
+chrome://extensions
+```
+
+3. 开启 `开发者模式`。
+4. 点击 `加载已解压的扩展程序`。
+5. 选择：
+
+```text
+F:\web_agents\extensions\mcp-superassistant-local-fixed
+```
+
+6. 在插件连接设置里使用：
 
 ```text
 Connection Type: Server-Sent Events (SSE)
 Server URI: http://127.0.0.1:3006/sse
 ```
 
-Keep your local MCP backend running while using the extension.
+7. 刷新 DeepSeek、豆包、Gemini、Qwen 等网页。
 
-## Included Site Permissions
+## 使用方式
 
-This build includes permissions for common web AI pages, including:
+网页模型本身不会直接拥有本地文件权限。web_Agent 的流程是：先把工具说明插入网页模型上下文，让模型输出 `jsonl` 工具调用，再由插件调用本地 MCP 后端执行。
+
+建议第一次使用时：
+
+1. 打开右侧 web_Agent 面板。
+2. 确认 `Server Connected`。
+3. 切到 `使用说明`。
+4. 插入说明并发送。
+5. 再请求模型进行文件操作。
+
+示例请求：
+
+```text
+请使用 web_Agent 的 write_file 工具，在 F:\web_agents\hello.md 写入：你好。只输出 jsonl 工具调用。
+```
+
+## 已包含站点权限
 
 - ChatGPT
 - Gemini
+- Google AI Studio
 - DeepSeek
 - BigModel / Zhipu / GLM
 - Qwen
 - Kimi
 - Doubao
+- Grok
 - GitHub Copilot
 
-## Notes
+## 排障
 
-- This is an unpacked extension. Browsers may show a warning because it is loaded in Developer Mode.
-- Do not run the store version and this local version at the same time on the same page.
-- If the extension panel shows `SSE error: Failed to fetch`, start or restart the local MCP backend at `http://127.0.0.1:3006/sse`.
-- This package should not contain local paths, tokens, accounts, or private data.
-- For Doubao, open `https://www.doubao.com/chat/`, refresh the page after loading this unpacked extension, and check whether the MCP button appears near the native composer.
+- `SSE error: Failed to fetch`：本地 MCP 后端未启动，或地址不是 `http://127.0.0.1:3006/sse`。
+- 工具列表为空：刷新网页，确认后端运行，并避免商店版和本地版插件同时启用。
+- 模型说不能访问本地文件：先插入 `使用说明`，并要求它只输出 `jsonl` 工具调用。
+- 没有 `Run` 按钮：模型输出格式不符合插件解析规则。
+- 写入跨目录失败：运行 `.\scripts\mcp-call.local.ps1 call list_allowed_directories '{}'` 查看允许目录。
+
+## 权限与路径
+
+当前旧插件走标准本地 MCP 文件系统权限：浏览器插件负责把工具调用转给本地后端，真正能读写哪些目录由后端的 allowed directories 决定。
+
+直接验证命令：
+
+```powershell
+cd F:\web_agents
+.\scripts\mcp-call.local.ps1 tools
+.\scripts\mcp-call.local.ps1 call list_allowed_directories '{}'
+.\scripts\mcp-call.local.ps1 call write_file '{"path":"F:\\web_agents\\hello-from-mcp.md","content":"MCP 写入测试"}'
+```
+
+如果这些命令能写入，但网页模型拒绝，优先检查是否已经插入 `使用说明`，以及模型是否输出了 `jsonl` 工具调用。
+
+## 文本与多模态能力边界
+
+当前旧插件的稳定能力以文本文件和目录操作为主。`read_text_file`、`write_file`、`edit_file` 适合文本、Markdown、JSON、代码等内容；图片、音频、视频、压缩包和 Office 文档不要直接用文本工具读写。
+
+如果后端暴露了 `read_media_file`，它更接近“读取媒体文件为 base64/MIME 供传输”，不等于网页模型已经能稳定看图、剪音频、改视频或写回多媒体文件。多模态能力后续需要单独做页面适配、工具设计和实机验证。
 
 ## Upstream
 
-MCP SuperAssistant is the upstream open-source project. This folder is provided as a practical local build renamed to web_Agent for this bridge template.
+MCP SuperAssistant 是上游开源项目。本目录是为了本地桥接和二创准备的可运行固定版，已重命名为 web_Agent。
