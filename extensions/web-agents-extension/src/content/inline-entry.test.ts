@@ -16,7 +16,7 @@ describe("inline page entry", () => {
     expect(target?.input.selector).toBe("textarea");
   });
 
-  it("mounts a single WA button inside the composer and inserts instructions on click", () => {
+  it("mounts a single WA button inside the composer and shows an action menu on hover", () => {
     document.body.innerHTML = `
       <form id="composer">
         <textarea style="width:240px;height:48px"></textarea>
@@ -30,16 +30,21 @@ describe("inline page entry", () => {
     expect(mountInlineEntry(document, provider, onInsert, onOpen)).toBe(false);
 
     const host = document.getElementById(INLINE_ENTRY_HOST_ID);
-    const button = host?.shadowRoot?.querySelector("button");
-    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const button = host?.shadowRoot?.querySelector<HTMLButtonElement>(".web-agents-trigger");
+    const menu = host?.shadowRoot?.querySelector<HTMLElement>(".web-agents-menu");
+    button?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
 
     expect(document.querySelectorAll(`#${INLINE_ENTRY_HOST_ID}`)).toHaveLength(1);
     expect(host?.parentElement?.id).toBe("composer");
-    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(menu?.hidden).toBe(false);
+    expect(menu?.textContent).toContain("插入说明");
+    expect(menu?.textContent).toContain("打开面板");
+    expect(onInsert).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("opens the panel on shift click", () => {
+  it("runs menu actions without using modifier clicks", () => {
     document.body.innerHTML = `
       <form id="composer">
         <textarea style="width:240px;height:48px"></textarea>
@@ -50,7 +55,50 @@ describe("inline page entry", () => {
 
     mountInlineEntry(document, getProviderById("doubao"), onInsert, onOpen);
 
-    const button = document.getElementById(INLINE_ENTRY_HOST_ID)?.shadowRoot?.querySelector("button");
+    const shadow = document.getElementById(INLINE_ENTRY_HOST_ID)?.shadowRoot;
+    const button = shadow?.querySelector<HTMLButtonElement>(".web-agents-trigger");
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const insertButton = shadow?.querySelector<HTMLButtonElement>("[data-action='insert']");
+    const panelButton = shadow?.querySelector<HTMLButtonElement>("[data-action='panel']");
+
+    insertButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    panelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the menu when the pointer leaves the inline entry", () => {
+    document.body.innerHTML = `
+      <form id="composer">
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+
+    mountInlineEntry(document, getProviderById("doubao"), vi.fn(), vi.fn());
+
+    const host = document.getElementById(INLINE_ENTRY_HOST_ID);
+    const trigger = host?.shadowRoot?.querySelector<HTMLButtonElement>(".web-agents-trigger");
+    const menu = host?.shadowRoot?.querySelector<HTMLElement>(".web-agents-menu");
+    trigger?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    host?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(menu?.hidden).toBe(true);
+  });
+
+  it("still opens the panel on shift click as a shortcut", () => {
+    document.body.innerHTML = `
+      <form id="composer">
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+    const onInsert = vi.fn();
+    const onOpen = vi.fn();
+
+    mountInlineEntry(document, getProviderById("doubao"), onInsert, onOpen);
+
+    const button = document.getElementById(INLINE_ENTRY_HOST_ID)?.shadowRoot?.querySelector<HTMLButtonElement>(".web-agents-trigger");
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
 
     expect(onInsert).not.toHaveBeenCalled();
