@@ -160,8 +160,8 @@
       "run_at": "document_idle"
     }
   ],
-  "default_locale": "en",
-  "description": "MCP SuperAssistant local fixed build",
+  "default_locale": "zh_CN",
+  "description": "web_Agent 本地 MCP 网页助手",
   "host_permissions": [
     "*://*.perplexity.ai/*",
     "*://*.chat.openai.com/*",
@@ -190,12 +190,12 @@
     "34": "icon-34.png"
   },
   "manifest_version": 3,
-  "name": "MCP SuperAssistant Local Fixed",
+  "name": "web_Agent",
   "permissions": [
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.0",
+  "version": "0.6.1",
   "web_accessible_resources": [
     {
       "matches": [

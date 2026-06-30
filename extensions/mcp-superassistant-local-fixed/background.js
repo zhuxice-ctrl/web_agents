@@ -13364,7 +13364,7 @@ class Tu {
       version: "1.0.0",
       transportType: "sse",
       description: "Server-Sent Events transport for MCP protocol",
-      author: "MCP SuperAssistant"
+      author: "web_Agent"
     });
     J(this, "config", {});
     J(this, "transport", null);
@@ -13610,7 +13610,7 @@ class Pu {
       version: "1.0.0",
       transportType: "websocket",
       description: "WebSocket transport for MCP protocol with real-time bidirectional communication",
-      author: "MCP SuperAssistant"
+      author: "web_Agent"
     });
     J(this, "config", {});
     J(this, "transport", null);
@@ -14081,7 +14081,7 @@ class Au {
       version: "1.0.0",
       transportType: "streamable-http",
       description: "Streamable HTTP transport for MCP protocol",
-      author: "MCP SuperAssistant"
+      author: "web_Agent"
     });
     J(this, "transport", null);
   }
