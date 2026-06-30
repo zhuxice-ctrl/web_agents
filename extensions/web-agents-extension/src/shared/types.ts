@@ -8,6 +8,8 @@ export type ProviderId =
   | "qwen"
   | "glm"
   | "doubao"
+  | "grok"
+  | "google-ai-studio"
   | "unknown";
 
 export type AdapterReadiness = "supported" | "unsupported" | "no_input" | "unknown";
