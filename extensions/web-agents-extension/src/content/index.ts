@@ -5,7 +5,7 @@ import type { ExtensionResponse } from "../shared/messages";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { formatFunctionResult } from "../mcp/tool-call-protocol";
 import { mountInlineEntry } from "./inline-entry";
-import { sendTextIfComposerIdle } from "./auto-submit";
+import { sendTextIfComposerIdle, shouldStopAutoSubmitRetry } from "./auto-submit";
 import { removeAllToolExecutionCards, upsertToolExecutionCard } from "./tool-execution-card";
 import { collectToolCallsFromDocument, type CollectedToolCall } from "./tool-call-scanner";
 
@@ -301,7 +301,7 @@ async function attemptPendingFunctionResultSubmits(): Promise<void> {
         pending.hasShownWaiting = true;
       }
 
-      if (result.state === "input_busy" || pending.attempts >= MAX_AUTO_SUBMIT_ATTEMPTS) {
+      if (shouldStopAutoSubmitRetry(result.state, pending.attempts, MAX_AUTO_SUBMIT_ATTEMPTS)) {
         removePendingSubmit(pending);
       }
     }

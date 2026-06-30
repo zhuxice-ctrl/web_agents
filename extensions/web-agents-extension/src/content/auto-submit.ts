@@ -25,13 +25,28 @@ const COMPOSER_CONTAINER_SELECTOR = [
   "[class*='input-wrapper' i]"
 ].join(",");
 
+const BROAD_SUBMIT_SEARCH_ROOT_SELECTOR = [
+  "form",
+  "main",
+  "[role='main']",
+  "[data-testid*='composer' i]",
+  "[class*='composer' i]",
+  "[class*='chat' i]"
+].join(",");
+
 const SUBMIT_BUTTON_SELECTOR = [
   "button[type='submit']",
+  "button[data-testid='send-button' i]",
   "button[data-testid*='send' i]",
+  "button[data-testid*='submit' i]",
   "button[aria-label*='Send' i]",
   "button[aria-label*='发送' i]",
+  "button[aria-label*='Submit' i]",
+  "button[aria-label*='提交' i]",
   "button[title*='Send' i]",
-  "button[title*='发送' i]"
+  "button[title*='发送' i]",
+  "button[title*='Submit' i]",
+  "button[title*='提交' i]"
 ].join(",");
 
 const SUBMIT_BUTTON_RETRY_COUNT = 8;
@@ -60,14 +75,39 @@ function findComposerContainer(inputElement: HTMLElement): HTMLElement | null {
 
 function isUsableSubmitButton(button: HTMLButtonElement): boolean {
   const style = window.getComputedStyle(button);
-  return !button.disabled && style.display !== "none" && style.visibility !== "hidden";
+  return (
+    !button.disabled &&
+    button.getAttribute("aria-disabled") !== "true" &&
+    style.display !== "none" &&
+    style.visibility !== "hidden"
+  );
+}
+
+function findUsableSubmitButtonIn(root: ParentNode): HTMLButtonElement | null {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>(SUBMIT_BUTTON_SELECTOR)).find(isUsableSubmitButton) ?? null;
+}
+
+function getSubmitSearchRoots(inputElement: HTMLElement): ParentNode[] {
+  const roots: ParentNode[] = [];
+  const addRoot = (root: ParentNode | null | undefined): void => {
+    if (!root || roots.includes(root)) return;
+    roots.push(root);
+  };
+
+  const container = findComposerContainer(inputElement);
+  addRoot(container);
+  addRoot(inputElement.closest(BROAD_SUBMIT_SEARCH_ROOT_SELECTOR));
+  addRoot(inputElement.ownerDocument);
+  return roots;
 }
 
 function findUsableSubmitButton(inputElement: HTMLElement): HTMLButtonElement | null {
-  const container = findComposerContainer(inputElement);
-  if (!container) return null;
+  for (const root of getSubmitSearchRoots(inputElement)) {
+    const button = findUsableSubmitButtonIn(root);
+    if (button) return button;
+  }
 
-  return Array.from(container.querySelectorAll<HTMLButtonElement>(SUBMIT_BUTTON_SELECTOR)).find(isUsableSubmitButton) ?? null;
+  return null;
 }
 
 function wait(ms: number): Promise<void> {
@@ -131,4 +171,12 @@ export async function sendTextIfComposerIdle(
 
   submitButton.click();
   return { state: "sent", message: "已把工具结果自动续发给当前网页模型。" };
+}
+
+export function shouldStopAutoSubmitRetry(
+  state: AutoSubmitState,
+  attempts: number,
+  maxAttempts: number
+): boolean {
+  return state === "sent" || state === "input_busy" || state === "no_submit" || attempts >= maxAttempts;
 }
