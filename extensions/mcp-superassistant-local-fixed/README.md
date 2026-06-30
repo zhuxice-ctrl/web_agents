@@ -128,6 +128,10 @@ cd F:\web_agents
 
 在 ChatGPT 页面生成新图片时，插件会尝试自动保存 assistant 新生成的图片结果。插件会跳过头像、用户上传预览、历史旧图和小图标。保存成功后页面会显示中文提示和本地绝对路径。
 
+默认保存到 `F:\web_agents\generated\gpt-images\`。如果最近一条用户消息里包含 `F:\web_agents\...` 路径，插件会优先保存到这个路径所在目录。例如消息里写了 `F:\web_agents\test\demo.png`，生成图会保存到 `F:\web_agents\test\`。出于安全边界，自动保存只允许写入 `F:\web_agents` 目录内。
+
+注意：ChatGPT 网页端不能只靠一段 Windows 文件路径看见原图。如果你要“把本地图片转换成卡通版”，先让 MCP 调用 `read_media_file` 并点击结果卡片里的 `附加到 GPT`，等输入框出现原图预览后再发送生成请求。只把 `F:\...png` 当文字发给 GPT，模型通常会猜图，结果会不准。
+
 如果提示“本地图片保存服务未连接”，请重新运行：
 
 ```powershell

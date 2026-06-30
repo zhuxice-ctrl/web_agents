@@ -17,6 +17,7 @@ const allowedMimeTypes = new Map([
   ["image/webp", ".webp"],
   ["image/gif", ".gif"],
 ]);
+const imagePathExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -35,6 +36,31 @@ function sanitizeFileName(value, extension) {
   const parsed = path.parse(baseName);
   const safeName = parsed.name || path.parse(fallback).name;
   return `${safeName}${extension}`;
+}
+
+function resolveOutputDir(payload) {
+  const requested = String(
+    payload?.targetDirectory || payload?.directoryPath || payload?.targetPath || ""
+  ).trim();
+  if (!requested) {
+    return outputDir;
+  }
+
+  const requestedPath = path.resolve(requested);
+  const requestedExtension = path.extname(requestedPath).toLowerCase();
+  const targetDir = imagePathExtensions.has(requestedExtension)
+    ? path.dirname(requestedPath)
+    : requestedPath;
+  const resolvedTargetDir = path.resolve(targetDir);
+  const resolvedRepoRoot = path.resolve(repoRoot);
+
+  if (resolvedTargetDir !== resolvedRepoRoot && !resolvedTargetDir.startsWith(resolvedRepoRoot + path.sep)) {
+    const error = new Error("TARGET_DIRECTORY_OUTSIDE_REPO");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return resolvedTargetDir;
 }
 
 async function readJson(request) {
@@ -78,11 +104,12 @@ async function saveImage(payload) {
     throw error;
   }
 
-  await fs.mkdir(outputDir, { recursive: true });
+  const saveDir = resolveOutputDir(payload);
+  await fs.mkdir(saveDir, { recursive: true });
   const fileName = sanitizeFileName(payload?.fileName, extension);
-  const filePath = path.join(outputDir, fileName);
+  const filePath = path.join(saveDir, fileName);
   const resolved = path.resolve(filePath);
-  const resolvedOutput = path.resolve(outputDir);
+  const resolvedOutput = path.resolve(saveDir);
   if (!resolved.startsWith(resolvedOutput + path.sep)) {
     const error = new Error("INVALID_FILE_PATH");
     error.statusCode = 400;
@@ -90,7 +117,7 @@ async function saveImage(payload) {
   }
 
   await fs.writeFile(resolved, imageBuffer);
-  return { filePath: resolved, bytes: imageBuffer.length, mimeType };
+  return { filePath: resolved, outputDir: resolvedOutput, bytes: imageBuffer.length, mimeType };
 }
 
 const server = http.createServer(async (request, response) => {

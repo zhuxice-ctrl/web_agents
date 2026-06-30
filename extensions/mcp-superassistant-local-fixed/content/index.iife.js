@@ -3497,7 +3497,7 @@ function hasWebAgentBlockedAncestor(f){
   let l=f;
   for(let n=0;l&&n<8;n++,l=l.parentElement){
     const r=((l.id||"")+" "+(typeof l.className==="string"?l.className:"")+" "+(l.getAttribute("data-testid")||"")+" "+(l.getAttribute("aria-label")||"")).toLowerCase();
-    if(r.includes("prompt-textarea")||r.includes("composer")||r.includes("upload-preview")||r.includes("file-preview")||r.includes("avatar")||r.includes("profile")||r.includes("sidebar")||r.includes("mcp-")||r.includes("logo"))return!0;
+    if(r.includes("prompt-textarea")||r.includes("composer")||r.includes("upload-preview")||r.includes("file-preview")||r.includes("avatar")||r.includes("profile")||r.includes("mcp-")||r.includes("logo"))return!0;
   }
   return!1;
 }
@@ -3552,6 +3552,27 @@ function inferImageMimeType(f,l){
   const r=inferImageExtension("",l);
   return r==="jpg"?"image/jpeg":"image/"+r;
 }
+function getRecentWebAgentUserText(){
+  const f=Array.from(document.querySelectorAll('[data-message-author-role="user"], article')).map(l=>(l.textContent||"").trim()).filter(Boolean);
+  for(let l=f.length-1;l>=0;l--)if(/[A-Za-z]:\\/.test(f[l]))return f[l];
+  return f[f.length-1]||"";
+}
+function extractWebAgentTargetDirectoryFromText(f){
+  const l=String(f||""),n=l.match(/[A-Za-z]:\\[^\s"'<>|]+(?:\\[^\s"'<>|]+)*/g)||[];
+  for(let r=n.length-1;r>=0;r--){
+    let s=n[r].replace(/[，。,.;；:：)）\]]+$/,"");
+    if(!/^F:\\web_agents(?:\\|$)/i.test(s))continue;
+    if(/\.(png|jpe?g|webp|gif)$/i.test(s)){
+      const d=s.lastIndexOf("\\");
+      d>2&&(s=s.slice(0,d));
+    }
+    return s;
+  }
+  return "";
+}
+function getWebAgentGeneratedImageTargetDirectory(){
+  return extractWebAgentTargetDirectoryFromText(getRecentWebAgentUserText());
+}
 function makeGeneratedImageFileName(f,l){
   const n=new Date,r=s=>String(s).padStart(2,"0"),s=String(++webAgentGptImageSaveSequence).padStart(3,"0"),d=n.getFullYear()+r(n.getMonth()+1)+r(n.getDate())+"-"+r(n.getHours())+r(n.getMinutes())+r(n.getSeconds()),h=inferImageExtension(f,l);
   return "gpt-image-"+d+"-"+s+"."+h;
@@ -3592,7 +3613,7 @@ async function saveGeneratedGptImage(f){
   if(!l||webAgentGptImageKnownKeys.has(l)||webAgentGptImagePendingKeys.has(l)||webAgentGptImageFailedKeys.has(l))return;
   webAgentGptImagePendingKeys.add(l);
   try{
-    const n=await readWebAgentImageBlob(f),r=await blobToBase64Payload(n),s=inferImageMimeType(r.mimeType||n.type,l),d=makeGeneratedImageFileName(s,l),h=await sendWebAgentGeneratedImageSaveRequest({fileName:d,mimeType:s,base64:r.base64,sourceUrl:l.startsWith("data:")?"data-url":l.slice(0,1e3)});
+    const n=await readWebAgentImageBlob(f),r=await blobToBase64Payload(n),s=inferImageMimeType(r.mimeType||n.type,l),d=makeGeneratedImageFileName(s,l),h=await sendWebAgentGeneratedImageSaveRequest({fileName:d,mimeType:s,base64:r.base64,sourceUrl:l.startsWith("data:")?"data-url":l.slice(0,1e3),targetDirectory:getWebAgentGeneratedImageTargetDirectory()});
     webAgentGptImageKnownKeys.add(l),showWebAgentImageSaveToast("\u5df2\u4fdd\u5b58 GPT \u56fe\u7247\uff1a"+((h&&h.filePath)||d),"success");
   }catch(n){
     webAgentGptImageFailedKeys.add(l);
@@ -3618,7 +3639,9 @@ function startGeneratedGptImageAutoSave(){
   window.__webAgentGptImageAutoSaveStarted=!0;
   const f=()=>{
     if(!document.body)return void setTimeout(f,500);
-    document.querySelectorAll("img").forEach(r=>{webAgentGptImageInitialNodes.add(r);const s=getWebAgentImageKey(r);s&&webAgentGptImageKnownKeys.add(s)});
+    const r=Array.from(document.querySelectorAll("img"));
+    r.forEach(s=>{webAgentGptImageInitialNodes.add(s);const d=getWebAgentImageKey(s),h=s.closest('[data-message-author-role="assistant"], article, [class*="assistant"], [data-testid*="conversation-turn"]');d&&(!h||!isWebAgentNearConversationTail(h))&&webAgentGptImageKnownKeys.add(d)});
+    r.forEach(s=>{const d=s.closest('[data-message-author-role="assistant"], article, [class*="assistant"], [data-testid*="conversation-turn"]');d&&isWebAgentNearConversationTail(d)&&scheduleWebAgentGeneratedImageSave(s)});
     const l=new MutationObserver(r=>{for(const s of r){s.type==="attributes"&&s.target instanceof HTMLImageElement&&scheduleWebAgentGeneratedImageSave(s.target);if(s.type==="childList")for(const d of Array.from(s.addedNodes))collectWebAgentImagesFromNode(d).forEach(scheduleWebAgentGeneratedImageSave)}});
     l.observe(document.body,{childList:!0,subtree:!0,attributes:!0,attributeFilter:["src","srcset"]}),window.addEventListener("beforeunload",()=>l.disconnect(),{once:!0}),R("[web_Agent] GPT generated image auto-save observer started");
   };

@@ -132,7 +132,9 @@ F:\web_agents
 - 当前 GPT 图片试验功能支持 `png`、`jpg/jpeg`、`webp`、`gif`，插件只负责附加图片，不自动发送。
 - 如果图片在同一个文件夹里，先用 `list_directory` 或 `search_files` 找出图片；结果卡片识别到图片路径后会显示 `附加最多20张图片到 GPT`，超过 20 张只取前 20 张。
 - 启动 `scripts/start-gemini-backend.local.ps1` 后会同时启动 `http://127.0.0.1:3017` 图片保存服务。ChatGPT 新生成的 assistant 图片会尝试自动保存到 `F:\web_agents\generated\gpt-images\`。
+- 如果最近一条用户消息里包含 `F:\web_agents\...` 路径，生成图会优先保存到这个路径所在目录，例如 `F:\web_agents\test\demo.png` 会让生成图保存到 `F:\web_agents\test\`。自动保存只允许写入 `F:\web_agents` 目录内。
 - 自动保存会跳过头像、用户上传预览、历史旧图和小图标；如果页面提示“本地图片保存服务未连接”，重新运行本地启动脚本后再生成新图片。
+- ChatGPT 不能只靠一段 Windows 路径读取原图。要转换本地图片时，先通过 `read_media_file` 读取图片并点击 `附加到 GPT`，确认输入框出现图片预览后再发送生成请求。
 - 当前旧插件不提供稳定的图片编辑、音频理解、视频处理、Office/PDF 解析或多模态文件写入流程。
 
 简单说：现在先把“本地文本文件 + 目录操作”当成可靠能力；GPT 本地图片上传分析可以按试验流程使用，GPT 新生成图片会尽量自动保存到本地工程目录。
