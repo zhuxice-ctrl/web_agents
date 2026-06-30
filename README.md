@@ -4,6 +4,18 @@
 
 English summary: A Windows-first template for connecting web ChatGPT, Gemini, DeepSeek, and similar browser-based AI tools to local files through MCP-compatible bridges.
 
+## Branch Role
+
+This branch is for the source-based Web Agents extension rewrite.
+
+Primary implementation:
+
+```text
+extensions/web-agents-extension
+```
+
+The legacy local fixed extension remains on `codex/legacy-local-fixed-enhancements`.
+
 目标：
 
 - ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。

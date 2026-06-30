@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "Web Agents"
+  },
+  "extensionDescription": {
+    "message": "在网页 AI 中连接本地 MCP、插入任务并管理多模型工作流。"
+  }
+}

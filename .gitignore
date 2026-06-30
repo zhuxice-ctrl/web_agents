@@ -1,11 +1,13 @@
 node_modules/
 dist/
+*.tsbuildinfo
 logs/
 *.log
 
 config.local.json
 *.local.ps1
 *.local.cmd
+!scripts/start-web-agents-gateway.local.ps1
 
 .env
 .env.*
