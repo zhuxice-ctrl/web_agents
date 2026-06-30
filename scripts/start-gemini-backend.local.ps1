@@ -95,6 +95,7 @@ $allowedDirectories = Get-AllowedDirectories
 
 if ($Restart) {
   Stop-ListeningPort -Port 3006
+  Stop-ListeningPort -Port 3017
   Start-Sleep -Milliseconds 800
 }
 
@@ -102,6 +103,13 @@ $mcpAlreadyRunning = Test-PortListening -Port 3006
 
 Write-Host "Starting web_Agent local image save gateway on http://127.0.0.1:3017 ..." -ForegroundColor Cyan
 $gatewayHealth = Test-HttpHealth -Uri "http://127.0.0.1:3017/health"
+
+if ($gatewayHealth -and $gatewayHealth.ok -and -not $gatewayHealth.features.saveToolResult) {
+  Write-Host "Existing image save gateway is missing tool-result save support; restarting port 3017 ..." -ForegroundColor Yellow
+  Stop-ListeningPort -Port 3017
+  Start-Sleep -Milliseconds 800
+  $gatewayHealth = $null
+}
 
 if ($mcpAlreadyRunning -and $gatewayHealth -and $gatewayHealth.ok) {
   Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow

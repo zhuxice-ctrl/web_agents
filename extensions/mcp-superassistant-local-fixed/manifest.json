@@ -137,6 +137,31 @@
         "*://*.chat.qwen.ai/*"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/web-agent-result-enhancer.js"
+      ],
+      "matches": [
+        "*://*.perplexity.ai/*",
+        "*://*.chat.openai.com/*",
+        "*://*.chatgpt.com/*",
+        "*://*.gemini.google.com/*",
+        "*://*.aistudio.google.com/*",
+        "*://*.openrouter.ai/*",
+        "*://*.chat.deepseek.com/*",
+        "*://*.kagi.com/*",
+        "*://*.t3.chat/*",
+        "*://*.chat.mistral.ai/*",
+        "*://*.github.com/*",
+        "*://*.copilot.github.com/*",
+        "*://*.kimi.com/*",
+        "*://*.doubao.com/*",
+        "*://*.bigmodel.cn/*",
+        "*://*.chat.z.ai/*",
+        "*://*.chat.qwen.ai/*"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "default_locale": "zh_CN",

@@ -7,9 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const outputDir = path.join(repoRoot, "generated", "gpt-images");
+const toolResultsDir = path.join(repoRoot, "generated", "tool-results");
 const port = Number(process.env.WEB_AGENT_IMAGE_SAVE_PORT || 3017);
 const host = process.env.WEB_AGENT_IMAGE_SAVE_HOST || "127.0.0.1";
 const maxBytes = Number(process.env.WEB_AGENT_IMAGE_SAVE_MAX_BYTES || 50 * 1024 * 1024);
+const maxToolResultBytes = Number(process.env.WEB_AGENT_TOOL_RESULT_MAX_BYTES || 5 * 1024 * 1024);
 const allowedMimeTypes = new Map([
   ["image/png", ".png"],
   ["image/jpeg", ".jpg"],
@@ -36,6 +38,15 @@ function sanitizeFileName(value, extension) {
   const parsed = path.parse(baseName);
   const safeName = parsed.name || path.parse(fallback).name;
   return `${safeName}${extension}`;
+}
+
+function sanitizeToolName(value) {
+  const raw = typeof value === "string" && value.trim() ? value.trim() : "tool-result";
+  return raw.replace(/[<>:"/\\|?*\u0000-\u001f\s]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "tool-result";
+}
+
+function makeTimestamp() {
+  return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
 }
 
 function resolveOutputDir(payload) {
@@ -120,17 +131,68 @@ async function saveImage(payload) {
   return { filePath: resolved, outputDir: resolvedOutput, bytes: imageBuffer.length, mimeType };
 }
 
+async function saveToolResult(payload) {
+  const text = String(payload?.text || payload?.content || "");
+  if (!text.trim()) {
+    const error = new Error("EMPTY_TOOL_RESULT");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes > maxToolResultBytes) {
+    const error = new Error("TOOL_RESULT_TOO_LARGE");
+    error.statusCode = 413;
+    throw error;
+  }
+
+  await fs.mkdir(toolResultsDir, { recursive: true });
+  const extension = String(payload?.extension || ".md").toLowerCase() === ".txt" ? ".txt" : ".md";
+  const toolName = sanitizeToolName(payload?.toolName || payload?.name);
+  const fileName = sanitizeFileName(payload?.fileName || `${toolName}-${makeTimestamp()}${extension}`, extension);
+  const filePath = path.join(toolResultsDir, fileName);
+  const resolved = path.resolve(filePath);
+  const resolvedOutput = path.resolve(toolResultsDir);
+  if (!resolved.startsWith(resolvedOutput + path.sep)) {
+    const error = new Error("INVALID_TOOL_RESULT_PATH");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const header = [
+    `# web_Agent 工具结果`,
+    ``,
+    `- Tool: ${toolName}`,
+    `- Saved: ${new Date().toISOString()}`,
+    ``,
+    `---`,
+    ``,
+  ].join("\n");
+  await fs.writeFile(resolved, extension === ".md" ? `${header}${text}` : text, "utf8");
+  return { filePath: resolved, outputDir: resolvedOutput, bytes, toolName };
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") {
       return sendJson(response, 204, {});
     }
     if (request.method === "GET" && request.url === "/health") {
-      return sendJson(response, 200, { ok: true, outputDir });
+      return sendJson(response, 200, {
+        ok: true,
+        outputDir,
+        toolResultsDir,
+        features: { saveGptImage: true, saveToolResult: true },
+      });
     }
     if (request.method === "POST" && request.url === "/save-gpt-image") {
       const payload = await readJson(request);
       const result = await saveImage(payload);
+      return sendJson(response, 200, { ok: true, ...result });
+    }
+    if (request.method === "POST" && request.url === "/save-tool-result") {
+      const payload = await readJson(request);
+      const result = await saveToolResult(payload);
       return sendJson(response, 200, { ok: true, ...result });
     }
     return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
@@ -141,7 +203,16 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, host, () => {
-  console.log(`web_Agent image save gateway listening at http://${host}:${port}`);
-  console.log(`Saving GPT images to ${outputDir}`);
-});
+if (path.resolve(process.argv[1] || "") === __filename) {
+  server.listen(port, host, () => {
+    console.log(`web_Agent image save gateway listening at http://${host}:${port}`);
+    console.log(`Saving GPT images to ${outputDir}`);
+    console.log(`Saving tool results to ${toolResultsDir}`);
+  });
+}
+
+export {
+  saveImage,
+  saveToolResult,
+  sanitizeToolName,
+};
