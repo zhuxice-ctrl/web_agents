@@ -100,7 +100,21 @@ cd F:\web_agents
 
 当前旧插件的稳定能力以文本文件和目录操作为主。`read_text_file`、`write_file`、`edit_file` 适合文本、Markdown、JSON、代码等内容；图片、音频、视频、压缩包和 Office 文档不要直接用文本工具读写。
 
-如果后端暴露了 `read_media_file`，它更接近“读取媒体文件为 base64/MIME 供传输”，不等于网页模型已经能稳定看图、剪音频、改视频或写回多媒体文件。多模态能力后续需要单独做页面适配、工具设计和实机验证。
+如果后端暴露了 `read_media_file`，它更接近“读取媒体文件为 base64/MIME 供传输”。当前旧插件先支持 GPT 图片上传分析，其他多模态能力仍需要单独做页面适配、工具设计和实机验证。
+
+### GPT 图片读取试验功能
+
+当 MCP 工具返回 `read_media_file` 的图片结果时，结果卡片会显示 `附加到 GPT`。
+
+使用方式：
+
+1. 确认图片在允许目录内，例如 `F:\web_agents\images\demo.png`。
+2. 在 ChatGPT 页面插入 web_Agent 使用说明。
+3. 让 ChatGPT 调用 `read_media_file` 读取图片。
+4. 工具执行成功后点击结果卡片里的 `附加到 GPT`。
+5. 等 ChatGPT 输入框出现图片预览后，再手动发送。
+
+第一版只支持 `png`、`jpg/jpeg`、`webp`、`gif`。音频、视频、Office、PDF 和图片编辑暂不作为稳定能力。
 
 ## Upstream
 
