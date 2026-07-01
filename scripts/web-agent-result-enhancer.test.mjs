@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
+import fs from "node:fs";
+import vm from "node:vm";
 import test from "node:test";
 
-const require = createRequire(import.meta.url);
-const enhancer = require("../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js");
+function loadContentScriptExports(filePath) {
+  const code = fs.readFileSync(filePath, "utf8");
+  const module = { exports: {} };
+  vm.runInNewContext(code, { module, exports: module.exports, console }, { filename: filePath });
+  return module.exports;
+}
+
+const enhancer = loadContentScriptExports("extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js");
 
 test("extractToolResultText returns text between Run and execution history", () => {
   const cardText = [
@@ -50,4 +57,33 @@ test("shouldAutoSaveToolResult only autosaves long text output", () => {
   assert.equal(enhancer.shouldAutoSaveToolResult("short output"), false);
   assert.equal(enhancer.shouldAutoSaveToolResult("x".repeat(2500)), true);
   assert.equal(enhancer.shouldAutoSaveToolResult(Array.from({ length: 70 }, (_, index) => `line ${index}`).join("\n")), true);
+});
+
+test("getCardTextWithoutStableOutput removes existing stable output before extraction", () => {
+  const stableNode = { removeCalled: false, remove() { this.removeCalled = true; } };
+  const fakeCard = {
+    cloneNode() {
+      return {
+        innerText: [
+          "list_allowed_directories",
+          "显示原始信息",
+          "运行",
+          "Writable allowed directories:",
+          "- F:\\web_agents",
+          "执行历史",
+          "工具: list_allowed_directories",
+        ].join("\n"),
+        querySelectorAll(selector) {
+          assert.equal(selector, ".web-agent-stable-output");
+          return [stableNode];
+        },
+      };
+    },
+  };
+
+  assert.equal(
+    enhancer.extractToolResultText(enhancer.getCardTextWithoutStableOutput(fakeCard)),
+    "Writable allowed directories:\n- F:\\web_agents",
+  );
+  assert.equal(stableNode.removeCalled, true);
 });

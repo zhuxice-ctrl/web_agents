@@ -58,6 +58,15 @@
     return lines.join("\n").trim();
   }
 
+  function getCardTextWithoutStableOutput(card) {
+    if (!card || !card.cloneNode) {
+      return card && card.innerText ? card.innerText : "";
+    }
+    const clone = card.cloneNode(true);
+    clone.querySelectorAll(".web-agent-stable-output").forEach((node) => node.remove());
+    return clone.innerText || clone.textContent || "";
+  }
+
   function shouldAutoSaveToolResult(text) {
     const value = String(text || "");
     if (!value.trim()) {
@@ -284,7 +293,8 @@
   }
 
   function enhanceCard(card) {
-    const resultText = extractToolResultText(card.innerText || "");
+    const existing = card.querySelector(":scope > .web-agent-stable-output");
+    const resultText = extractToolResultText(getCardTextWithoutStableOutput(card));
     if (!resultText) {
       return;
     }
@@ -296,7 +306,6 @@
     card.dataset.webAgentStableResultHash = resultHash;
     card.classList.add("web-agent-result-card");
 
-    const existing = card.querySelector(":scope > .web-agent-stable-output");
     if (existing) {
       existing.remove();
     }
@@ -336,6 +345,7 @@
     extractToolResultText,
     shouldAutoSaveToolResult,
     hashText,
+    getCardTextWithoutStableOutput,
   };
 
   if (typeof module !== "undefined" && module.exports) {
