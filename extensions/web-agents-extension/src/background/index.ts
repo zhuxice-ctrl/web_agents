@@ -8,7 +8,7 @@ import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
-import { createRoundtableSession } from "../sessions/roundtable";
+import { appendRoundtableMessage, createRoundtableSession } from "../sessions/roundtable";
 import type { RoundtableSession } from "../shared/types";
 import { createRoundtableOrchestrator } from "./roundtable-orchestrator";
 
@@ -276,6 +276,21 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         case "roundtable:summarize": {
           const session = getRoundtableSessionOrError(message.sessionId);
           const nextSession = saveRoundtableSession(await roundtableOrchestrator.summarize(session));
+          sendResponse({ ok: true, type: message.type, data: nextSession });
+          return;
+        }
+        case "roundtable:add-guidance": {
+          const session = getRoundtableSessionOrError(message.sessionId);
+          const text = message.text.trim();
+          const nextSession = text
+            ? saveRoundtableSession(
+                appendRoundtableMessage(session, {
+                  speaker: "user",
+                  text,
+                  source: "web_agents_user"
+                })
+              )
+            : session;
           sendResponse({ ok: true, type: message.type, data: nextSession });
           return;
         }

@@ -7,7 +7,7 @@ export default defineConfig({
   publicDir: "public",
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     globals: false,
     passWithNoTests: true
   },
