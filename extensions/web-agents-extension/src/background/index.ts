@@ -8,7 +8,7 @@ import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
-import { appendRoundtableMessage, createRoundtableSession } from "../sessions/roundtable";
+import { appendRoundtableMessage, createRoundtableSession, joinRoundtableParticipant } from "../sessions/roundtable";
 import type { RoundtableSession } from "../shared/types";
 import { createRoundtableOrchestrator } from "./roundtable-orchestrator";
 
@@ -291,6 +291,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
                 })
               )
             : session;
+          sendResponse({ ok: true, type: message.type, data: nextSession });
+          return;
+        }
+        case "roundtable:add-participant": {
+          const session = getRoundtableSessionOrError(message.sessionId);
+          const nextSession = saveRoundtableSession(
+            joinRoundtableParticipant(session, message.provider, message.tabId)
+          );
           sendResponse({ ok: true, type: message.type, data: nextSession });
           return;
         }

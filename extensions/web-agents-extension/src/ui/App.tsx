@@ -165,7 +165,7 @@ export function App() {
   );
 
   const openProvider = useCallback(
-    async (provider: ProviderId) => {
+    async (provider: ProviderId): Promise<number | undefined> => {
       updateParticipant(provider, { enabled: true, status: "opening", error: undefined });
       const response = await sendMessage<"tabs:open-provider">({ type: "tabs:open-provider", provider });
       if (response.ok) {
@@ -177,9 +177,11 @@ export function App() {
           error: undefined
         });
         setFeedback(t("board.opened"));
+        return response.data.tabId;
       } else {
         updateParticipant(provider, { status: "error", error: response.error });
         setFeedback(response.error);
+        return undefined;
       }
     },
     [t, updateParticipant]
@@ -326,6 +328,40 @@ export function App() {
     }
   }, [roundtableGuidance, roundtableSession, t]);
 
+  const addRoundtableParticipant = useCallback(
+    async (provider: ProviderId) => {
+      if (!roundtableSession) return;
+
+      const participant = taskSession.participants.find((item) => item.provider === provider);
+      const isCurrentPage = provider === pageStatus.provider;
+      let tabId = participant?.tabId ?? (isCurrentPage ? pageStatus.tabId : undefined);
+
+      if (!tabId && !isCurrentPage) {
+        tabId = await openProvider(provider);
+      }
+
+      if (!tabId && provider !== roundtableSession.mainProvider) {
+        setFeedback(t("board.openFirst"));
+        return;
+      }
+
+      const response = await sendMessage<"roundtable:add-participant">({
+        type: "roundtable:add-participant",
+        sessionId: roundtableSession.id,
+        provider,
+        tabId
+      });
+
+      if (response.ok) {
+        setRoundtableSession(response.data);
+        setFeedback(t("roundtable.participantAdded"));
+      } else {
+        setFeedback(response.error);
+      }
+    },
+    [openProvider, pageStatus.provider, pageStatus.tabId, roundtableSession, t, taskSession.participants]
+  );
+
   const changeLocale = useCallback(async (locale: Locale) => {
     const response = await sendMessage<"config:set-locale">({ type: "config:set-locale", locale });
     if (response.ok) setConfig(response.data);
@@ -397,6 +433,7 @@ export function App() {
         session={roundtableSession}
         t={t}
         onAddGuidance={() => void addRoundtableGuidance()}
+        onAddParticipant={(provider) => void addRoundtableParticipant(provider)}
         onCapture={(provider) =>
           roundtableSession &&
           void updateRoundtable({ type: "roundtable:capture", sessionId: roundtableSession.id, provider })

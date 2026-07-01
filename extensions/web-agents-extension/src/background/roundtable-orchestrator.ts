@@ -86,9 +86,9 @@ function instructionForTurn(session: RoundtableSession, provider: ProviderId): s
 
 function isLateJoin(session: RoundtableSession, provider: ProviderId): boolean {
   if (provider === session.mainProvider) return false;
-  const firstParticipant = firstEnabledParticipant(session);
-  if (provider === firstParticipant) return false;
-  return session.messages.some((message) => message.provider && message.provider !== provider);
+  return session.messages.some(
+    (message) => message.provider && message.provider !== session.mainProvider && message.provider !== provider
+  );
 }
 
 export function createRoundtableOrchestrator(deps: RoundtableOrchestratorDeps): RoundtableOrchestrator {
@@ -136,6 +136,11 @@ export function createRoundtableOrchestrator(deps: RoundtableOrchestratorDeps): 
       };
     }
 
+    const tabId = participantTabId(session, provider);
+    if (provider !== session.mainProvider && typeof tabId !== "number") {
+      return pauseWithProviderError(session, provider, "Provider tab is not bound.");
+    }
+
     const sendingSession = {
       ...markRoundtableParticipantState(session, provider, "sending"),
       state: "running" as const
@@ -146,11 +151,14 @@ export function createRoundtableOrchestrator(deps: RoundtableOrchestratorDeps): 
       isLateJoin: isLateJoin(sendingSession, provider),
       maxCharacters: 6000
     });
-    const response = await deps.sendToTab<"tab:auto-send-text">({
-      type: "tab:auto-send-text",
-      tabId: participantTabId(sendingSession, provider),
-      text: packet
-    });
+    const response = await deps.sendToTab<"tab:auto-send-text">(
+      {
+        type: "tab:auto-send-text",
+        tabId,
+        text: packet
+      },
+      undefined
+    );
 
     if (!response.ok) {
       return pauseWithProviderError(sendingSession, provider, response.error);

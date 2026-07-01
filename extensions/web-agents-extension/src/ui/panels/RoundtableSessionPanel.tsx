@@ -16,6 +16,7 @@ type RoundtableSessionPanelProps = {
   onPause(): void;
   onStep(): void;
   onCapture(provider: ProviderId): void;
+  onAddParticipant(provider: ProviderId): void;
   onSummarize(): void;
   onAddGuidance(): void;
 };
@@ -47,6 +48,7 @@ export function RoundtableSessionPanel({
   onPause,
   onStep,
   onCapture,
+  onAddParticipant,
   onSummarize,
   onAddGuidance
 }: RoundtableSessionPanelProps) {
@@ -119,21 +121,35 @@ export function RoundtableSessionPanel({
 
           <h3>{t("roundtable.participants")}</h3>
           <div className="roundtable-participants">
-            {visibleParticipants.map((participant) => (
-              <div className="roundtable-participant" key={participant.provider}>
-                <span>{participant.label}</span>
-                <StatusBadge tone={toneByState[participant.state]}>
-                  {t(`roundtable.status.${participant.state}`)}
-                </StatusBadge>
-                <button
-                  className="mini-button"
-                  disabled={!participant.enabled}
-                  onClick={() => onCapture(participant.provider)}
-                >
-                  {t("roundtable.capture")}
-                </button>
-              </div>
-            ))}
+            {visibleParticipants.map((participant) => {
+              const canCapture =
+                participant.enabled && (participant.provider === currentProvider || Boolean(participant.tabId));
+
+              return (
+                <div className="roundtable-participant" key={participant.provider}>
+                  <span>{participant.label}</span>
+                  <StatusBadge tone={toneByState[participant.state]}>
+                    {t(`roundtable.status.${participant.state}`)}
+                  </StatusBadge>
+                  {participant.role !== "main" ? (
+                    <button
+                      className="mini-button"
+                      disabled={!hasSession}
+                      onClick={() => onAddParticipant(participant.provider)}
+                    >
+                      {t("roundtable.join")} {participant.label}
+                    </button>
+                  ) : null}
+                  <button
+                    className="mini-button"
+                    disabled={!canCapture}
+                    onClick={() => onCapture(participant.provider)}
+                  >
+                    {t("roundtable.capture")}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </aside>
 

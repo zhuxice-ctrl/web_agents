@@ -48,6 +48,12 @@ describe("roundtable orchestrator", () => {
       participantProviders: ["deepseek"],
       maxRounds: 5
     });
+    const withDeepSeekTab = {
+      ...session,
+      participants: session.participants.map((participant) =>
+        participant.provider === "deepseek" ? { ...participant, tabId: 22 } : participant
+      )
+    };
     const sendToTab = vi.fn(async (): Promise<ExtensionResponse<"tab:auto-send-text">> => ({
       ok: true,
       type: "tab:auto-send-text",
@@ -55,21 +61,25 @@ describe("roundtable orchestrator", () => {
     }));
     const orchestrator = createRoundtableOrchestrator({ sendToTab: sendToTab as MockSendToTab });
 
-    const result = await orchestrator.step(session);
+    const result = await orchestrator.step(withDeepSeekTab);
 
     expect(result.state).toBe("paused");
     expect(result.participants.find((item) => item.provider === "deepseek")?.state).toBe("error");
   });
 
   it("captures a provider reply and advances back to GPT", async () => {
-    const session = {
-      ...createRoundtableSession({
+    const baseSession = createRoundtableSession({
         title: "项目路线讨论",
         objective: "讨论五轮",
         mainProvider: "chatgpt",
         participantProviders: ["deepseek"],
         maxRounds: 5
-      }),
+    });
+    const session = {
+      ...baseSession,
+      participants: baseSession.participants.map((participant) =>
+        participant.provider === "deepseek" ? { ...participant, tabId: 22 } : participant
+      ),
       plan: {
         objective: "讨论五轮",
         maxRounds: 5,
@@ -103,5 +113,58 @@ describe("roundtable orchestrator", () => {
 
     expect(captured.messages.at(-1)?.text).toContain("验收标准");
     expect(captured.plan.nextProvider).toBe("chatgpt");
+  });
+
+  it("sends late join context to Gemini", async () => {
+    const session = createRoundtableSession({
+      title: "项目路线讨论",
+      objective: "讨论五轮",
+      mainProvider: "chatgpt",
+      participantProviders: ["deepseek"],
+      maxRounds: 5
+    });
+    const withContext = {
+      ...session,
+      messages: [
+        {
+          id: "rt-msg-1",
+          sessionId: session.id,
+          speaker: "deepseek" as const,
+          provider: "deepseek" as const,
+          text: "建议补充风险审查。",
+          source: "provider_capture" as const,
+          round: 1,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      participants: session.participants.map((participant) =>
+        participant.provider === "gemini"
+          ? { ...participant, enabled: true, tabId: 88, state: "ready" as const }
+          : participant
+      ),
+      plan: { ...session.plan, nextProvider: "gemini" as const }
+    };
+    const sendToTab = vi.fn(async (_request: ExtensionRequest): Promise<ExtensionResponse<"tab:auto-send-text">> => ({
+      ok: true,
+      type: "tab:auto-send-text",
+      data: { state: "sent", message: "已发送" }
+    }));
+    const orchestrator = createRoundtableOrchestrator({ sendToTab: sendToTab as MockSendToTab });
+
+    await orchestrator.step(withContext);
+
+    expect(sendToTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "tab:auto-send-text",
+        tabId: 88,
+        text: expect.stringContaining("共享讨论上下文")
+      }),
+      undefined
+    );
+    expect(sendToTab.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining("中途加入")
+      })
+    );
   });
 });

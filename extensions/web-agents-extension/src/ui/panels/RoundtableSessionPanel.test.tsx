@@ -13,6 +13,7 @@ const textByKey: Record<string, string> = {
   "roundtable.pause": "Pause",
   "roundtable.step": "Step",
   "roundtable.capture": "Capture",
+  "roundtable.join": "Join",
   "roundtable.summarize": "Summarize",
   "roundtable.objective": "Objective",
   "roundtable.objectivePlaceholder": "Discuss and make a plan",
@@ -65,6 +66,7 @@ describe("RoundtableSessionPanel", () => {
       onStep: vi.fn(),
       onCapture: vi.fn(),
       onSummarize: vi.fn(),
+      onAddParticipant: vi.fn(),
       onAddGuidance: vi.fn()
     };
     const container = document.createElement("div");
@@ -93,10 +95,12 @@ describe("RoundtableSessionPanel", () => {
     act(() => buttons.find((button) => button.textContent === "Create")?.click());
     act(() => buttons.find((button) => button.textContent === "Import")?.click());
     act(() => buttons.find((button) => button.textContent === "Step")?.click());
+    act(() => buttons.find((button) => button.textContent === "Join Gemini")?.click());
 
     expect(callbacks.onCreate).toHaveBeenCalledOnce();
     expect(callbacks.onImport).toHaveBeenCalledOnce();
     expect(callbacks.onStep).toHaveBeenCalledOnce();
+    expect(callbacks.onAddParticipant).toHaveBeenCalledWith("gemini");
 
     act(() => root.unmount());
     container.remove();

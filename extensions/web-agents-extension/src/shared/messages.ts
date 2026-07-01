@@ -47,6 +47,7 @@ export type ExtensionRequest =
   | { type: "roundtable:capture"; sessionId: string; provider: ProviderId }
   | { type: "roundtable:summarize"; sessionId: string }
   | { type: "roundtable:add-guidance"; sessionId: string; text: string }
+  | { type: "roundtable:add-participant"; sessionId: string; provider: ProviderId; tabId?: number }
   | { type: "roundtable:get"; sessionId: string };
 
 export type ExtensionResponseMap = {
@@ -71,6 +72,7 @@ export type ExtensionResponseMap = {
   "roundtable:capture": RoundtableSession;
   "roundtable:summarize": RoundtableSession;
   "roundtable:add-guidance": RoundtableSession;
+  "roundtable:add-participant": RoundtableSession;
   "roundtable:get": RoundtableSession;
 };
 
