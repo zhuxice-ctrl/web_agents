@@ -430,6 +430,60 @@ function requireString(args, key) {
   return value;
 }
 
+const decodedWindowsPathEscapeReplacements = {
+  "\x08": "\\b",
+  "\x09": "\\t",
+  "\x0a": "\\n",
+  "\x0b": "\\v",
+  "\x0c": "\\f",
+  "\x0d": "\\r",
+};
+
+function repairDecodedWindowsPathEscapes(value) {
+  return value.replace(/[\x08\x09\x0a\x0b\x0c\x0d]/g, (character) => decodedWindowsPathEscapeReplacements[character]);
+}
+
+function normalizeToolPathArgs(name, args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return args;
+  }
+
+  const normalized = { ...args };
+  const repairStringField = (key) => {
+    if (typeof normalized[key] === "string") {
+      normalized[key] = repairDecodedWindowsPathEscapes(normalized[key]);
+    }
+  };
+
+  switch (name) {
+    case "read_text_file":
+    case "read_media_file":
+    case "write_file":
+    case "edit_file":
+    case "create_directory":
+    case "list_directory":
+    case "list_directory_with_sizes":
+    case "directory_tree":
+    case "search_files":
+    case "get_file_info":
+      repairStringField("path");
+      break;
+    case "read_multiple_files":
+      if (Array.isArray(normalized.paths)) {
+        normalized.paths = normalized.paths.map((item) =>
+          typeof item === "string" ? repairDecodedWindowsPathEscapes(item) : item
+        );
+      }
+      break;
+    case "move_file":
+      repairStringField("source");
+      repairStringField("destination");
+      break;
+  }
+
+  return normalized;
+}
+
 function applyLineLimit(text, { head, tail } = {}) {
   const hasHead = Number.isFinite(head);
   const hasTail = Number.isFinite(tail);
@@ -776,6 +830,7 @@ function listAllowedDirectoriesResult(allowedDirectories) {
 }
 
 export async function callTool(name, args = {}, context = {}) {
+  const toolArgs = normalizeToolPathArgs(name, args);
   const repoRoot = context.repoRoot || defaultRepoRoot;
   const configFile = context.configFile || defaultConfigFile;
   const permissionOptions = { permissionStoreDir: context.permissionStoreDir || defaultPermissionStoreDir };
@@ -783,29 +838,29 @@ export async function callTool(name, args = {}, context = {}) {
 
   switch (name) {
     case "read_text_file":
-      return readTextFile(args);
+      return readTextFile(toolArgs);
     case "read_media_file":
-      return readMediaFile(args);
+      return readMediaFile(toolArgs);
     case "read_multiple_files":
-      return readMultipleFiles(args);
+      return readMultipleFiles(toolArgs);
     case "write_file":
-      return writeFile(args, allowedDirectories, permissionOptions);
+      return writeFile(toolArgs, allowedDirectories, permissionOptions);
     case "edit_file":
-      return editFile(args, allowedDirectories, permissionOptions);
+      return editFile(toolArgs, allowedDirectories, permissionOptions);
     case "create_directory":
-      return createDirectory(args, allowedDirectories, permissionOptions);
+      return createDirectory(toolArgs, allowedDirectories, permissionOptions);
     case "list_directory":
-      return listDirectory(args);
+      return listDirectory(toolArgs);
     case "list_directory_with_sizes":
-      return listDirectoryWithSizes(args);
+      return listDirectoryWithSizes(toolArgs);
     case "directory_tree":
-      return directoryTree(args);
+      return directoryTree(toolArgs);
     case "move_file":
-      return moveFile(args, allowedDirectories, permissionOptions);
+      return moveFile(toolArgs, allowedDirectories, permissionOptions);
     case "search_files":
-      return searchFiles(args);
+      return searchFiles(toolArgs);
     case "get_file_info":
-      return getFileInfo(args);
+      return getFileInfo(toolArgs);
     case "list_allowed_directories":
       return listAllowedDirectoriesResult(allowedDirectories);
     default:

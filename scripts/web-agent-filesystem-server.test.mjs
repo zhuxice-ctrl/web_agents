@@ -154,6 +154,47 @@ test("write_file consumes one-time permission token and rejects reuse", async ()
   assert.equal(await fs.readFile(targetFile, "utf8"), "approved by token");
 });
 
+test("write_file repairs JSON-decoded Windows control escapes before permission hashing", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
+  const repoRoot = path.join(tempRoot, "repo");
+  const outsideRoot = path.join(tempRoot, "reverse");
+  const targetFile = path.join(outsideRoot, "hello.md");
+  const brokenTargetFile = path.join(tempRoot, "r").replace(/r$/, "\r") + "everse\\hello.md";
+  const brokenContent = "line1\r\nline2";
+  const configFile = path.join(tempRoot, "allowed.txt");
+  const permissionStoreDir = path.join(tempRoot, "permissions");
+  const args = { path: brokenTargetFile, content: brokenContent };
+  const context = { repoRoot, configFile, permissionStoreDir };
+
+  await fs.mkdir(repoRoot, { recursive: true });
+  await fs.mkdir(outsideRoot, { recursive: true });
+  await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
+
+  const denied = await callTool("write_file", args, context);
+  assert.equal(denied.isError, true);
+  const marker = JSON.parse(
+    denied.content[0].text.match(/WEB_AGENT_PERMISSION_REQUEST\s+({[\s\S]+?})\s+END_WEB_AGENT_PERMISSION_REQUEST/)[1]
+  );
+
+  assert.deepEqual(marker.targetPaths, [path.resolve(targetFile)]);
+  assert.deepEqual(marker.directoriesToApprove, [path.resolve(outsideRoot)]);
+
+  const approved = await approvePermissionRequest({
+    storeDir: permissionStoreDir,
+    requestId: marker.requestId,
+    argsHash: marker.argsHash,
+  });
+
+  const allowed = await callTool(
+    "write_file",
+    { ...args, _webAgentPermission: { requestId: marker.requestId, token: approved.token } },
+    context
+  );
+  assert.equal(allowed.isError, undefined);
+  assert.match(allowed.content[0].text, /Successfully wrote/);
+  assert.equal(await fs.readFile(targetFile, "utf8"), brokenContent);
+});
+
 test("stdio server flushes async tool calls before stdin closes", async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.resolve(serverPath, "..", ".."),
