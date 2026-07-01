@@ -21,6 +21,7 @@
     "展开完整结果",
     "收起结果",
   ]);
+  const stableResultMarker = "web_Agent 稳定结果";
 
   function normalizeLine(line) {
     return String(line || "").replace(/\u00a0/g, " ").trim();
@@ -47,7 +48,11 @@
     }
     start += 1;
 
-    let end = normalized.findIndex((line, index) => index > start && (line === "执行历史" || line === "Execution history"));
+    let end = normalized.findIndex((line, index) => index > start && (
+      line === "执行历史" ||
+      line === "Execution history" ||
+      line === stableResultMarker
+    ));
     if (end < 0) {
       end = normalized.length;
     }
@@ -70,6 +75,9 @@
   function shouldAutoSaveToolResult(text) {
     const value = String(text || "");
     if (!value.trim()) {
+      return false;
+    }
+    if (value.includes(stableResultMarker)) {
       return false;
     }
     return value.length > autoSaveLength || value.split(/\r?\n/).length > autoSaveLines;

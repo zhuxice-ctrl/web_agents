@@ -19,6 +19,7 @@
     "展开完整结果",
     "收起结果",
   ]);
+  const stableResultMarker = "web_Agent 稳定结果";
 
   const composerSelectors = [
     "#prompt-textarea",
@@ -67,7 +68,11 @@
       return "";
     }
     start += 1;
-    let end = normalized.findIndex((line, index) => index > start && (line === "执行历史" || line === "Execution history"));
+    let end = normalized.findIndex((line, index) => index > start && (
+      line === "执行历史" ||
+      line === "Execution history" ||
+      line === stableResultMarker
+    ));
     if (end < 0) {
       end = normalized.length;
     }

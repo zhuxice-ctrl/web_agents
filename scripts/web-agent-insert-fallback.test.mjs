@@ -38,3 +38,22 @@ test("extractToolResultText returns stable tool output for insert fallback", () 
     "Writable allowed directories:\n- F:\\web_agents\n- C:\\Users\\Lenovo\\Desktop",
   );
 });
+
+test("extractToolResultText stops before nested stable result marker", () => {
+  const cardText = [
+    "list_allowed_directories",
+    "显示原始信息",
+    "运行",
+    "Writable allowed directories:",
+    "- F:\\web_agents",
+    "web_Agent 稳定结果",
+    "nested text that must not be inserted",
+    "执行历史",
+    "工具: list_allowed_directories",
+  ].join("\n");
+
+  assert.equal(
+    insertFallback.extractToolResultText(cardText),
+    "Writable allowed directories:\n- F:\\web_agents",
+  );
+});

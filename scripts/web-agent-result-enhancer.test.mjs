@@ -57,6 +57,27 @@ test("shouldAutoSaveToolResult only autosaves long text output", () => {
   assert.equal(enhancer.shouldAutoSaveToolResult("short output"), false);
   assert.equal(enhancer.shouldAutoSaveToolResult("x".repeat(2500)), true);
   assert.equal(enhancer.shouldAutoSaveToolResult(Array.from({ length: 70 }, (_, index) => `line ${index}`).join("\n")), true);
+  assert.equal(enhancer.shouldAutoSaveToolResult(`safe\nweb_Agent 稳定结果\n${"x".repeat(2500)}`), false);
+});
+
+test("extractToolResultText stops before stable result marker", () => {
+  const cardText = [
+    "list_allowed_directories",
+    "显示原始信息",
+    "运行",
+    "Writable allowed directories:",
+    "- F:\\web_agents",
+    "web_Agent 稳定结果",
+    "Writable allowed directories:",
+    "- old nested copy",
+    "执行历史",
+    "工具: list_allowed_directories",
+  ].join("\n");
+
+  assert.equal(
+    enhancer.extractToolResultText(cardText),
+    "Writable allowed directories:\n- F:\\web_agents",
+  );
 });
 
 test("getCardTextWithoutStableOutput removes existing stable output before extraction", () => {
