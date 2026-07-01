@@ -449,6 +449,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return true;
   }
 
+  if (message.type === "tab:auto-send-text") {
+    const text = "text" in message && typeof message.text === "string" ? message.text : "";
+    const provider = detectProviderByHostname(window.location.hostname);
+    void sendTextIfComposerIdle(document, provider, text).then((result) => {
+      sendResponse({ ok: true, type: "tab:auto-send-text", data: result });
+    });
+    return true;
+  }
+
   if (message.type === "tab:capture-latest") {
     const snapshot = adapter.captureLatestResponseSync();
     if (snapshot) {

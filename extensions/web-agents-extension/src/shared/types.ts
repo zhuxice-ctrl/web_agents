@@ -50,6 +50,13 @@ export type RecentConversationCapture = {
   messages: RecentConversationMessage[];
 };
 
+export type AutoSendState = "sent" | "no_input" | "input_busy" | "no_submit";
+
+export type AutoSendResult = {
+  state: AutoSendState;
+  message: string;
+};
+
 export type McpTransport = "sse" | "websocket" | "streamable-http";
 export type McpConnectionState = "unknown" | "checking" | "connected" | "disconnected" | "error";
 

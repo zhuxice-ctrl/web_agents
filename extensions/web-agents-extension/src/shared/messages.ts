@@ -1,5 +1,6 @@
 import type {
   AdapterStatus,
+  AutoSendResult,
   ExtensionConfig,
   InsertResult,
   McpStatus,
@@ -26,6 +27,7 @@ export type ExtensionRequest =
   | { type: "tabs:open-provider"; provider: ProviderId }
   | { type: "tab:detect"; tabId?: number }
   | { type: "tab:insert-text"; text: string; tabId?: number }
+  | { type: "tab:auto-send-text"; text: string; tabId?: number }
   | { type: "tab:capture-latest"; tabId?: number }
   | { type: "tab:capture-recent"; tabId?: number; limit?: number };
 
@@ -40,6 +42,7 @@ export type ExtensionResponseMap = {
   "tabs:open-provider": OpenProviderResult;
   "tab:detect": AdapterStatus;
   "tab:insert-text": InsertResult;
+  "tab:auto-send-text": AutoSendResult;
   "tab:capture-latest": ResponseSnapshot;
   "tab:capture-recent": RecentConversationCapture;
 };

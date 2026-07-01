@@ -108,6 +108,20 @@ describe("auto-submit helper", () => {
     expect(document.querySelector("textarea")?.value).toBe("");
   });
 
+  it("returns a stable no_submit result without leaving text behind", async () => {
+    document.body.innerHTML = `
+      <form>
+        <textarea style="width:240px;height:48px"></textarea>
+      </form>
+    `;
+
+    const result = await sendTextIfComposerIdle(document, undefined, "<roundtable>next</roundtable>");
+
+    expect(result.state).toBe("no_submit");
+    expect(result.message).toContain("不可发送");
+    expect(document.querySelector("textarea")?.value).toBe("");
+  });
+
   it("stops retrying when the page has no usable send control", () => {
     expect(shouldStopAutoSubmitRetry("no_submit", 1, 20)).toBe(true);
     expect(shouldStopAutoSubmitRetry("input_busy", 1, 20)).toBe(true);

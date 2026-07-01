@@ -1,4 +1,5 @@
 import type { ProviderCatalogEntry } from "../providers/catalog";
+import type { AutoSendResult, AutoSendState } from "../shared/types";
 import { GLOBAL_FALLBACK_INPUT_SELECTORS } from "../providers/catalog";
 import {
   findInput,
@@ -8,12 +9,8 @@ import {
   type WritableElement
 } from "../adapters/dom";
 
-export type AutoSubmitState = "sent" | "no_input" | "input_busy" | "no_submit";
-
-export type AutoSubmitResult = {
-  state: AutoSubmitState;
-  message: string;
-};
+export type AutoSubmitState = AutoSendState;
+export type AutoSubmitResult = AutoSendResult;
 
 const COMPOSER_CONTAINER_SELECTOR = [
   "form",
