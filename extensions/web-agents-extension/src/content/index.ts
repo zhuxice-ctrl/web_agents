@@ -1,4 +1,5 @@
 import { createSiteAdapter } from "../adapters/runtime";
+import { captureRecentConversation } from "../adapters/dom";
 import { detectProviderByHostname } from "../providers/catalog";
 import type { ProviderId } from "../shared/types";
 import type { ExtensionResponse } from "../shared/messages";
@@ -455,6 +456,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     } else {
       sendResponse({ ok: false, type: "tab:capture-latest", error: "暂未找到可捕获的最新回复快照。" });
     }
+    return false;
+  }
+
+  if (message.type === "tab:capture-recent") {
+    const provider = detectProviderByHostname(window.location.hostname);
+    const providerId = provider?.id ?? "unknown";
+    const limit = "limit" in message && typeof message.limit === "number" ? message.limit : 8;
+    const capture = captureRecentConversation(document, providerId, provider, limit);
+    sendResponse({ ok: true, type: "tab:capture-recent", data: capture });
     return false;
   }
 

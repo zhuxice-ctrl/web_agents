@@ -1,4 +1,4 @@
-import type { ProviderId, ResponseSnapshot } from "../shared/types";
+import type { ProviderId, RecentConversationCapture, RecentConversationMessage, ResponseSnapshot } from "../shared/types";
 import type { ProviderCatalogEntry } from "../providers/catalog";
 import { mergeInputSelectors, mergeResponseSelectors } from "../providers/catalog";
 
@@ -128,5 +128,40 @@ export function captureLatestResponse(
     text: latest.text,
     capturedAt: new Date().toISOString(),
     source: latest.element.tagName.toLowerCase()
+  };
+}
+
+function inferSpeaker(element: HTMLElement): RecentConversationMessage["speaker"] {
+  const authorRole = element.getAttribute("data-message-author-role")?.toLowerCase();
+  if (authorRole === "user") return "user";
+  if (authorRole === "assistant") return "assistant";
+
+  const text = `${element.className} ${element.getAttribute("aria-label") ?? ""}`.toLowerCase();
+  if (text.includes("user")) return "user";
+  if (text.includes("assistant") || text.includes("model") || text.includes("gpt")) return "assistant";
+  return "unknown";
+}
+
+export function captureRecentConversation(
+  documentRef: Document,
+  provider: ProviderId,
+  providerDefinition: ProviderCatalogEntry | undefined,
+  limit = 8
+): RecentConversationCapture {
+  const messages = mergeResponseSelectors(providerDefinition)
+    .flatMap((selector) => Array.from(documentRef.querySelectorAll<HTMLElement>(selector)))
+    .filter(isVisible)
+    .map((element) => ({
+      speaker: inferSpeaker(element),
+      text: cleanText(element.innerText || element.textContent || ""),
+      source: element.tagName.toLowerCase()
+    }))
+    .filter((item) => item.text.length > 2)
+    .slice(-limit);
+
+  return {
+    provider,
+    capturedAt: new Date().toISOString(),
+    messages
   };
 }

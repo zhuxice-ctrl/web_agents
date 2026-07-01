@@ -38,6 +38,18 @@ export type ResponseSnapshot = {
   source?: string;
 };
 
+export type RecentConversationMessage = {
+  speaker: "user" | "assistant" | "unknown";
+  text: string;
+  source: string;
+};
+
+export type RecentConversationCapture = {
+  provider: ProviderId;
+  capturedAt: string;
+  messages: RecentConversationMessage[];
+};
+
 export type McpTransport = "sse" | "websocket" | "streamable-http";
 export type McpConnectionState = "unknown" | "checking" | "connected" | "disconnected" | "error";
 

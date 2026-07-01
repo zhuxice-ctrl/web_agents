@@ -196,7 +196,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         }
         case "tab:detect":
         case "tab:insert-text":
-        case "tab:capture-latest": {
+        case "tab:capture-latest":
+        case "tab:capture-recent": {
           sendResponse(await sendToTab(message, sender.tab?.id));
           return;
         }

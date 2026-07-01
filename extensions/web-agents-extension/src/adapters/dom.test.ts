@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureLatestResponse, findInput, insertIntoElement } from "./dom";
+import { captureLatestResponse, captureRecentConversation, findInput, insertIntoElement } from "./dom";
 import { getProviderById } from "../providers/catalog";
 
 describe("DOM adapter helpers", () => {
@@ -38,5 +38,22 @@ describe("DOM adapter helpers", () => {
     const snapshot = captureLatestResponse(document, "chatgpt", provider);
     expect(snapshot?.provider).toBe("chatgpt");
     expect(snapshot?.text).toContain("latest assistant response");
+  });
+
+  it("captures bounded recent visible conversation messages", () => {
+    document.body.innerHTML = `
+      <main>
+        <article data-message-author-role="user" style="width:500px;height:40px">用户问题</article>
+        <article data-message-author-role="assistant" style="width:500px;height:80px">GPT 初步回答内容足够长，用于模拟真实回复。</article>
+        <article data-message-author-role="assistant" style="width:500px;height:80px">GPT 第二条回答内容足够长，用于模拟真实回复。</article>
+      </main>
+    `;
+
+    const capture = captureRecentConversation(document, "chatgpt", getProviderById("chatgpt"), 2);
+
+    expect(capture.provider).toBe("chatgpt");
+    expect(capture.messages).toHaveLength(2);
+    expect(capture.messages[0].text).toContain("GPT 初步回答");
+    expect(capture.messages[1].text).toContain("GPT 第二条回答");
   });
 });

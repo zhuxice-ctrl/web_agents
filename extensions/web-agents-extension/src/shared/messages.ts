@@ -8,6 +8,7 @@ import type {
   PermissionDecision,
   PreparedTask,
   ProviderId,
+  RecentConversationCapture,
   ResponseSnapshot,
   WebAgentInstructionTemplate,
   WebAgentToolCall,
@@ -25,7 +26,8 @@ export type ExtensionRequest =
   | { type: "tabs:open-provider"; provider: ProviderId }
   | { type: "tab:detect"; tabId?: number }
   | { type: "tab:insert-text"; text: string; tabId?: number }
-  | { type: "tab:capture-latest"; tabId?: number };
+  | { type: "tab:capture-latest"; tabId?: number }
+  | { type: "tab:capture-recent"; tabId?: number; limit?: number };
 
 export type ExtensionResponseMap = {
   "config:get": ExtensionConfig;
@@ -39,6 +41,7 @@ export type ExtensionResponseMap = {
   "tab:detect": AdapterStatus;
   "tab:insert-text": InsertResult;
   "tab:capture-latest": ResponseSnapshot;
+  "tab:capture-recent": RecentConversationCapture;
 };
 
 export type ExtensionResponse<T extends ExtensionRequest["type"] = ExtensionRequest["type"]> =
