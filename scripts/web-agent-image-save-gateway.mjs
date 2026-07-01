@@ -2,6 +2,11 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  approvePermissionRequest,
+  defaultPermissionStoreDir,
+  rejectPermissionRequest,
+} from "./web-agent-permission-store.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +17,7 @@ const port = Number(process.env.WEB_AGENT_IMAGE_SAVE_PORT || 3017);
 const host = process.env.WEB_AGENT_IMAGE_SAVE_HOST || "127.0.0.1";
 const maxBytes = Number(process.env.WEB_AGENT_IMAGE_SAVE_MAX_BYTES || 50 * 1024 * 1024);
 const maxToolResultBytes = Number(process.env.WEB_AGENT_TOOL_RESULT_MAX_BYTES || 5 * 1024 * 1024);
+const permissionStoreDir = process.env.WEB_AGENT_PERMISSION_STORE_DIR || defaultPermissionStoreDir;
 const allowedMimeTypes = new Map([
   ["image/png", ".png"],
   ["image/jpeg", ".jpg"],
@@ -172,6 +178,36 @@ async function saveToolResult(payload) {
   return { filePath: resolved, outputDir: resolvedOutput, bytes, toolName };
 }
 
+async function approvePermissionViaGateway(payload) {
+  const result = await approvePermissionRequest({
+    storeDir: payload?.storeDir || permissionStoreDir,
+    requestId: payload?.requestId,
+    argsHash: payload?.argsHash,
+    mode: payload?.mode || "once",
+  });
+  return {
+    ok: true,
+    requestId: result.requestId,
+    status: result.status,
+    token: result.token,
+    expiresAt: result.expiresAt,
+    targetPaths: result.targetPaths,
+    directoriesToApprove: result.directoriesToApprove,
+  };
+}
+
+async function rejectPermissionViaGateway(payload) {
+  const result = await rejectPermissionRequest({
+    storeDir: payload?.storeDir || permissionStoreDir,
+    requestId: payload?.requestId,
+  });
+  return {
+    ok: true,
+    requestId: result.requestId,
+    status: result.status,
+  };
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") {
@@ -182,7 +218,8 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         outputDir,
         toolResultsDir,
-        features: { saveGptImage: true, saveToolResult: true },
+        permissionStoreDir,
+        features: { saveGptImage: true, saveToolResult: true, permissionApproval: true },
       });
     }
     if (request.method === "POST" && request.url === "/save-gpt-image") {
@@ -194,6 +231,16 @@ const server = http.createServer(async (request, response) => {
       const payload = await readJson(request);
       const result = await saveToolResult(payload);
       return sendJson(response, 200, { ok: true, ...result });
+    }
+    if (request.method === "POST" && (request.url === "/permissions/approve" || request.url === "/permissions/approve-once")) {
+      const payload = await readJson(request);
+      const result = await approvePermissionViaGateway(payload);
+      return sendJson(response, 200, result);
+    }
+    if (request.method === "POST" && request.url === "/permissions/reject") {
+      const payload = await readJson(request);
+      const result = await rejectPermissionViaGateway(payload);
+      return sendJson(response, 200, result);
     }
     return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
   } catch (error) {
@@ -212,6 +259,8 @@ if (path.resolve(process.argv[1] || "") === __filename) {
 }
 
 export {
+  approvePermissionViaGateway,
+  rejectPermissionViaGateway,
   saveImage,
   saveToolResult,
   sanitizeToolName,

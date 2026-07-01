@@ -92,6 +92,107 @@
     return (hash >>> 0).toString(16);
   }
 
+  function parsePermissionMarker(text) {
+    const value = String(text || "");
+    const startMarker = "WEB_AGENT_PERMISSION_REQUEST";
+    const endMarker = "END_WEB_AGENT_PERMISSION_REQUEST";
+    const start = value.indexOf(startMarker);
+    if (start < 0) {
+      return null;
+    }
+    const end = value.indexOf(endMarker, start + startMarker.length);
+    if (end < 0) {
+      return null;
+    }
+    const jsonText = value.slice(start + startMarker.length, end).trim();
+    try {
+      const marker = JSON.parse(jsonText);
+      if (marker && marker.kind === "web_agent_permission_request" && marker.requestId && marker.argsHash) {
+        return marker;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function stripWrappingQuotes(value) {
+    return String(value || "")
+      .trim()
+      .replace(/^[\s"'`\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f]+/u, "")
+      .replace(/[\s"'`\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f]+$/u, "")
+      .trim();
+  }
+
+  function detectManualWriteRequest(text) {
+    const value = String(text || "");
+    if (!value.includes("write_file")) {
+      return null;
+    }
+
+    const hasRefusalSignal = [
+      "allowedDirectories",
+      "\u4e0d\u80fd",
+      "\u65e0\u6cd5",
+      "\u62d2\u7edd",
+      "\u767d\u540d\u5355",
+      "\u6743\u9650",
+      "\u8def\u5f84\u7a7f\u8d8a",
+      "\u76ee\u5f55\u9650\u5236",
+    ].some((indicator) => value.includes(indicator));
+    if (!hasRefusalSignal) {
+      return null;
+    }
+
+    const pathMatch =
+      value.match(/[A-Za-z]:\\[^\r\n"'`<>|\uFF0C,\u3002\uFF1B;]*?\.[A-Za-z0-9]{1,16}/u) ||
+      value.match(/[A-Za-z]:\\[^\s"'`<>|\uFF0C,\u3002\uFF1B;]+/u);
+    if (!pathMatch) {
+      return null;
+    }
+
+    const contentMatch = value.match(/(?:\u5185\u5bb9|content|text)\s*[\uFF1A:]\s*([^\r\n]+)/iu);
+    if (!contentMatch) {
+      return null;
+    }
+
+    const path = stripWrappingQuotes(pathMatch[0]).replace(/[\uFF0C,\u3002\uFF1B;]+$/u, "");
+    const content = stripWrappingQuotes(contentMatch[1]);
+    if (!path || !content) {
+      return null;
+    }
+
+    return { toolName: "write_file", path, content };
+  }
+
+  function toolResultToText(result) {
+    if (result == null) {
+      return "";
+    }
+    if (typeof result === "string") {
+      return result;
+    }
+    if (result && Object.prototype.hasOwnProperty.call(result, "result") && !Array.isArray(result.content)) {
+      return toolResultToText(result.result);
+    }
+    if (Array.isArray(result.content)) {
+      const textItems = result.content.map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item && typeof item.text === "string") {
+          return item.text;
+        }
+        return JSON.stringify(item);
+      });
+      return textItems.join("\n").trim();
+    }
+    if (typeof result.text === "string") {
+      return result.text;
+    }
+    return JSON.stringify(result, null, 2);
+  }
+
   function getToolName(card) {
     const text = card && card.innerText ? card.innerText : "";
     const historyMatch = text.match(/工具:\s*([^\n]+)/);
@@ -166,6 +267,19 @@
   font-size: 12px !important;
   color: #cbd5e1 !important;
 }
+.web-agent-manual-write {
+  border-color: rgba(251, 191, 36, 0.65) !important;
+  background: rgba(120, 53, 15, 0.24) !important;
+}
+.web-agent-manual-write-summary {
+  margin-top: 8px !important;
+  color: inherit !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
 `;
     document.documentElement.appendChild(style);
   }
@@ -215,6 +329,57 @@
     return button;
   }
 
+  function sendPermissionMessage(command, marker) {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) {
+        reject(new Error("EXTENSION_RUNTIME_UNAVAILABLE"));
+        return;
+      }
+      chrome.runtime.sendMessage({ command, payload: marker }, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message || String(error)));
+          return;
+        }
+        if (!response || response.success === false) {
+          reject(new Error(response && response.error ? response.error : "PERMISSION_REQUEST_FAILED"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  function sendManualToolCall(request) {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) {
+        reject(new Error("EXTENSION_RUNTIME_UNAVAILABLE"));
+        return;
+      }
+      chrome.runtime.sendMessage({
+        command: "webAgentManualToolCall",
+        payload: {
+          toolName: "write_file",
+          args: {
+            path: request.path,
+            content: request.content,
+          },
+        },
+      }, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message || String(error)));
+          return;
+        }
+        if (!response || response.success === false) {
+          reject(new Error(response && response.error ? response.error : "MANUAL_TOOL_CALL_FAILED"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
   function createStableOutput(card, resultText, toolName) {
     const panel = document.createElement("div");
     panel.className = "web-agent-stable-output";
@@ -245,6 +410,28 @@
         status.textContent = "本地服务不可用，已走浏览器下载";
       }
     }));
+
+    const permissionMarker = parsePermissionMarker(resultText);
+    if (permissionMarker) {
+      actions.appendChild(createButton("批准并重试", async () => {
+        status.textContent = "正在批准...";
+        try {
+          const response = await sendPermissionMessage("webAgentPermissionApprove", permissionMarker);
+          status.textContent = response && response.result && response.result.retry ? "已批准，重试完成" : "已批准，正在重试";
+        } catch (error) {
+          status.textContent = `批准失败: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }));
+      actions.appendChild(createButton("拒绝", async () => {
+        status.textContent = "正在拒绝...";
+        try {
+          await sendPermissionMessage("webAgentPermissionReject", permissionMarker);
+          status.textContent = "已拒绝";
+        } catch (error) {
+          status.textContent = `拒绝失败: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }));
+    }
 
     if (shouldAutoSaveToolResult(resultText)) {
       const toggleButton = createButton("展开完整结果", () => {
@@ -278,6 +465,60 @@
       );
     }
 
+    return panel;
+  }
+
+  function setManualButtonsDisabled(buttons, disabled) {
+    for (const button of buttons) {
+      button.disabled = disabled;
+    }
+  }
+
+  function createManualWritePanel(host, request) {
+    const panel = document.createElement("div");
+    panel.className = "web-agent-stable-output web-agent-manual-write";
+
+    const title = document.createElement("div");
+    title.className = "web-agent-stable-title";
+    title.textContent = "web_Agent \u68c0\u6d4b\u5230\u6a21\u578b\u62d2\u7edd write_file";
+
+    const summary = document.createElement("div");
+    summary.className = "web-agent-manual-write-summary";
+    summary.textContent = `path: ${request.path}\ncontent: ${request.content}`;
+
+    const actions = document.createElement("div");
+    actions.className = "web-agent-stable-actions";
+
+    const status = document.createElement("span");
+    status.className = "web-agent-stable-status";
+
+    const buttons = [];
+    const rejectButton = createButton("\u62d2\u7edd", () => {
+      setManualButtonsDisabled(buttons, true);
+      status.textContent = "\u5df2\u62d2\u7edd";
+    });
+    const allowButton = createButton("\u5141\u8bb8\u6267\u884c", async () => {
+      setManualButtonsDisabled(buttons, true);
+      status.textContent = "\u6b63\u5728\u53d1\u9001\u5230\u672c\u5730\u540e\u7aef...";
+      try {
+        const response = await sendManualToolCall(request);
+        const resultText = toolResultToText(response && response.result);
+        status.textContent = "\u672c\u5730\u540e\u7aef\u5df2\u8fd4\u56de\u7ed3\u679c";
+        createStableOutput(panel, resultText || JSON.stringify(response, null, 2), "write_file");
+      } catch (error) {
+        setManualButtonsDisabled(buttons, false);
+        status.textContent = `\u6267\u884c\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    });
+    buttons.push(rejectButton, allowButton);
+
+    actions.appendChild(rejectButton);
+    actions.appendChild(allowButton);
+    actions.appendChild(status);
+    panel.appendChild(title);
+    panel.appendChild(summary);
+    panel.appendChild(actions);
+    host.appendChild(panel);
     return panel;
   }
 
@@ -321,6 +562,54 @@
     createStableOutput(card, resultText, getToolName(card));
   }
 
+  function hasManualWriteHashInAncestors(node, hash) {
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      if (parent.dataset && parent.dataset.webAgentManualWriteHash === hash) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function enhanceManualWriteRequests() {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const selector = [
+      '[data-message-author-role="assistant"]',
+      "article",
+      '[class*="assistant"]',
+      '[class*="message"]',
+    ].join(",");
+    const candidates = Array.from(document.querySelectorAll(selector));
+    const seen = new Set();
+    for (const host of candidates) {
+      if (!host || seen.has(host) || host.closest(".web-agent-manual-write")) {
+        continue;
+      }
+      seen.add(host);
+      const text = host.innerText || host.textContent || "";
+      if (text.length < 20 || text.length > 20000) {
+        continue;
+      }
+      const request = detectManualWriteRequest(text);
+      if (!request) {
+        continue;
+      }
+      const hash = hashText(`${request.path}\n${request.content}`);
+      if (
+        host.dataset.webAgentManualWriteHash === hash ||
+        hasManualWriteHashInAncestors(host, hash) ||
+        host.querySelector(`[data-web-agent-manual-write-hash="${hash}"]`)
+      ) {
+        continue;
+      }
+      host.dataset.webAgentManualWriteHash = hash;
+      const panel = createManualWritePanel(host, request);
+      panel.dataset.webAgentManualWriteHash = hash;
+    }
+  }
+
   function enhanceAllCards() {
     injectStyles();
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -335,15 +624,20 @@
     }
   }
 
+  function enhanceAll() {
+    injectStyles();
+    enhanceAllCards();
+    enhanceManualWriteRequests();
+  }
+
   function install() {
     if (typeof document === "undefined" || !document.documentElement) {
       return;
     }
-    injectStyles();
-    enhanceAllCards();
+    enhanceAll();
     const observer = new MutationObserver(() => {
       window.clearTimeout(install.pendingTimer);
-      install.pendingTimer = window.setTimeout(enhanceAllCards, 250);
+      install.pendingTimer = window.setTimeout(enhanceAll, 250);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     window.addEventListener("beforeunload", () => observer.disconnect(), { once: true });
@@ -354,6 +648,9 @@
     shouldAutoSaveToolResult,
     hashText,
     getCardTextWithoutStableOutput,
+    parsePermissionMarker,
+    detectManualWriteRequest,
+    toolResultToText,
   };
 
   if (typeof module !== "undefined" && module.exports) {

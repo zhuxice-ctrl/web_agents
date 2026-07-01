@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  calculateArgsHash,
+  consumePermissionToken,
+  createPermissionRequest,
+  defaultPermissionStoreDir,
+} from "./web-agent-permission-store.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -362,6 +368,60 @@ export function buildPermissionRequiredResult({ operation, targetPaths, director
   return errorTextResult(text);
 }
 
+export function buildPermissionMarker(request) {
+  return [
+    "WEB_AGENT_PERMISSION_REQUEST",
+    JSON.stringify({
+      version: 1,
+      kind: "web_agent_permission_request",
+      requestId: request.requestId,
+      operation: request.operation,
+      toolName: request.toolName || request.operation,
+      targetPaths: request.targetPaths,
+      directoriesToApprove: request.directoriesToApprove,
+      suggestedApprovalRoot: request.suggestedApprovalRoot,
+      argsHash: request.argsHash,
+      expiresAt: request.expiresAt,
+    }),
+    "END_WEB_AGENT_PERMISSION_REQUEST",
+  ].join("\n");
+}
+
+async function buildPermissionRequiredResultWithMarker({
+  operation,
+  targetPaths,
+  directoriesToApprove,
+  args,
+  permissionStoreDir = defaultPermissionStoreDir,
+}) {
+  const request = await createPermissionRequest({
+    storeDir: permissionStoreDir,
+    operation,
+    targetPaths,
+    directoriesToApprove,
+    args,
+  });
+  const result = buildPermissionRequiredResult({ operation, targetPaths, directoriesToApprove });
+  result.content[0].text = `${result.content[0].text}\n\n${buildPermissionMarker(request)}`;
+  return result;
+}
+
+async function hasOneTimePermission({ operation, targetPaths, args, permissionStoreDir = defaultPermissionStoreDir }) {
+  const permission = args?._webAgentPermission || args?.__webAgentPermission;
+  if (!permission || typeof permission !== "object") {
+    return false;
+  }
+  const consumed = await consumePermissionToken({
+    storeDir: permissionStoreDir,
+    requestId: permission.requestId,
+    token: permission.token,
+    operation,
+    targetPaths,
+    argsHash: calculateArgsHash(args),
+  });
+  return consumed.allowed;
+}
+
 function requireString(args, key) {
   const value = args?.[key];
   if (typeof value !== "string" || !value.trim()) {
@@ -446,12 +506,14 @@ async function readMediaFile(args) {
   return textResult(JSON.stringify({ path: filePath, mimeType, data: base64 }, null, 2));
 }
 
-async function writeFile(args, allowedDirectories) {
+async function writeFile(args, allowedDirectories, options = {}) {
   const filePath = requireString(args, "path");
   const content = typeof args?.content === "string" ? args.content : String(args?.content ?? "");
   const permission = await getWritablePermissionForTargets([{ path: filePath, kind: "file" }], allowedDirectories);
   if (!permission.allowed) {
-    return buildPermissionRequiredResult({ operation: "write_file", ...permission });
+    if (!(await hasOneTimePermission({ operation: "write_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
+      return buildPermissionRequiredResultWithMarker({ operation: "write_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
+    }
   }
 
   const resolved = path.resolve(filePath);
@@ -477,11 +539,13 @@ function normalizeEdits(args) {
   throw new Error("edit_file requires edits array or oldText/newText.");
 }
 
-async function editFile(args, allowedDirectories) {
+async function editFile(args, allowedDirectories, options = {}) {
   const filePath = requireString(args, "path");
   const permission = await getWritablePermissionForTargets([{ path: filePath, kind: "file" }], allowedDirectories);
   if (!permission.allowed) {
-    return buildPermissionRequiredResult({ operation: "edit_file", ...permission });
+    if (!(await hasOneTimePermission({ operation: "edit_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
+      return buildPermissionRequiredResultWithMarker({ operation: "edit_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
+    }
   }
 
   const resolved = path.resolve(filePath);
@@ -507,14 +571,16 @@ async function editFile(args, allowedDirectories) {
   return textResult(`Successfully applied ${applied} edit(s) to ${resolved}.`);
 }
 
-async function createDirectory(args, allowedDirectories) {
+async function createDirectory(args, allowedDirectories, options = {}) {
   const directoryPath = requireString(args, "path");
   const permission = await getWritablePermissionForTargets(
     [{ path: directoryPath, kind: "directory" }],
     allowedDirectories
   );
   if (!permission.allowed) {
-    return buildPermissionRequiredResult({ operation: "create_directory", ...permission });
+    if (!(await hasOneTimePermission({ operation: "create_directory", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
+      return buildPermissionRequiredResultWithMarker({ operation: "create_directory", args, permissionStoreDir: options.permissionStoreDir, ...permission });
+    }
   }
 
   const resolved = path.resolve(directoryPath);
@@ -602,7 +668,7 @@ async function directoryTree(args) {
   return textResult(JSON.stringify(await walk(root, 0), null, 2));
 }
 
-async function moveFile(args, allowedDirectories) {
+async function moveFile(args, allowedDirectories, options = {}) {
   const source = requireString(args, "source");
   const destination = requireString(args, "destination");
   const permission = await getWritablePermissionForTargets(
@@ -613,7 +679,9 @@ async function moveFile(args, allowedDirectories) {
     allowedDirectories
   );
   if (!permission.allowed) {
-    return buildPermissionRequiredResult({ operation: "move_file", ...permission });
+    if (!(await hasOneTimePermission({ operation: "move_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
+      return buildPermissionRequiredResultWithMarker({ operation: "move_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
+    }
   }
 
   const resolvedSource = path.resolve(source);
@@ -710,6 +778,7 @@ function listAllowedDirectoriesResult(allowedDirectories) {
 export async function callTool(name, args = {}, context = {}) {
   const repoRoot = context.repoRoot || defaultRepoRoot;
   const configFile = context.configFile || defaultConfigFile;
+  const permissionOptions = { permissionStoreDir: context.permissionStoreDir || defaultPermissionStoreDir };
   const allowedDirectories = await getAllowedDirectories({ repoRoot, configFile });
 
   switch (name) {
@@ -720,11 +789,11 @@ export async function callTool(name, args = {}, context = {}) {
     case "read_multiple_files":
       return readMultipleFiles(args);
     case "write_file":
-      return writeFile(args, allowedDirectories);
+      return writeFile(args, allowedDirectories, permissionOptions);
     case "edit_file":
-      return editFile(args, allowedDirectories);
+      return editFile(args, allowedDirectories, permissionOptions);
     case "create_directory":
-      return createDirectory(args, allowedDirectories);
+      return createDirectory(args, allowedDirectories, permissionOptions);
     case "list_directory":
       return listDirectory(args);
     case "list_directory_with_sizes":
@@ -732,7 +801,7 @@ export async function callTool(name, args = {}, context = {}) {
     case "directory_tree":
       return directoryTree(args);
     case "move_file":
-      return moveFile(args, allowedDirectories);
+      return moveFile(args, allowedDirectories, permissionOptions);
     case "search_files":
       return searchFiles(args);
     case "get_file_info":

@@ -53,6 +53,77 @@ test("extractToolResultText keeps permission instructions intact", () => {
   assert.match(result, /Run again/);
 });
 
+test("parsePermissionMarker extracts structured approval details from tool output", () => {
+  const marker = {
+    version: 1,
+    kind: "web_agent_permission_request",
+    requestId: "wapr_123",
+    operation: "write_file",
+    toolName: "write_file",
+    targetPaths: ["C:\\Users\\Lenovo\\Desktop\\note.md"],
+    directoriesToApprove: ["C:\\Users\\Lenovo\\Desktop"],
+    suggestedApprovalRoot: "C:\\Users\\Lenovo\\Desktop",
+    argsHash: "a".repeat(64),
+    expiresAt: "2026-07-01T00:00:00.000Z",
+    metadata: { nested: { note: "brace } inside string" } },
+  };
+  const text = [
+    "permission required",
+    "WEB_AGENT_PERMISSION_REQUEST",
+    JSON.stringify(marker),
+    "END_WEB_AGENT_PERMISSION_REQUEST",
+  ].join("\n");
+
+  assert.equal(JSON.stringify(enhancer.parsePermissionMarker(text)), JSON.stringify(marker));
+});
+
+test("detectManualWriteRequest extracts write_file path and content from model refusal", () => {
+  const text = [
+    "我不能按你要求直接跳过权限校验并执行 write_file。",
+    "在这个 MCP 机制里，write_file 是否允许执行必须由后端的 allowedDirectories 白名单决定。",
+    "如果你只是想正常创建文件，正确、安全的请求方式是：",
+    "F:\\clean\\web-agent.md",
+    "内容：我来啦。",
+  ].join("\n");
+
+  assert.equal(JSON.stringify(enhancer.detectManualWriteRequest(text)), JSON.stringify({
+    toolName: "write_file",
+    path: "F:\\clean\\web-agent.md",
+    content: "我来啦。",
+  }));
+});
+
+test("detectManualWriteRequest allows backend to judge normalized traversal paths", () => {
+  const text = [
+    "我不能按你这条指令输出 write_file 工具调用，原因不是格式问题。",
+    "F:\\web_agents\\..\\clean\\web-agent.md 属于路径穿越。",
+    "内容：我来啦。",
+  ].join("\n");
+
+  assert.equal(JSON.stringify(enhancer.detectManualWriteRequest(text)), JSON.stringify({
+    toolName: "write_file",
+    path: "F:\\web_agents\\..\\clean\\web-agent.md",
+    content: "我来啦。",
+  }));
+});
+
+test("toolResultToText unwraps manual background tool call result text", () => {
+  const resultText = [
+    "WEB_AGENT_PERMISSION_REQUEST",
+    JSON.stringify({
+      kind: "web_agent_permission_request",
+      requestId: "wapr_manual",
+      argsHash: "b".repeat(64),
+    }),
+    "END_WEB_AGENT_PERMISSION_REQUEST",
+  ].join("\n");
+
+  assert.equal(
+    enhancer.toolResultToText({ ok: true, result: { content: [{ type: "text", text: resultText }] } }),
+    resultText,
+  );
+});
+
 test("shouldAutoSaveToolResult only autosaves long text output", () => {
   assert.equal(enhancer.shouldAutoSaveToolResult("short output"), false);
   assert.equal(enhancer.shouldAutoSaveToolResult("x".repeat(2500)), true);
