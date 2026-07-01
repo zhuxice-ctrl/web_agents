@@ -47,6 +47,7 @@ cd F:\web_agents
 .\scripts\council-browser.ps1 -DryRun
 .\scripts\council-browser.ps1 -KeepOpen
 .\scripts\council-browser.ps1 -Submit
+.\scripts\council-browser.ps1 -Submit -Collect
 ```
 
 详见 [webAgents Browser Automation](webagents-browser-automation.md)。

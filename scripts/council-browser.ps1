@@ -7,6 +7,8 @@ param(
 
   [switch]$Submit,
 
+  [switch]$Collect,
+
   [switch]$DryRun,
 
   [switch]$Headless,
@@ -17,7 +19,11 @@ param(
 
   [string]$Channel = "chrome",
 
-  [int]$TimeoutMs = 30000
+  [int]$TimeoutMs = 30000,
+
+  [int]$ReplyTimeoutMs = 180000,
+
+  [int]$SettleMs = 3000
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +36,9 @@ $nodeArgs = @(
   "--root", $repoRoot,
   "--round", "$Round",
   "--channel", $Channel,
-  "--timeout-ms", "$TimeoutMs"
+  "--timeout-ms", "$TimeoutMs",
+  "--reply-timeout-ms", "$ReplyTimeoutMs",
+  "--settle-ms", "$SettleMs"
 )
 
 if ($Session) {
@@ -47,6 +55,10 @@ if ($BrowserProfile) {
 
 if ($Submit) {
   $nodeArgs += "--submit"
+}
+
+if ($Collect) {
+  $nodeArgs += "--collect"
 }
 
 if ($DryRun) {

@@ -36,10 +36,22 @@ Insert and submit prompts:
 .\scripts\council-browser.ps1 -Submit
 ```
 
+Insert, submit, wait for replies, and save them back to the council session:
+
+```powershell
+.\scripts\council-browser.ps1 -Submit -Collect
+```
+
 Send to selected models only:
 
 ```powershell
 .\scripts\council-browser.ps1 -Models gpt,deepseek -Submit
+```
+
+Use a longer wait when models are slow:
+
+```powershell
+.\scripts\council-browser.ps1 -Models gpt,deepseek -Submit -Collect -ReplyTimeoutMs 300000
 ```
 
 ## Browser Profile
@@ -66,9 +78,11 @@ npm install -D playwright
 
 - The script defaults to insert-only mode.
 - Add `-Submit` only when you want it to click send.
+- Add `-Collect` only when you want it to wait for visible replies and write `replies/round-XX-model.md`.
 - If a provider page changes and no composer is found, the script stops with an error instead of guessing blindly.
 - If no send button is found with `-Submit`, it uses Enter as a fallback.
+- If reply collection fails, the script writes `replies/round-XX-model.error.md`.
 
 ## Limitations
 
-This is webpage automation, not an official provider API. Login screens, model picker changes, rate limits, captcha, DOM changes, and regional blocks can interrupt the run.
+This is webpage automation, not an official provider API. Login screens, model picker changes, rate limits, captcha, DOM changes, streaming UI changes, and regional blocks can interrupt the run.
