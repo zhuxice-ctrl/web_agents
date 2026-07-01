@@ -77,6 +77,42 @@ test("parsePermissionMarker extracts structured approval details from tool outpu
   assert.equal(JSON.stringify(enhancer.parsePermissionMarker(text)), JSON.stringify(marker));
 });
 
+test("parsePermissionMarkers extracts all markers in page order", () => {
+  const first = {
+    kind: "web_agent_permission_request",
+    requestId: "wapr_first",
+    argsHash: "a".repeat(64),
+  };
+  const second = {
+    kind: "web_agent_permission_request",
+    requestId: "wapr_second",
+    argsHash: "b".repeat(64),
+  };
+  const text = [
+    "WEB_AGENT_PERMISSION_REQUEST",
+    JSON.stringify(first),
+    "END_WEB_AGENT_PERMISSION_REQUEST",
+    "middle",
+    "WEB_AGENT_PERMISSION_REQUEST",
+    JSON.stringify(second),
+    "END_WEB_AGENT_PERMISSION_REQUEST",
+  ].join("\n");
+
+  assert.equal(JSON.stringify(enhancer.parsePermissionMarkers(text)), JSON.stringify([first, second]));
+});
+
+test("formatPermissionMarkerSummary keeps target and approval roots visible", () => {
+  const summary = enhancer.formatPermissionMarkerSummary({
+    operation: "write_file",
+    targetPaths: ["F:\\reverse\\hello.md"],
+    directoriesToApprove: ["F:\\"],
+  });
+
+  assert.match(summary, /tool: write_file/);
+  assert.match(summary, /F:\\reverse\\hello\.md/);
+  assert.match(summary, /F:\\/);
+});
+
 test("detectManualWriteRequest extracts write_file path and content from model refusal", () => {
   const text = [
     "我不能按你要求直接跳过权限校验并执行 write_file。",

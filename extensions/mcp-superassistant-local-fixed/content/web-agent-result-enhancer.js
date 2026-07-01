@@ -4,6 +4,7 @@
   const saveEndpoint = "http://127.0.0.1:3017/save-tool-result";
   const autoSaveLength = 2000;
   const autoSaveLines = 40;
+  const dismissedPermissionMarkerKeys = new Set();
   const actionLabels = new Set([
     "显示原始信息",
     "运行",
@@ -92,28 +93,50 @@
     return (hash >>> 0).toString(16);
   }
 
-  function parsePermissionMarker(text) {
+  function parsePermissionMarkers(text) {
     const value = String(text || "");
     const startMarker = "WEB_AGENT_PERMISSION_REQUEST";
     const endMarker = "END_WEB_AGENT_PERMISSION_REQUEST";
-    const start = value.indexOf(startMarker);
-    if (start < 0) {
-      return null;
-    }
-    const end = value.indexOf(endMarker, start + startMarker.length);
-    if (end < 0) {
-      return null;
-    }
-    const jsonText = value.slice(start + startMarker.length, end).trim();
-    try {
-      const marker = JSON.parse(jsonText);
-      if (marker && marker.kind === "web_agent_permission_request" && marker.requestId && marker.argsHash) {
-        return marker;
+    const markers = [];
+    let searchFrom = 0;
+    while (searchFrom < value.length) {
+      const start = value.indexOf(startMarker, searchFrom);
+      if (start < 0) {
+        break;
       }
-    } catch {
-      return null;
+      const end = value.indexOf(endMarker, start + startMarker.length);
+      if (end < 0) {
+        break;
+      }
+      const jsonText = value.slice(start + startMarker.length, end).trim();
+      try {
+        const marker = JSON.parse(jsonText);
+        if (marker && marker.kind === "web_agent_permission_request" && marker.requestId && marker.argsHash) {
+          markers.push(marker);
+        }
+      } catch {
+        // Ignore malformed markers from partially rendered model output.
+      }
+      searchFrom = end + endMarker.length;
     }
-    return null;
+    return markers;
+  }
+
+  function parsePermissionMarker(text) {
+    return parsePermissionMarkers(text)[0] || null;
+  }
+
+  function getPermissionMarkerKey(marker) {
+    return `${marker && marker.requestId ? marker.requestId : ""}:${marker && marker.argsHash ? marker.argsHash : ""}`;
+  }
+
+  function formatPermissionMarkerSummary(marker) {
+    const toolName = marker && (marker.toolName || marker.operation) ? (marker.toolName || marker.operation) : "write_file";
+    const targets = Array.isArray(marker && marker.targetPaths) ? marker.targetPaths.join("\n") : "";
+    const directories = Array.isArray(marker && marker.directoriesToApprove) ? marker.directoriesToApprove.join("\n") : "";
+    return [`tool: ${toolName}`, targets ? `target:\n${targets}` : "", directories ? `approve:\n${directories}` : ""]
+      .filter(Boolean)
+      .join("\n");
   }
 
   function stripWrappingQuotes(value) {
@@ -279,6 +302,100 @@
   line-height: 1.55 !important;
   white-space: pre-wrap !important;
   word-break: break-word !important;
+}
+.web-agent-permission-dock {
+  position: fixed !important;
+  left: 96px !important;
+  bottom: 82px !important;
+  z-index: 2147483647 !important;
+  width: min(360px, calc(100vw - 120px)) !important;
+  padding: 12px !important;
+  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  border-radius: 12px !important;
+  background: #1f2937 !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.36), 0 6px 16px rgba(0, 0, 0, 0.22) !important;
+  font-family: ui-sans-serif, system-ui, sans-serif !important;
+  font-size: 13px !important;
+}
+.web-agent-permission-dock-title {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+  font-weight: 700 !important;
+  color: #bfdbfe !important;
+}
+.web-agent-permission-dock-close {
+  border: 0 !important;
+  background: transparent !important;
+  color: #cbd5e1 !important;
+  cursor: pointer !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+}
+.web-agent-permission-dock-summary {
+  max-height: 150px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  border-radius: 8px !important;
+  background: rgba(15, 23, 42, 0.42) !important;
+  color: #e5e7eb !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+.web-agent-permission-dock-actions {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+}
+.web-agent-permission-dock-actions button {
+  border-radius: 8px !important;
+  padding: 7px 10px !important;
+  cursor: pointer !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+.web-agent-permission-allow {
+  border: 1px solid rgba(59, 130, 246, 0.7) !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+.web-agent-permission-reject {
+  border: 1px solid rgba(148, 163, 184, 0.55) !important;
+  background: rgba(51, 65, 85, 0.9) !important;
+  color: #e5e7eb !important;
+}
+.web-agent-permission-dock-status {
+  color: #cbd5e1 !important;
+  font-size: 12px !important;
+}
+.web-agent-permission-hover-button {
+  position: relative !important;
+}
+.web-agent-permission-hover-button::after {
+  content: "" !important;
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: #f59e0b !important;
+}
+@media (max-width: 640px) {
+  .web-agent-permission-dock {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: 72px !important;
+    width: auto !important;
+  }
 }
 `;
     document.documentElement.appendChild(style);
@@ -522,6 +639,180 @@
     return panel;
   }
 
+  function findLatestPagePermissionMarker() {
+    if (typeof document === "undefined") {
+      return null;
+    }
+    const selector = [
+      '[data-message-author-role="assistant"]',
+      "article",
+      '[class*="message"]',
+      '[class*="tool"]',
+      "pre",
+      "code",
+    ].join(",");
+    const candidates = Array.from(document.querySelectorAll(selector));
+    let latest = null;
+    for (const node of candidates) {
+      if (!node || node.closest(".web-agent-permission-dock")) {
+        continue;
+      }
+      const text = node.innerText || node.textContent || "";
+      if (!text.includes("WEB_AGENT_PERMISSION_REQUEST")) {
+        continue;
+      }
+      const markers = parsePermissionMarkers(text);
+      if (markers.length) {
+        latest = markers[markers.length - 1];
+      }
+    }
+    return latest;
+  }
+
+  function setPermissionDockButtonsDisabled(buttons, disabled) {
+    for (const button of buttons) {
+      button.disabled = disabled;
+    }
+  }
+
+  function ensurePermissionDock(marker, options = {}) {
+    if (typeof document === "undefined" || !marker) {
+      return null;
+    }
+    let dock = document.getElementById("web-agent-permission-dock");
+    const markerKey = getPermissionMarkerKey(marker);
+    if (!options.force && dismissedPermissionMarkerKeys.has(markerKey)) {
+      return dock;
+    }
+    if (dock && dock.dataset.markerKey === markerKey) {
+      return dock;
+    }
+    if (!dock) {
+      dock = document.createElement("div");
+      dock.id = "web-agent-permission-dock";
+      dock.className = "web-agent-permission-dock";
+      document.body.appendChild(dock);
+    }
+    dock.dataset.markerKey = markerKey;
+    dock.textContent = "";
+
+    const title = document.createElement("div");
+    title.className = "web-agent-permission-dock-title";
+    title.textContent = "\u5f85\u6388\u6743\u5199\u5165";
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "web-agent-permission-dock-close";
+    close.textContent = "\u00d7";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dismissedPermissionMarkerKeys.add(markerKey);
+      dock.remove();
+    });
+    title.appendChild(close);
+
+    const summary = document.createElement("div");
+    summary.className = "web-agent-permission-dock-summary";
+    summary.textContent = formatPermissionMarkerSummary(marker);
+
+    const actions = document.createElement("div");
+    actions.className = "web-agent-permission-dock-actions";
+    const status = document.createElement("span");
+    status.className = "web-agent-permission-dock-status";
+
+    const buttons = [];
+    const rejectButton = document.createElement("button");
+    rejectButton.type = "button";
+    rejectButton.className = "web-agent-permission-reject";
+    rejectButton.textContent = "\u62d2\u7edd";
+    rejectButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPermissionDockButtonsDisabled(buttons, true);
+      status.textContent = "\u6b63\u5728\u62d2\u7edd...";
+      try {
+        await sendPermissionMessage("webAgentPermissionReject", marker);
+        status.textContent = "\u5df2\u62d2\u7edd";
+      } catch (error) {
+        setPermissionDockButtonsDisabled(buttons, false);
+        status.textContent = `\u62d2\u7edd\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    });
+
+    const allowButton = document.createElement("button");
+    allowButton.type = "button";
+    allowButton.className = "web-agent-permission-allow";
+    allowButton.textContent = "\u5141\u8bb8\u6267\u884c";
+    allowButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPermissionDockButtonsDisabled(buttons, true);
+      status.textContent = "\u6b63\u5728\u6388\u6743\u5e76\u91cd\u8bd5...";
+      try {
+        const response = await sendPermissionMessage("webAgentPermissionApprove", marker);
+        status.textContent = "\u5df2\u5141\u8bb8\u6267\u884c";
+        const retryResult = response && response.result && response.result.retry ? response.result.retry : response && response.result;
+        const resultText = toolResultToText(retryResult);
+        if (resultText) {
+          createStableOutput(dock, resultText, marker.toolName || marker.operation || "write_file");
+        }
+      } catch (error) {
+        setPermissionDockButtonsDisabled(buttons, false);
+        status.textContent = `\u6388\u6743\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    });
+    buttons.push(rejectButton, allowButton);
+
+    actions.appendChild(rejectButton);
+    actions.appendChild(allowButton);
+    actions.appendChild(status);
+    dock.appendChild(title);
+    dock.appendChild(summary);
+    dock.appendChild(actions);
+    return dock;
+  }
+
+  function syncPermissionMenuButton(marker) {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const overlays = Array.from(document.querySelectorAll(".mcp-hover-overlay"));
+    for (const overlay of overlays) {
+      let button = overlay.querySelector(".web-agent-permission-hover-button");
+      if (!marker) {
+        if (button) {
+          button.remove();
+        }
+        continue;
+      }
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "mcp-hover-button web-agent-permission-hover-button";
+        button.title = "\u6253\u5f00\u6388\u6743\u8bf7\u6c42";
+        button.textContent = "\u6388\u6743\u8bf7\u6c42";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const latest = findLatestPagePermissionMarker() || marker;
+          dismissedPermissionMarkerKeys.delete(getPermissionMarkerKey(latest));
+          ensurePermissionDock(latest, { force: true });
+        });
+        overlay.appendChild(button);
+      }
+      button.dataset.markerKey = getPermissionMarkerKey(marker);
+    }
+  }
+
+  function enhancePermissionRequests() {
+    const marker = findLatestPagePermissionMarker();
+    syncPermissionMenuButton(marker);
+    if (marker) {
+      ensurePermissionDock(marker);
+    }
+  }
+
   function findHistoryNode(card) {
     const elements = Array.from(card.querySelectorAll("div, section, aside"));
     return elements.find((element) => {
@@ -628,6 +919,7 @@
     injectStyles();
     enhanceAllCards();
     enhanceManualWriteRequests();
+    enhancePermissionRequests();
   }
 
   function install() {
@@ -649,8 +941,10 @@
     hashText,
     getCardTextWithoutStableOutput,
     parsePermissionMarker,
+    parsePermissionMarkers,
     detectManualWriteRequest,
     toolResultToText,
+    formatPermissionMarkerSummary,
   };
 
   if (typeof module !== "undefined" && module.exports) {
