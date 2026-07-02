@@ -33,27 +33,6 @@
         "content/index.iife.js"
       ],
       "matches": [
-        "*://*.grok.com/*"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "js": [
-        "content/index.iife.js"
-      ],
-      "matches": [
-        "*://*.x.com/*",
-        "*://*.twitter.com/*",
-        "*://*.x.com/i/grok*",
-        "*://*.twitter.com/i/grok*"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "js": [
-        "content/index.iife.js"
-      ],
-      "matches": [
         "*://*.gemini.google.com/*"
       ],
       "run_at": "document_idle"
@@ -136,6 +115,15 @@
         "content/index.iife.js"
       ],
       "matches": [
+        "*://*.doubao.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/index.iife.js"
+      ],
+      "matches": [
         "*://*.bigmodel.cn/*",
         "*://*.chat.z.ai/*"
       ],
@@ -149,17 +137,41 @@
         "*://*.chat.qwen.ai/*"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/web-agent-result-enhancer.js",
+        "content/web-agent-insert-fallback.js"
+      ],
+      "matches": [
+        "*://*.perplexity.ai/*",
+        "*://*.chat.openai.com/*",
+        "*://*.chatgpt.com/*",
+        "*://*.gemini.google.com/*",
+        "*://*.aistudio.google.com/*",
+        "*://*.openrouter.ai/*",
+        "*://*.chat.deepseek.com/*",
+        "*://*.kagi.com/*",
+        "*://*.t3.chat/*",
+        "*://*.chat.mistral.ai/*",
+        "*://*.github.com/*",
+        "*://*.copilot.github.com/*",
+        "*://*.kimi.com/*",
+        "*://*.doubao.com/*",
+        "*://*.bigmodel.cn/*",
+        "*://*.chat.z.ai/*",
+        "*://*.chat.qwen.ai/*"
+      ],
+      "run_at": "document_idle"
     }
   ],
-  "default_locale": "en",
-  "description": "MCP SuperAssistant local fixed build",
+  "default_locale": "zh_CN",
+  "description": "web_Agent 本地 MCP 网页助手",
   "host_permissions": [
+    "http://127.0.0.1:3017/*",
     "*://*.perplexity.ai/*",
     "*://*.chat.openai.com/*",
     "*://*.chatgpt.com/*",
-    "*://*.grok.com/*",
-    "*://*.x.com/*",
-    "*://*.twitter.com/*",
     "*://*.gemini.google.com/*",
     "*://*.aistudio.google.com/*",
     "*://*.openrouter.ai/*",
@@ -170,6 +182,7 @@
     "*://*.github.com/*",
     "*://*.copilot.github.com/*",
     "*://*.kimi.com/*",
+    "*://*.doubao.com/*",
     "*://*.bigmodel.cn/*",
     "*://*.chat.z.ai/*",
     "*://*.chat.qwen.ai/*"
@@ -180,12 +193,12 @@
     "34": "icon-34.png"
   },
   "manifest_version": 3,
-  "name": "MCP SuperAssistant Local Fixed",
+  "name": "web_Agent",
   "permissions": [
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.0",
+  "version": "0.6.7",
   "web_accessible_resources": [
     {
       "matches": [

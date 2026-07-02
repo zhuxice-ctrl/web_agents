@@ -2,6 +2,9 @@ node_modules/
 dist/
 logs/
 *.log
+agent-sessions/
+.webagents-browser-profile/
+browser-profiles/
 
 config.local.json
 *.local.ps1
