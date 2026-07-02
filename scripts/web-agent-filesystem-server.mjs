@@ -34,10 +34,22 @@ const mimeTypes = new Map([
   [".htm", "text/html"],
 ]);
 
+const auditDir = path.join(defaultRepoRoot, "generated", "audit");
+
+async function appendWriteAudit(event) {
+  try {
+    await fs.mkdir(auditDir, { recursive: true });
+    const line = JSON.stringify({ at: new Date().toISOString(), ...event });
+    await fs.appendFile(path.join(auditDir, "writes.jsonl"), `${line}\n`, "utf8");
+  } catch {
+    // Audit logging must never block the actual operation.
+  }
+}
+
 const toolDefinitions = [
   {
     name: "read_text_file",
-    description: "Read a local text file. Standard mode allows reading outside the writable whitelist.",
+    description: "Read a local text file. Local trust mode allows reading across directories.",
     inputSchema: {
       type: "object",
       properties: {
@@ -68,7 +80,7 @@ const toolDefinitions = [
   },
   {
     name: "write_file",
-    description: "Create or overwrite a file. Writes outside the whitelist return a Chinese approval command.",
+    description: "Create or overwrite a file at any local path. Local trust mode records the write in generated/audit/writes.jsonl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -80,7 +92,7 @@ const toolDefinitions = [
   },
   {
     name: "edit_file",
-    description: "Apply text replacements to a file. Requires writable whitelist permission.",
+    description: "Apply text replacements to a file at any local path. Local trust mode records the edit in generated/audit/writes.jsonl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -105,7 +117,7 @@ const toolDefinitions = [
   },
   {
     name: "create_directory",
-    description: "Create a directory recursively. Requires writable whitelist permission.",
+    description: "Create a directory recursively at any local path. Local trust mode records the operation in generated/audit/writes.jsonl.",
     inputSchema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -114,7 +126,7 @@ const toolDefinitions = [
   },
   {
     name: "list_directory",
-    description: "List directory entries. Standard mode allows browsing outside the writable whitelist.",
+    description: "List directory entries. Local trust mode allows browsing across directories.",
     inputSchema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -144,7 +156,7 @@ const toolDefinitions = [
   },
   {
     name: "move_file",
-    description: "Move or rename a file/directory. Requires writable permission for both source and destination.",
+    description: "Move or rename a file/directory at any local path. Local trust mode records the operation in generated/audit/writes.jsonl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -178,7 +190,7 @@ const toolDefinitions = [
   },
   {
     name: "list_allowed_directories",
-    description: "List directories where write/edit/create/move operations are allowed.",
+    description: "Show local trust mode status and the legacy whitelist entries kept for compatibility.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -563,15 +575,9 @@ async function readMediaFile(args) {
 async function writeFile(args, allowedDirectories, options = {}) {
   const filePath = requireString(args, "path");
   const content = typeof args?.content === "string" ? args.content : String(args?.content ?? "");
-  const permission = await getWritablePermissionForTargets([{ path: filePath, kind: "file" }], allowedDirectories);
-  if (!permission.allowed) {
-    if (!(await hasOneTimePermission({ operation: "write_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
-      return buildPermissionRequiredResultWithMarker({ operation: "write_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
-    }
-  }
-
   const resolved = path.resolve(filePath);
   await fs.mkdir(path.dirname(resolved), { recursive: true });
+  await appendWriteAudit({ operation: "write_file", path: resolved, size: Buffer.byteLength(content, "utf8") });
   await fs.writeFile(resolved, content, "utf8");
   return textResult(`Successfully wrote ${Buffer.byteLength(content, "utf8")} bytes to ${resolved}`);
 }
@@ -595,13 +601,6 @@ function normalizeEdits(args) {
 
 async function editFile(args, allowedDirectories, options = {}) {
   const filePath = requireString(args, "path");
-  const permission = await getWritablePermissionForTargets([{ path: filePath, kind: "file" }], allowedDirectories);
-  if (!permission.allowed) {
-    if (!(await hasOneTimePermission({ operation: "edit_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
-      return buildPermissionRequiredResultWithMarker({ operation: "edit_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
-    }
-  }
-
   const resolved = path.resolve(filePath);
   await ensureTextFileSize(resolved);
   const edits = normalizeEdits(args);
@@ -621,23 +620,15 @@ async function editFile(args, allowedDirectories, options = {}) {
     return textResult(`Dry run: would apply ${applied} edit(s) to ${resolved}.`);
   }
 
+  await appendWriteAudit({ operation: "edit_file", path: resolved, editCount: applied });
   await fs.writeFile(resolved, updated, "utf8");
   return textResult(`Successfully applied ${applied} edit(s) to ${resolved}.`);
 }
 
 async function createDirectory(args, allowedDirectories, options = {}) {
   const directoryPath = requireString(args, "path");
-  const permission = await getWritablePermissionForTargets(
-    [{ path: directoryPath, kind: "directory" }],
-    allowedDirectories
-  );
-  if (!permission.allowed) {
-    if (!(await hasOneTimePermission({ operation: "create_directory", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
-      return buildPermissionRequiredResultWithMarker({ operation: "create_directory", args, permissionStoreDir: options.permissionStoreDir, ...permission });
-    }
-  }
-
   const resolved = path.resolve(directoryPath);
+  await appendWriteAudit({ operation: "create_directory", path: resolved });
   await fs.mkdir(resolved, { recursive: true });
   return textResult(`Successfully created directory ${resolved}`);
 }
@@ -725,21 +716,9 @@ async function directoryTree(args) {
 async function moveFile(args, allowedDirectories, options = {}) {
   const source = requireString(args, "source");
   const destination = requireString(args, "destination");
-  const permission = await getWritablePermissionForTargets(
-    [
-      { path: source, kind: "file" },
-      { path: destination, kind: "file" },
-    ],
-    allowedDirectories
-  );
-  if (!permission.allowed) {
-    if (!(await hasOneTimePermission({ operation: "move_file", targetPaths: permission.targetPaths, args, permissionStoreDir: options.permissionStoreDir }))) {
-      return buildPermissionRequiredResultWithMarker({ operation: "move_file", args, permissionStoreDir: options.permissionStoreDir, ...permission });
-    }
-  }
-
   const resolvedSource = path.resolve(source);
   const resolvedDestination = path.resolve(destination);
+  await appendWriteAudit({ operation: "move_file", source: resolvedSource, destination: resolvedDestination });
   await fs.mkdir(path.dirname(resolvedDestination), { recursive: true });
   await fs.rename(resolvedSource, resolvedDestination);
   return textResult(`Successfully moved ${resolvedSource} to ${resolvedDestination}`);
@@ -820,11 +799,12 @@ async function getFileInfo(args) {
 function listAllowedDirectoriesResult(allowedDirectories) {
   return textResult(
     [
-      "Writable allowed directories:",
-      ...allowedDirectories.map((directory) => `  - ${directory}`),
+      "Local trust mode enabled.",
+      "write_file, edit_file, create_directory, and move_file can target any local path.",
+      "Write operations are audited at generated/audit/writes.jsonl.",
       "",
-      "Standard mode: browsing/reading can cross directories; write/edit/create/move requires a directory in this list.",
-      "To add a directory permanently, run scripts\\add-allowed-directory.local.ps1. Changes take effect immediately.",
+      "Legacy allowed directories file entries (informational only):",
+      ...allowedDirectories.map((directory) => `  - ${directory}`),
     ].join("\n")
   );
 }

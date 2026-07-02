@@ -12,7 +12,6 @@ import {
   getAllowedDirectories,
   getWritablePermissionCheck,
 } from "./web-agent-filesystem-server.mjs";
-import { approvePermissionRequest } from "./web-agent-permission-store.mjs";
 
 const serverPath = fileURLToPath(new URL("./web-agent-filesystem-server.mjs", import.meta.url));
 
@@ -65,7 +64,7 @@ test("write outside whitelist returns a reusable Chinese approval command", asyn
   assert.match(result.content[0].text, /重新运行|Run again/);
 });
 
-test("write outside whitelist returns a structured permission marker for one-click approval", async () => {
+test("write outside whitelist succeeds directly without permission marker", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
   const repoRoot = path.join(tempRoot, "repo");
   const outsideRoot = path.join(tempRoot, "outside");
@@ -76,85 +75,48 @@ test("write outside whitelist returns a structured permission marker for one-cli
   await fs.mkdir(outsideRoot, { recursive: true });
   await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
 
-  const denied = await callTool(
+  const result = await callTool(
     "write_file",
-    { path: targetFile, content: "pending approval" },
+    { path: targetFile, content: "no permission needed" },
     { repoRoot, configFile }
   );
 
-  assert.equal(denied.isError, true);
-  const text = denied.content[0].text;
-  const match = text.match(/WEB_AGENT_PERMISSION_REQUEST\s+({[\s\S]+?})\s+END_WEB_AGENT_PERMISSION_REQUEST/);
-  assert.ok(match, text);
-
-  const marker = JSON.parse(match[1]);
-  assert.equal(marker.version, 1);
-  assert.equal(marker.kind, "web_agent_permission_request");
-  assert.equal(marker.operation, "write_file");
-  assert.equal(marker.toolName, "write_file");
-  assert.equal(typeof marker.requestId, "string");
-  assert.match(marker.requestId, /^wapr_/);
-  assert.deepEqual(marker.targetPaths, [path.resolve(targetFile)]);
-  assert.deepEqual(marker.directoriesToApprove, [path.resolve(outsideRoot)]);
-  assert.equal(marker.suggestedApprovalRoot, path.resolve(outsideRoot));
-  assert.match(marker.argsHash, /^[a-f0-9]{64}$/);
-  assert.ok(Date.parse(marker.expiresAt) > Date.now());
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /Successfully wrote/);
+  assert.equal(await fs.readFile(targetFile, "utf8"), "no permission needed");
 });
 
-test("write_file consumes one-time permission token and rejects reuse", async () => {
+test("write_file allows repeated writes without permission tokens", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
   const repoRoot = path.join(tempRoot, "repo");
   const outsideRoot = path.join(tempRoot, "outside");
   const targetFile = path.join(outsideRoot, "note.md");
   const configFile = path.join(tempRoot, "allowed.txt");
-  const permissionStoreDir = path.join(tempRoot, "permissions");
-  const args = { path: targetFile, content: "approved by token" };
-  const context = { repoRoot, configFile, permissionStoreDir };
+  const context = { repoRoot, configFile };
 
   await fs.mkdir(repoRoot, { recursive: true });
   await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
 
-  const denied = await callTool("write_file", args, context);
-  assert.equal(denied.isError, true);
-  const marker = JSON.parse(
-    denied.content[0].text.match(/WEB_AGENT_PERMISSION_REQUEST\s+({[\s\S]+?})\s+END_WEB_AGENT_PERMISSION_REQUEST/)[1]
-  );
-
-  const approved = await approvePermissionRequest({
-    storeDir: permissionStoreDir,
-    requestId: marker.requestId,
-    argsHash: marker.argsHash,
-  });
-
-  const changedArgs = await callTool(
+  const first = await callTool(
     "write_file",
-    { path: targetFile, content: "changed after approval", _webAgentPermission: { requestId: marker.requestId, token: approved.token } },
+    { path: targetFile, content: "version 1" },
     context
   );
-  assert.equal(changedArgs.isError, true);
-  assert.match(changedArgs.content[0].text, /WEB_AGENT_PERMISSION_REQUEST/);
-  await assert.rejects(() => fs.readFile(targetFile, "utf8"), /ENOENT/);
+  assert.equal(first.isError, undefined);
+  assert.match(first.content[0].text, /Successfully wrote/);
+  assert.equal(await fs.readFile(targetFile, "utf8"), "version 1");
 
-  const allowed = await callTool(
+  const second = await callTool(
     "write_file",
-    { ...args, _webAgentPermission: { requestId: marker.requestId, token: approved.token } },
+    { path: targetFile, content: "version 2" },
     context
   );
-  assert.equal(allowed.isError, undefined);
-  assert.match(allowed.content[0].text, /Successfully wrote/);
-  assert.equal(await fs.readFile(targetFile, "utf8"), "approved by token");
-
-  const reused = await callTool(
-    "write_file",
-    { ...args, _webAgentPermission: { requestId: marker.requestId, token: approved.token } },
-    context
-  );
-  assert.equal(reused.isError, true);
-  assert.match(reused.content[0].text, /WEB_AGENT_PERMISSION_REQUEST/);
-  assert.equal(await fs.readFile(targetFile, "utf8"), "approved by token");
+  assert.equal(second.isError, undefined);
+  assert.match(second.content[0].text, /Successfully wrote/);
+  assert.equal(await fs.readFile(targetFile, "utf8"), "version 2");
 });
 
-test("write_file repairs JSON-decoded Windows control escapes before permission hashing", async () => {
+test("write_file handles JSON-decoded Windows control escapes in paths", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
   const repoRoot = path.join(tempRoot, "repo");
   const outsideRoot = path.join(tempRoot, "reverse");
@@ -162,36 +124,20 @@ test("write_file repairs JSON-decoded Windows control escapes before permission 
   const brokenTargetFile = path.join(tempRoot, "r").replace(/r$/, "\r") + "everse\\hello.md";
   const brokenContent = "line1\r\nline2";
   const configFile = path.join(tempRoot, "allowed.txt");
-  const permissionStoreDir = path.join(tempRoot, "permissions");
-  const args = { path: brokenTargetFile, content: brokenContent };
-  const context = { repoRoot, configFile, permissionStoreDir };
+  const context = { repoRoot, configFile };
 
   await fs.mkdir(repoRoot, { recursive: true });
   await fs.mkdir(outsideRoot, { recursive: true });
   await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
 
-  const denied = await callTool("write_file", args, context);
-  assert.equal(denied.isError, true);
-  const marker = JSON.parse(
-    denied.content[0].text.match(/WEB_AGENT_PERMISSION_REQUEST\s+({[\s\S]+?})\s+END_WEB_AGENT_PERMISSION_REQUEST/)[1]
-  );
-
-  assert.deepEqual(marker.targetPaths, [path.resolve(targetFile)]);
-  assert.deepEqual(marker.directoriesToApprove, [path.resolve(outsideRoot)]);
-
-  const approved = await approvePermissionRequest({
-    storeDir: permissionStoreDir,
-    requestId: marker.requestId,
-    argsHash: marker.argsHash,
-  });
-
-  const allowed = await callTool(
+  const result = await callTool(
     "write_file",
-    { ...args, _webAgentPermission: { requestId: marker.requestId, token: approved.token } },
+    { path: brokenTargetFile, content: brokenContent },
     context
   );
-  assert.equal(allowed.isError, undefined);
-  assert.match(allowed.content[0].text, /Successfully wrote/);
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /Successfully wrote/);
   assert.equal(await fs.readFile(targetFile, "utf8"), brokenContent);
 });
 
@@ -223,6 +169,12 @@ test("stdio server flushes async tool calls before stdin closes", async () => {
       JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
+        method: "tools/list",
+        params: {},
+      }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
         method: "tools/call",
         params: { name: "list_allowed_directories", arguments: {} },
       }),
@@ -245,10 +197,12 @@ test("stdio server flushes async tool calls before stdin closes", async () => {
   assert.equal(exitCode, 0, stderr);
   assert.match(stdout, /"id":1/);
   assert.match(stdout, /"id":2/);
-  assert.match(stdout, /Writable allowed directories/);
+  assert.match(stdout, /"id":3/);
+  assert.match(stdout, /Local trust mode/);
+  assert.doesNotMatch(stdout, /requires a directory in this list/);
 });
 
-test("write_file succeeds after whitelist file is updated without restarting server code", async () => {
+test("write_file succeeds for any path regardless of whitelist state", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
   const repoRoot = path.join(tempRoot, "repo");
   const outsideRoot = path.join(tempRoot, "outside");
@@ -259,22 +213,20 @@ test("write_file succeeds after whitelist file is updated without restarting ser
   await fs.mkdir(outsideRoot, { recursive: true });
   await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
 
-  const denied = await callTool(
+  const first = await callTool(
     "write_file",
     { path: targetFile, content: "first" },
     { repoRoot, configFile }
   );
-  assert.equal(denied.isError, true);
-  assert.match(denied.content[0].text, /需要手动授权/);
+  assert.equal(first.isError, undefined);
+  assert.match(first.content[0].text, /Successfully wrote/);
 
-  await fs.appendFile(configFile, `${outsideRoot}\n`, "utf8");
-
-  const allowed = await callTool(
+  const second = await callTool(
     "write_file",
     { path: targetFile, content: "second" },
     { repoRoot, configFile }
   );
-  assert.equal(allowed.isError, undefined);
-  assert.match(allowed.content[0].text, /Successfully wrote/);
+  assert.equal(second.isError, undefined);
+  assert.match(second.content[0].text, /Successfully wrote/);
   assert.equal(await fs.readFile(targetFile, "utf8"), "second");
 });

@@ -114,7 +114,8 @@ if ($gatewayHealth -and $gatewayHealth.ok -and -not $gatewayHealth.features.save
 if ($mcpAlreadyRunning -and $gatewayHealth -and $gatewayHealth.ok) {
   Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
   Write-Host "web_Agent image save gateway is already running on http://127.0.0.1:3017 ." -ForegroundColor Yellow
-  Write-Host "Writable whitelist changes take effect immediately; authorize a directory, then rerun the tool card." -ForegroundColor Yellow
+  Write-Host "Local trust mode is enabled: write/edit/create/move can target any local path." -ForegroundColor Yellow
+  Write-Host "Write operations are audited at generated/audit/writes.jsonl." -ForegroundColor Yellow
   return
 }
 
@@ -137,7 +138,8 @@ else {
 try {
   if ($mcpAlreadyRunning) {
     Write-Host "MCP filesystem bridge is already running on http://127.0.0.1:3006/sse ." -ForegroundColor Yellow
-    Write-Host "Writable whitelist changes take effect immediately; authorize a directory, then rerun the tool card." -ForegroundColor Yellow
+    Write-Host "Local trust mode is enabled: write/edit/create/move can target any local path." -ForegroundColor Yellow
+    Write-Host "Write operations are audited at generated/audit/writes.jsonl." -ForegroundColor Yellow
     if ($gatewayJob) {
       Write-Host "Image save gateway was started in this window. Keep this window open, or press Ctrl+C to stop it." -ForegroundColor Yellow
       while ($gatewayJob.State -eq "Running") {
@@ -149,11 +151,12 @@ try {
   }
 
   Write-Host "Starting MCP filesystem bridge on http://127.0.0.1:3006/sse ..." -ForegroundColor Cyan
-  Write-Host "Writable allowed directories:" -ForegroundColor Cyan
+  Write-Host "Local trust mode enabled: write/edit/create/move can target any local path." -ForegroundColor Cyan
+  Write-Host "Write operations are audited at generated/audit/writes.jsonl." -ForegroundColor Cyan
+  Write-Host "Legacy allowed directories file entries (informational only):" -ForegroundColor Cyan
   foreach ($directory in $allowedDirectories) {
     Write-Host "  - $directory"
   }
-  Write-Host "Standard mode: browsing/reading can cross directories; write/edit/create/move needs whitelist approval." -ForegroundColor Cyan
 
   $mcpProxyArgs = @(
     "-y"
