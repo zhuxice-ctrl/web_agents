@@ -11,6 +11,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "check:boundaries": "node tools/check-product-boundaries.mjs",
+    "test:core": "npm --workspace @web-agents/local-core test",
     "test:council-browser": "node --test products/roundtable/tests/legacy-council/council-browser.test.mjs",
     "test:config-gateway": "node --test products/plugin/services/config-gateway.test.mjs",
     "test:roundtable-compat-extension": "node --test products/roundtable/compat-extension/test/*.test.mjs",
@@ -21,6 +23,7 @@
     "test:roundtable-browser": "npm --workspace @web-agents/roundtable-product run test:browser",
     "test:roundtable": "npm --workspace @web-agents/roundtable-product test",
     "start:roundtable": "npm --workspace @web-agents/roundtable-product start",
+    "test:all": "npm run check:boundaries && npm run test:core && npm run test:plugin && npm run test:roundtable",
     "test:local-runtime": "npm run test:config-gateway && npm run test:plugin && npm run test:roundtable-compat-extension && npm run test:roundtable-web && npm run test:council-browser && npm run test:roundtable-browser && npm run test:launcher"
   },
   "dependencies": {
