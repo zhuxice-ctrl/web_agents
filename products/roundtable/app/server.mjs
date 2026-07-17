@@ -39,7 +39,7 @@ import { defaultToolRegistry } from "@web-agents/local-core/tool-registry";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const defaultRepoRoot = path.resolve(__dirname, "..", "..");
+const defaultRepoRoot = path.resolve(__dirname, "..", "..", "..");
 const defaultPublicDir = path.join(__dirname, "public");
 const defaultHost = process.env.WEB_AGENTS_ROUNDTABLE_HOST || "127.0.0.1";
 const defaultPort = Number(process.env.WEB_AGENTS_ROUNDTABLE_PORT || 3020);

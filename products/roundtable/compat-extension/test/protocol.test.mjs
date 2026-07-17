@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
-const protocolPath = "products/roundtable/compat-extension/content/roundtable-protocol.js";
+const protocolPath = fileURLToPath(new URL("../content/roundtable-protocol.js", import.meta.url));
 
 function loadProtocol({ includeModule = true } = {}) {
   const code = fs.readFileSync(protocolPath, "utf8");

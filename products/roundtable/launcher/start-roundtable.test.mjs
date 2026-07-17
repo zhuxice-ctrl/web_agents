@@ -9,10 +9,11 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
-const launcherPath = path.join(__dirname, "start-web-agents-roundtable.ps1");
-const browserLauncherPath = path.join(__dirname, "start-web-agents-browser.ps1");
-const rootBatPath = path.join(repoRoot, "start-web-agents.bat");
+const productRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const launcherPath = path.join(__dirname, "start-roundtable.ps1");
+const browserLauncherPath = path.join(__dirname, "start-browser.ps1");
+const rootBatPath = path.join(productRoot, "start-roundtable.bat");
 const isWindows = process.platform === "win32";
 
 const fakeChromeSource = String.raw`
@@ -198,8 +199,8 @@ async function fetchFreshJson(url) {
 test("launcher source is parseable and defaults to the verified CDP service host", { skip: !isWindows }, async () => {
   const source = await fs.readFile(launcherPath, "utf8");
   assert.doesNotMatch(source, /mcp-proxy@latest/i);
-  assert.match(source, /start-web-agents-local-services\.mjs/i);
-  assert.match(source, /start-web-agents-browser\.ps1/i);
+  assert.match(source, /start-roundtable-services\.mjs/i);
+  assert.match(source, /start-browser\.ps1/i);
   assert.match(source, /MCP 3006, gateway 3017, Chrome CDP \$CdpPort, Playwright MCP 8931/i);
   assert.match(source, /\[int\] \$CdpPort = 9223/i);
   assert.match(source, /\[string\] \$BrowserMode = "cdp"/i);
@@ -207,7 +208,7 @@ test("launcher source is parseable and defaults to the verified CDP service host
   assert.match(source, /Stop-VerifiedProcessTree/);
   assert.match(source, /Normalize-ProcessPathEnvironment/);
   assert.match(source, /CleanupLaunchStatePath/);
-  assert.match(source, /web-agents-native-process\.ps1/i);
+  assert.match(source, /native-process\.ps1/i);
   assert.doesNotMatch(source, /Get-CimInstance/i);
   assert.doesNotMatch(source, /Get-NetTCPConnection/i);
 
@@ -229,7 +230,7 @@ test("root BAT uses UTF-8 and forwards arguments to the verified launcher", { sk
   const source = await fs.readFile(rootBatPath, "utf8");
 
   assert.match(source, /chcp 65001/i);
-  assert.match(source, /start-web-agents-roundtable\.ps1/i);
+  assert.match(source, /start-roundtable\.ps1/i);
   assert.match(source, /%\*/);
   assert.match(source, /exit \/b %ERRORLEVEL%/i);
 });

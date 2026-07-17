@@ -11,14 +11,16 @@
     "node": ">=24"
   },
   "scripts": {
-    "test:council-browser": "node --test scripts/council-browser.test.mjs",
+    "test:council-browser": "node --test products/roundtable/tests/legacy-council/council-browser.test.mjs",
     "test:config-gateway": "node --test products/plugin/services/config-gateway.test.mjs",
     "test:roundtable-compat-extension": "node --test products/roundtable/compat-extension/test/*.test.mjs",
     "test:plugin": "npm --workspace @web-agents/plugin-product test",
     "build:plugin": "npm --workspace @web-agents/plugin-product run build",
-    "test:launcher": "node --test scripts/start-web-agents-roundtable.test.mjs scripts/start-web-agents-browser.test.mjs scripts/start-web-agents-local-services.test.mjs scripts/web-agent-filesystem-http-server.test.mjs",
-    "test:roundtable-web": "node --test apps/roundtable-web/server.test.mjs apps/roundtable-web/server-runtime.test.mjs apps/roundtable-web/server-workspace.test.mjs apps/roundtable-web/storage/*.test.mjs apps/roundtable-web/orchestrator/*.test.mjs apps/roundtable-web/mcp/*.test.mjs apps/roundtable-web/public/*.test.mjs apps/roundtable-web/automation/browser-manager.test.mjs apps/roundtable-web/automation/provider-concurrency.test.mjs apps/roundtable-web/automation/controller-tool-worker.test.mjs apps/roundtable-web/automation/completion-detector.test.mjs apps/roundtable-web/automation/extension-relay.test.mjs apps/roundtable-web/automation/extension-browser-manager.test.mjs apps/roundtable-web/automation/extension-worker.test.mjs",
-    "test:roundtable-browser": "node --test apps/roundtable-web/automation/worker.e2e.test.mjs apps/roundtable-web/automation/roundtable-fake.e2e.test.mjs",
+    "test:launcher": "npm --workspace @web-agents/roundtable-product run test:launcher",
+    "test:roundtable-web": "npm --workspace @web-agents/roundtable-product run test:core",
+    "test:roundtable-browser": "npm --workspace @web-agents/roundtable-product run test:browser",
+    "test:roundtable": "npm --workspace @web-agents/roundtable-product test",
+    "start:roundtable": "npm --workspace @web-agents/roundtable-product start",
     "test:local-runtime": "npm run test:config-gateway && npm run test:plugin && npm run test:roundtable-compat-extension && npm run test:roundtable-web && npm run test:council-browser && npm run test:roundtable-browser && npm run test:launcher"
   },
   "dependencies": {

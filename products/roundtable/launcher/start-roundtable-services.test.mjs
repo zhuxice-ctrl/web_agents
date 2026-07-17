@@ -4,8 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { startLocalServices } from "./start-web-agents-local-services.mjs";
-import { imageSaveGatewayServer } from "./web-agent-image-save-gateway.mjs";
+import { startLocalServices } from "./start-roundtable-services.mjs";
 
 test("local service host owns filesystem, gateway, and roundtable health endpoints", async (t) => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-services-"));
@@ -16,7 +15,6 @@ test("local service host owns filesystem, gateway, and roundtable health endpoin
     roundtablePort: 0,
     skipPlaywrightMcp: true,
     requireWorkspaceSelection: false,
-    gatewayServer: imageSaveGatewayServer,
   });
   t.after(async () => {
     await services.close();
@@ -27,7 +25,7 @@ test("local service host owns filesystem, gateway, and roundtable health endpoin
   const gateway = await fetch(`http://127.0.0.1:${services.ports.gateway}/health`).then((response) => response.json());
   const roundtable = await fetch(`http://127.0.0.1:${services.ports.roundtable}/api/health`).then((response) => response.json());
   assert.equal(filesystem.service, "web-agents-filesystem-mcp");
-  assert.equal(gateway.service, "web-agents-local-gateway");
+  assert.equal(gateway.service, "web-agents-plugin-gateway");
   assert.equal(roundtable.service, "web-agents-roundtable");
   assert.equal(filesystem.pid, process.pid);
   assert.equal(gateway.pid, process.pid);

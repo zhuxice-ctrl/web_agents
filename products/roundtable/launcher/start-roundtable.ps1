@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-. (Join-Path $PSScriptRoot "web-agents-native-process.ps1")
+. (Join-Path $PSScriptRoot "native-process.ps1")
 
 function Normalize-ProcessPathEnvironment {
   $processPath = $env:PATH
@@ -29,12 +29,13 @@ $ExitPreflight = 10
 $ExitPortConflict = 20
 $ExitStartup = 30
 $ServiceId = "web-agents-roundtable"
-$repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$roundtableScript = Join-Path $repoRoot "apps/roundtable-web/server.mjs"
-$serviceHostScript = Join-Path $repoRoot "scripts/start-web-agents-local-services.mjs"
-$browserLauncher = Join-Path $repoRoot "scripts/start-web-agents-browser.ps1"
+$productRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
+$roundtableScript = Join-Path $productRoot "app/server.mjs"
+$serviceHostScript = Join-Path $PSScriptRoot "start-roundtable-services.mjs"
+$browserLauncher = Join-Path $PSScriptRoot "start-browser.ps1"
 $launchScript = if ($RoundtableOnly -or $BrowserMode -eq "extension") { $roundtableScript } else { $serviceHostScript }
-$logDir = Join-Path $repoRoot "generated/logs"
+$logDir = Join-Path $productRoot "data/logs"
 $roundtableUrl = "http://127.0.0.1:$RoundtablePort"
 $healthUrl = "$roundtableUrl/api/health"
 $startedProcess = $null
@@ -270,7 +271,7 @@ function Resolve-ChromePath {
 }
 
 function Resolve-DataRoot {
-  $configPath = Join-Path $repoRoot "config/data-root.local.txt"
+  $configPath = Join-Path $productRoot "config/data-root.local.txt"
   if ($env:WEB_AGENTS_DATA_ROOT) {
     $candidate = $env:WEB_AGENTS_DATA_ROOT.Trim()
   }
@@ -278,7 +279,7 @@ function Resolve-DataRoot {
     $candidate = (Get-Content -LiteralPath $configPath -Encoding UTF8 -Raw).Trim([char]0xFEFF).Trim()
   }
   else {
-    $candidate = Join-Path $repoRoot "generated/roundtable-data"
+    $candidate = Join-Path $productRoot "data/roundtable"
   }
 
   if (-not $candidate -or -not [IO.Path]::IsPathRooted($candidate)) {

@@ -6,13 +6,13 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
-import { createRoundtableServer } from "../apps/roundtable-web/server.mjs";
-import { createFilesystemHttpServer } from "./web-agent-filesystem-http-server.mjs";
-import { imageSaveGatewayServer } from "./web-agent-image-save-gateway.mjs";
+import { createRoundtableServer } from "../app/server.mjs";
+import { createFilesystemHttpServer } from "../../plugin/services/filesystem-http-server.mjs";
+import { createPluginGatewayServer } from "../../plugin/services/plugin-gateway.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const defaultRepoRoot = path.resolve(__dirname, "..");
+const defaultRepoRoot = path.resolve(__dirname, "..", "..", "..");
 
 async function listen(server, port, host) {
   server.listen(port, host);
@@ -81,11 +81,17 @@ export async function startLocalServices({
   playwrightMcpPort = 8931,
   skipPlaywrightMcp = false,
   requireWorkspaceSelection = true,
-  gatewayServer = imageSaveGatewayServer,
+  gatewayServer = null,
   roundtableOptions = {},
 } = {}) {
   const resolvedRoot = path.resolve(repoRoot);
-  const filesystemServer = createFilesystemHttpServer({ repoRoot: resolvedRoot, host, port: filesystemPort });
+  const pluginRoot = path.join(resolvedRoot, "products", "plugin");
+  const filesystemServer = createFilesystemHttpServer({
+    productRoot: pluginRoot,
+    host,
+    port: filesystemPort,
+  });
+  const activeGatewayServer = gatewayServer || createPluginGatewayServer({ productRoot: pluginRoot });
   let playwrightProcess = null;
   const ports = { filesystem: filesystemPort, gateway: gatewayPort, roundtable: roundtablePort, cdp: cdpPort, playwrightMcp: playwrightMcpPort };
   const localServicesProvider = async () => ({
@@ -107,7 +113,7 @@ export async function startLocalServices({
   try {
     const filesystemAddress = await listen(filesystemServer, filesystemPort, host);
     ports.filesystem = filesystemAddress.port;
-    const gatewayAddress = await listen(gatewayServer, gatewayPort, host);
+    const gatewayAddress = await listen(activeGatewayServer, gatewayPort, host);
     ports.gateway = gatewayAddress.port;
     if (!skipPlaywrightMcp) {
       playwrightProcess = spawnPlaywrightMcp({
@@ -122,7 +128,7 @@ export async function startLocalServices({
     ports.roundtable = roundtableAddress.port;
   } catch (error) {
     if (playwrightProcess && !playwrightProcess.killed) playwrightProcess.kill();
-    await Promise.allSettled([closeServer(roundtableServer), closeServer(gatewayServer), closeServer(filesystemServer)]);
+    await Promise.allSettled([closeServer(roundtableServer), closeServer(activeGatewayServer), closeServer(filesystemServer)]);
     throw error;
   }
 
@@ -134,7 +140,7 @@ export async function startLocalServices({
       playwrightProcess.kill();
       await Promise.race([once(playwrightProcess, "exit"), new Promise((resolve) => setTimeout(resolve, 3000))]).catch(() => {});
     }
-    await Promise.allSettled([closeServer(roundtableServer), closeServer(gatewayServer), closeServer(filesystemServer)]);
+    await Promise.allSettled([closeServer(roundtableServer), closeServer(activeGatewayServer), closeServer(filesystemServer)]);
   }
 
   return {
@@ -142,7 +148,7 @@ export async function startLocalServices({
     host,
     ports,
     filesystemServer,
-    gatewayServer,
+    gatewayServer: activeGatewayServer,
     roundtableServer,
     get playwrightProcess() { return playwrightProcess; },
     status: localServicesProvider,

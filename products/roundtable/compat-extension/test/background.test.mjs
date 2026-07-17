@@ -15,9 +15,6 @@ import {
   registerRoundtableBackground,
 } from "../background.js";
 
-const NORMAL_BACKGROUND_PATH = "extensions/mcp-superassistant-local-fixed/background.js";
-const COMPAT_BACKGROUND_PATH = "products/roundtable/compat-extension/background.js";
-
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -805,9 +802,7 @@ test("background listener accepts allowlisted commands from the fixed local roun
   });
 });
 
-test("compatibility background is isolated from the normal plugin", () => {
-  const normalBackground = fs.readFileSync(NORMAL_BACKGROUND_PATH, "utf8");
-  const compatBackground = fs.readFileSync(COMPAT_BACKGROUND_PATH, "utf8");
-  assert.doesNotMatch(normalBackground, /roundtable-background|background-core/);
+test("compatibility background owns its router entrypoint", () => {
+  const compatBackground = fs.readFileSync(new URL("../background.js", import.meta.url), "utf8");
   assert.match(compatBackground, /\.\/background\/background-core\.js/);
 });

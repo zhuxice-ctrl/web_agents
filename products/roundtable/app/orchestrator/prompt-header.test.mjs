@@ -35,7 +35,7 @@ test("fixed prompt header always includes the UTF-8 IO encoding skill", () => {
 
 test("project agent header pins fixed-io-encoding for every repository agent", () => {
   const agentHeader = readFileSync(
-    new URL("../../../.codex/AGENT_HEADER.md", import.meta.url),
+    new URL("../../../../.codex/AGENT_HEADER.md", import.meta.url),
     "utf8",
   );
 

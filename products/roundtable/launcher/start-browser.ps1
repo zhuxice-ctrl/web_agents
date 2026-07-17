@@ -9,13 +9,18 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-. (Join-Path $PSScriptRoot "web-agents-native-process.ps1")
+. (Join-Path $PSScriptRoot "native-process.ps1")
 
 $ExitPreflight = 10
 $ExitPortConflict = 20
 $ExitStartup = 30
-$repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$profileDir = [IO.Path]::GetFullPath((Join-Path $repoRoot "browser-profiles\roundtable"))
+$productRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
+$profileDir = if ($env:WEB_AGENTS_ROUNDTABLE_PROFILE_DIR) {
+  [IO.Path]::GetFullPath($env:WEB_AGENTS_ROUNDTABLE_PROFILE_DIR)
+} else {
+  [IO.Path]::GetFullPath((Join-Path $productRoot "data\browser-profile"))
+}
 $cdpEndpoint = "http://127.0.0.1:$CdpPort"
 
 function Throw-BrowserLauncherError {

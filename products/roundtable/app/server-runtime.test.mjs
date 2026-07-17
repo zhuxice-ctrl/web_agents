@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 
 import { createRoundtableServer, createSession as createStoredSession } from "./server.mjs";
 import { RoundtableScheduler } from "./orchestrator/scheduler.mjs";
@@ -208,7 +209,7 @@ test("extension runtime rejects a session configured for the CDP browser mode", 
 });
 
 test("direct server startup rejects a custom port in extension mode", async () => {
-  const child = spawn(process.execPath, [path.resolve("apps/roundtable-web/server.mjs")], {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./server.mjs", import.meta.url))], {
     cwd: path.resolve("."),
     env: {
       ...process.env,

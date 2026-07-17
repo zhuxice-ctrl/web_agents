@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const extensionRoot = "products/roundtable/compat-extension";
+const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(fs.readFileSync(`${extensionRoot}/manifest.json`, "utf8"));
 
 function scriptWith(fileName) {

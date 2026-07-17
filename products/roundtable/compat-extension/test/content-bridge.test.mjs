@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
-const contentBridgePath = "products/roundtable/compat-extension/content/roundtable-content-bridge.js";
+const contentBridgePath = fileURLToPath(new URL("../content/roundtable-content-bridge.js", import.meta.url));
 const composerSelector = "#prompt-textarea, textarea:not([readonly]):not([disabled]), [role='textbox'][contenteditable='true']";
 
 function toPlain(value) {

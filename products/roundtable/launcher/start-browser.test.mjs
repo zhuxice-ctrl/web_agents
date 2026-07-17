@@ -8,22 +8,22 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
-const launcherPath = path.join(__dirname, "start-web-agents-browser.ps1");
-const processHelperPath = path.join(__dirname, "web-agents-native-process.ps1");
-const rootBatPath = path.join(repoRoot, "start-web-agents-browser.bat");
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const launcherPath = path.join(__dirname, "start-browser.ps1");
+const processHelperPath = path.join(__dirname, "native-process.ps1");
+const rootBatPath = path.join(__dirname, "start-browser.bat");
 const isWindows = process.platform === "win32";
 
 test("manual browser launcher is parseable and never contains provider navigation", { skip: !isWindows }, async () => {
   const source = await fs.readFile(launcherPath, "utf8");
   assert.match(source, /--remote-debugging-address=127\.0\.0\.1/i);
   assert.match(source, /--remote-debugging-port=\$CdpPort/i);
-  assert.match(source, /browser-profiles\\roundtable/i);
+  assert.match(source, /data\\browser-profile/i);
   assert.match(source, /current CDP listener does not match this launch receipt/i);
   assert.match(source, /\[string\]\s+\$LaunchStatePath/i);
   assert.match(source, /\[string\]\s+\$CleanupLaunchStatePath/i);
   assert.match(source, /OwnershipToken/i);
-  assert.match(source, /web-agents-native-process\.ps1/i);
+  assert.match(source, /native-process\.ps1/i);
   assert.doesNotMatch(source, /Get-CimInstance/i);
   assert.doesNotMatch(source, /Get-NetTCPConnection/i);
   assert.doesNotMatch(source, /chatgpt\.com|chat\.deepseek\.com|doubao\.com/i);
@@ -80,7 +80,7 @@ test("native process helper returns bounded process and TCP listener metadata", 
 test("manual browser BAT uses UTF-8 and forwards user arguments", { skip: !isWindows }, async () => {
   const source = await fs.readFile(rootBatPath, "utf8");
   assert.match(source, /chcp 65001/i);
-  assert.match(source, /start-web-agents-browser\.ps1/i);
+  assert.match(source, /start-browser\.ps1/i);
   assert.match(source, /%\*/);
   assert.match(source, /exit \/b %ERRORLEVEL%/i);
 });

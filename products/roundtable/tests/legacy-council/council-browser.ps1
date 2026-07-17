@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")
 $scriptPath = Join-Path $PSScriptRoot "council-browser.mjs"
 
 $nodeArgs = @(

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
-const protocolPath = "products/roundtable/compat-extension/content/roundtable-protocol.js";
-const pageBridgePath = "products/roundtable/compat-extension/content/roundtable-page-bridge.js";
+const protocolPath = fileURLToPath(new URL("../content/roundtable-protocol.js", import.meta.url));
+const pageBridgePath = fileURLToPath(new URL("../content/roundtable-page-bridge.js", import.meta.url));
 
 function loadContentScriptExports(filePath) {
   const code = fs.readFileSync(filePath, "utf8");
