@@ -16,12 +16,8 @@ import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
-import { appendRoundtableMessage, createRoundtableSession, joinRoundtableParticipant } from "../sessions/roundtable";
-import type { RoundtableSession } from "../shared/types";
-import { createRoundtableOrchestrator } from "./roundtable-orchestrator";
 
 const CONFIG_STORAGE_KEY = "webAgentsConfig";
-const roundtableSessions = new Map<string, RoundtableSession>();
 
 async function getConfig(): Promise<ExtensionConfig> {
   const stored = await chrome.storage.local.get(CONFIG_STORAGE_KEY);
@@ -111,30 +107,6 @@ async function sendToTab<T extends ExtensionRequest["type"]>(
       error: `目标页面暂不可操作：${error instanceof Error ? error.message : String(error)}`
     };
   }
-}
-
-const roundtableOrchestrator = createRoundtableOrchestrator({ sendToTab });
-
-function getRoundtableSessionOrError(sessionId: string): RoundtableSession {
-  const session = roundtableSessions.get(sessionId);
-  if (!session) {
-    throw new Error("Roundtable session not found.");
-  }
-
-  return session;
-}
-
-function saveRoundtableSession(session: RoundtableSession): RoundtableSession {
-  roundtableSessions.set(session.id, session);
-  return session;
-}
-
-function pauseRoundtableSession(session: RoundtableSession): RoundtableSession {
-  return saveRoundtableSession({
-    ...session,
-    state: "paused",
-    updatedAt: new Date().toISOString()
-  });
 }
 
 async function openProvider(providerId: ProviderId): Promise<ExtensionResponse<"tabs:open-provider">> {
@@ -382,83 +354,6 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         case "tab:capture-latest":
         case "tab:capture-recent": {
           sendResponse(await sendToTab(message, sender.tab?.id));
-          return;
-        }
-        case "roundtable:create": {
-          const session = saveRoundtableSession(
-            createRoundtableSession({
-              title: message.title,
-              objective: message.objective,
-              mainProvider: message.mainProvider,
-              mainTabId: message.mainTabId,
-              participantProviders: message.participantProviders,
-              maxRounds: message.maxRounds
-            })
-          );
-          sendResponse({ ok: true, type: message.type, data: session });
-          return;
-        }
-        case "roundtable:import-main-context": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(await roundtableOrchestrator.importMainContext(session));
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:start": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(await roundtableOrchestrator.step({ ...session, state: "running" }));
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:pause": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          sendResponse({ ok: true, type: message.type, data: pauseRoundtableSession(session) });
-          return;
-        }
-        case "roundtable:step": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(await roundtableOrchestrator.step(session));
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:capture": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(await roundtableOrchestrator.capture(session, message.provider));
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:summarize": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(await roundtableOrchestrator.summarize(session));
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:add-guidance": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const text = message.text.trim();
-          const nextSession = text
-            ? saveRoundtableSession(
-                appendRoundtableMessage(session, {
-                  speaker: "user",
-                  text,
-                  source: "web_agents_user"
-                })
-              )
-            : session;
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:add-participant": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          const nextSession = saveRoundtableSession(
-            joinRoundtableParticipant(session, message.provider, message.tabId)
-          );
-          sendResponse({ ok: true, type: message.type, data: nextSession });
-          return;
-        }
-        case "roundtable:get": {
-          const session = getRoundtableSessionOrError(message.sessionId);
-          sendResponse({ ok: true, type: message.type, data: session });
           return;
         }
         default:

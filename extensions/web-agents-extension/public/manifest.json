@@ -14,8 +14,10 @@
   },
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
-    "http://127.0.0.1/*",
-    "http://localhost/*",
+    "http://127.0.0.1:3006/*",
+    "http://localhost:3006/*",
+    "http://127.0.0.1:3017/*",
+    "http://localhost:3017/*",
     "*://chatgpt.com/*",
     "*://chat.openai.com/*",
     "*://gemini.google.com/*",
@@ -32,11 +34,6 @@
     "*://aistudio.google.com/*"
   ],
   "content_scripts": [
-    {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
-      "js": ["bridge.js"],
-      "run_at": "document_start"
-    },
     {
       "matches": [
         "*://chatgpt.com/*",

@@ -13,7 +13,6 @@ import type {
   ProviderTabStatus,
   RecentConversationCapture,
   ResponseSnapshot,
-  RoundtableSession,
   WebAgentInstructionTemplate,
   WebAgentToolCall,
   WebAgentToolExecutionResult
@@ -36,25 +35,7 @@ export type ExtensionRequest =
   | { type: "tab:insert-text"; text: string; tabId?: number }
   | { type: "tab:auto-send-text"; text: string; tabId?: number }
   | { type: "tab:capture-latest"; tabId?: number }
-  | { type: "tab:capture-recent"; tabId?: number; limit?: number }
-  | {
-      type: "roundtable:create";
-      title: string;
-      objective: string;
-      mainProvider: ProviderId;
-      mainTabId?: number;
-      participantProviders: ProviderId[];
-      maxRounds: number;
-    }
-  | { type: "roundtable:import-main-context"; sessionId: string }
-  | { type: "roundtable:start"; sessionId: string }
-  | { type: "roundtable:pause"; sessionId: string }
-  | { type: "roundtable:step"; sessionId: string }
-  | { type: "roundtable:capture"; sessionId: string; provider: ProviderId }
-  | { type: "roundtable:summarize"; sessionId: string }
-  | { type: "roundtable:add-guidance"; sessionId: string; text: string }
-  | { type: "roundtable:add-participant"; sessionId: string; provider: ProviderId; tabId?: number }
-  | { type: "roundtable:get"; sessionId: string };
+  | { type: "tab:capture-recent"; tabId?: number; limit?: number };
 
 export type ExtensionResponseMap = {
   "config:get": ExtensionConfig;
@@ -74,16 +55,6 @@ export type ExtensionResponseMap = {
   "tab:auto-send-text": AutoSendResult;
   "tab:capture-latest": ResponseSnapshot;
   "tab:capture-recent": RecentConversationCapture;
-  "roundtable:create": RoundtableSession;
-  "roundtable:import-main-context": RoundtableSession;
-  "roundtable:start": RoundtableSession;
-  "roundtable:pause": RoundtableSession;
-  "roundtable:step": RoundtableSession;
-  "roundtable:capture": RoundtableSession;
-  "roundtable:summarize": RoundtableSession;
-  "roundtable:add-guidance": RoundtableSession;
-  "roundtable:add-participant": RoundtableSession;
-  "roundtable:get": RoundtableSession;
 };
 
 export type ExtensionResponse<T extends ExtensionRequest["type"] = ExtensionRequest["type"]> =

@@ -19,8 +19,7 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, "index.html"),
         background: resolve(__dirname, "src/background/index.ts"),
-        content: resolve(__dirname, "src/content/index.ts"),
-        bridge: resolve(__dirname, "src/bridge/index.ts")
+        content: resolve(__dirname, "src/content/index.ts")
       },
       output: {
         entryFileNames: (chunk) => (chunk.name === "popup" ? "assets/[name].js" : "[name].js"),

@@ -158,7 +158,7 @@ describe("auto-submit helper", () => {
       </form>
     `;
 
-    const result = await sendTextIfComposerIdle(document, undefined, "<roundtable>next</roundtable>");
+    const result = await sendTextIfComposerIdle(document, undefined, "<function_result>next</function_result>");
 
     expect(result.state).toBe("no_submit");
     expect(result.message).toContain("没有可用的发送按钮");

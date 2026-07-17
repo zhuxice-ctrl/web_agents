@@ -10,7 +10,6 @@ import type {
   ParticipantStatus,
   PreparedTask,
   ProviderId,
-  RoundtableSession,
   TaskSession
 } from "../shared/types";
 import type { ExtensionRequest, ExtensionResponse } from "../shared/messages";
@@ -19,7 +18,6 @@ import { CurrentPagePanel } from "./panels/CurrentPagePanel";
 import { McpPanel } from "./panels/McpPanel";
 import { MultiModelBoard } from "./panels/MultiModelBoard";
 import { PermissionPanel } from "./panels/PermissionPanel";
-import { RoundtableSessionPanel } from "./panels/RoundtableSessionPanel";
 import { SettingsPanel } from "./panels/SettingsPanel";
 import { TaskPanel } from "./panels/TaskPanel";
 
@@ -47,11 +45,6 @@ export function App() {
   const [mcpStatus, setMcpStatus] = useState<McpStatus>(DEFAULT_MCP_STATUS);
   const [taskText, setTaskText] = useState("");
   const [taskSession, setTaskSession] = useState<TaskSession>(() => createTaskSession(""));
-  const [roundtableObjective, setRoundtableObjective] = useState(
-    "让 GPT 和 DeepSeek 讨论五轮，最后形成一个可执行方案。"
-  );
-  const [roundtableGuidance, setRoundtableGuidance] = useState("");
-  const [roundtableSession, setRoundtableSession] = useState<RoundtableSession | undefined>();
   const [feedback, setFeedback] = useState("");
   const [isBusy, setBusy] = useState(false);
 
@@ -273,95 +266,6 @@ export function App() {
     [pageStatus, t, taskSession.participants, updateParticipant]
   );
 
-  const createRoundtable = useCallback(async () => {
-    if (pageStatus.provider === "unknown") {
-      setFeedback(t("roundtable.detectMain"));
-      return;
-    }
-
-    const response = await sendMessage<"roundtable:create">({
-      type: "roundtable:create",
-      title: taskText.trim().slice(0, 48) || t("roundtable.title"),
-      objective: roundtableObjective,
-      mainProvider: pageStatus.provider,
-      mainTabId: pageStatus.tabId,
-      participantProviders: ["deepseek"],
-      maxRounds: 5
-    });
-
-    if (response.ok) {
-      setRoundtableSession(response.data);
-      setFeedback(t("roundtable.created"));
-    } else {
-      setFeedback(response.error);
-    }
-  }, [pageStatus.provider, pageStatus.tabId, roundtableObjective, t, taskText]);
-
-  const updateRoundtable = useCallback(
-    async (request: ExtensionRequest) => {
-      const response = await sendMessage(request);
-      if (response.ok) {
-        setRoundtableSession(response.data as RoundtableSession);
-        setFeedback(t("roundtable.updated"));
-      } else {
-        setFeedback(response.error);
-      }
-    },
-    [t]
-  );
-
-  const addRoundtableGuidance = useCallback(async () => {
-    if (!roundtableSession || !roundtableGuidance.trim()) return;
-
-    const response = await sendMessage<"roundtable:add-guidance">({
-      type: "roundtable:add-guidance",
-      sessionId: roundtableSession.id,
-      text: roundtableGuidance
-    });
-
-    if (response.ok) {
-      setRoundtableSession(response.data);
-      setRoundtableGuidance("");
-      setFeedback(t("roundtable.guidanceAdded"));
-    } else {
-      setFeedback(response.error);
-    }
-  }, [roundtableGuidance, roundtableSession, t]);
-
-  const addRoundtableParticipant = useCallback(
-    async (provider: ProviderId) => {
-      if (!roundtableSession) return;
-
-      const participant = taskSession.participants.find((item) => item.provider === provider);
-      const isCurrentPage = provider === pageStatus.provider;
-      let tabId = participant?.tabId ?? (isCurrentPage ? pageStatus.tabId : undefined);
-
-      if (!tabId && !isCurrentPage) {
-        tabId = await openProvider(provider);
-      }
-
-      if (!tabId && provider !== roundtableSession.mainProvider) {
-        setFeedback(t("board.openFirst"));
-        return;
-      }
-
-      const response = await sendMessage<"roundtable:add-participant">({
-        type: "roundtable:add-participant",
-        sessionId: roundtableSession.id,
-        provider,
-        tabId
-      });
-
-      if (response.ok) {
-        setRoundtableSession(response.data);
-        setFeedback(t("roundtable.participantAdded"));
-      } else {
-        setFeedback(response.error);
-      }
-    },
-    [openProvider, pageStatus.provider, pageStatus.tabId, roundtableSession, t, taskSession.participants]
-  );
-
   const changeLocale = useCallback(async (locale: Locale) => {
     const response = await sendMessage<"config:set-locale">({ type: "config:set-locale", locale });
     if (response.ok) setConfig(response.data);
@@ -425,39 +329,6 @@ export function App() {
         <PermissionPanel snapshot={config.permissions} t={t} />
         <SettingsPanel config={config} t={t} />
       </div>
-
-      <RoundtableSessionPanel
-        currentProvider={pageStatus.provider}
-        guidance={roundtableGuidance}
-        objective={roundtableObjective}
-        session={roundtableSession}
-        t={t}
-        onAddGuidance={() => void addRoundtableGuidance()}
-        onAddParticipant={(provider) => void addRoundtableParticipant(provider)}
-        onCapture={(provider) =>
-          roundtableSession &&
-          void updateRoundtable({ type: "roundtable:capture", sessionId: roundtableSession.id, provider })
-        }
-        onCreate={() => void createRoundtable()}
-        onGuidanceChange={setRoundtableGuidance}
-        onImport={() =>
-          roundtableSession &&
-          void updateRoundtable({ type: "roundtable:import-main-context", sessionId: roundtableSession.id })
-        }
-        onObjectiveChange={setRoundtableObjective}
-        onPause={() =>
-          roundtableSession && void updateRoundtable({ type: "roundtable:pause", sessionId: roundtableSession.id })
-        }
-        onStart={() =>
-          roundtableSession && void updateRoundtable({ type: "roundtable:start", sessionId: roundtableSession.id })
-        }
-        onStep={() =>
-          roundtableSession && void updateRoundtable({ type: "roundtable:step", sessionId: roundtableSession.id })
-        }
-        onSummarize={() =>
-          roundtableSession && void updateRoundtable({ type: "roundtable:summarize", sessionId: roundtableSession.id })
-        }
-      />
 
       <MultiModelBoard
         currentProvider={pageStatus.provider}
