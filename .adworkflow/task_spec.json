@@ -1,0 +1,32 @@
+{
+  "schema": "ADworkflo.task_spec.v1",
+  "configured": true,
+  "task_id": "plugin-roundtable-product-isolation",
+  "task_type": "code",
+  "goal": "Split Web Agents into an independently installable normal plugin product, an extension-independent roundtable product, and a UI-free local security core.",
+  "scope": [
+    "products/plugin/**",
+    "products/roundtable/**",
+    "packages/local-core/**",
+    "tools/check-product-boundaries.mjs",
+    "tools/product-runtime-isolation.test.mjs",
+    "package.json",
+    "package-lock.json",
+    ".adworkflow/**"
+  ],
+  "non_goals": [
+    "Do not require either extension for the default roundtable CDP runtime.",
+    "Do not mix roundtable UI or state into the normal plugin.",
+    "Do not inspect credentials, cookies, tokens, account identity, or private conversations.",
+    "Do not delete the codex/new-plugin-rewrite branch or its remote ref."
+  ],
+  "acceptance_criteria": [
+    "Normal plugin source and build contain no roundtable product code.",
+    "Roundtable default tests do not load either extension.",
+    "Local core contains no UI, HTTP server, browser API, fixed product port, or product state.",
+    "Plugin owns only filesystem and gateway services; roundtable owns only workbench, Chrome CDP, and Playwright MCP.",
+    "Both products start, stop, test, build, and persist data independently.",
+    "Static product boundaries and concurrent runtime isolation are enforced by tests."
+  ],
+  "live_acceptance_constraint": "Real DeepSeek and Doubao acceptance requires user-owned logged-in tabs and manual handling of verification; it was not executed automatically."
+}

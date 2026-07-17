@@ -26,7 +26,9 @@ async function createValidFixture(t) {
 
 for (const fixture of [
   ["plugin-imports-roundtable", "products/plugin/index.mjs", 'import "@web-agents/roundtable";'],
+  ["plugin-relative-imports-roundtable", "products/plugin/nested/index.mjs", 'import "../../roundtable/index.mjs";'],
   ["roundtable-imports-plugin", "products/roundtable/index.mjs", 'import "@web-agents/plugin";'],
+  ["roundtable-relative-imports-plugin", "products/roundtable/nested/index.mjs", 'import "../../plugin/index.mjs";'],
   ["core-imports-product", "packages/local-core/src/index.mjs", 'import "../../../products/plugin/index.mjs";'],
   ["normal-manifest-has-roundtable", "products/plugin/legacy-extension/manifest.json", '{"name":"roundtable"}'],
 ]) {

@@ -32,6 +32,14 @@ async function scanImports(root, inspect) {
   }
 }
 
+function importsProduct(specifier, file, productRoot, packagePattern) {
+  if (packagePattern.test(specifier)) return true;
+  if (!specifier.startsWith(".")) return false;
+  const resolvedProduct = path.resolve(productRoot);
+  const resolvedImport = path.resolve(path.dirname(file), specifier);
+  return resolvedImport === resolvedProduct || resolvedImport.startsWith(`${resolvedProduct}${path.sep}`);
+}
+
 async function scanCoreForProductTerms(root, violations) {
   const forbidden = /products[\\/]|apps[\\/]|extensions[\\/]|node:http|chrome\.|document\.|localhost|127\.0\.0\.1|\b(?:3006|3017|3020|8931|9223)\b/i;
   for (const file of await walkFiles(root)) {
@@ -61,13 +69,15 @@ async function checkNormalPlugin(root, violations) {
 export async function checkProductBoundaries({ repoRoot }) {
   const resolvedRoot = path.resolve(repoRoot);
   const violations = [];
-  await scanImports(path.join(resolvedRoot, "products/plugin"), (specifier, file) => {
-    if (/products[\\/]roundtable|@web-agents[\\/]roundtable/i.test(specifier)) {
+  const pluginRoot = path.join(resolvedRoot, "products/plugin");
+  const roundtableRoot = path.join(resolvedRoot, "products/roundtable");
+  await scanImports(pluginRoot, (specifier, file) => {
+    if (importsProduct(specifier, file, roundtableRoot, /products[\\/]roundtable|@web-agents[\\/]roundtable/i)) {
       violations.push({ file, rule: "plugin-imports-roundtable", specifier });
     }
   });
-  await scanImports(path.join(resolvedRoot, "products/roundtable"), (specifier, file) => {
-    if (/products[\\/]plugin|@web-agents[\\/]plugin/i.test(specifier)) {
+  await scanImports(roundtableRoot, (specifier, file) => {
+    if (importsProduct(specifier, file, pluginRoot, /products[\\/]plugin|@web-agents[\\/]plugin/i)) {
       violations.push({ file, rule: "roundtable-imports-plugin", specifier });
     }
   });

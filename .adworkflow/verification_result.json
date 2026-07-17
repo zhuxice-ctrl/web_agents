@@ -1,63 +1,25 @@
 {
-  "task_id": "legacy-manual-write-takeover",
+  "schema": "ADworkflo.verification_result.v1",
+  "task_id": "plugin-roundtable-product-isolation",
+  "status": "automated_pass_live_provider_pending",
+  "updated_at": "2026-07-18T04:35:06+08:00",
   "commands": [
-    {
-      "command": "node --test (Get-ChildItem scripts -Filter *.test.mjs | ForEach-Object { $_.FullName })",
-      "cwd": "F:\\web_agents",
-      "result": "passed",
-      "notes": "33 tests passed, covering council browser utilities, insert fallback, permission store, filesystem server marker/token loop, gateway approve/reject, result enhancer parsing, manual write_file refusal detection, manual result unwrapping, and background permission hooks."
-    },
-    {
-      "command": "node --check extensions\\mcp-superassistant-local-fixed\\background.js",
-      "cwd": "F:\\web_agents",
-      "result": "passed",
-      "notes": "Legacy background script parses after adding webAgentManualToolCall."
-    },
-    {
-      "command": "node --check extensions\\mcp-superassistant-local-fixed\\content\\web-agent-result-enhancer.js",
-      "cwd": "F:\\web_agents",
-      "result": "passed",
-      "notes": "Legacy content result enhancer parses after adding refusal detection and manual takeover UI."
-    },
-    {
-      "command": "Invoke-RestMethod -Uri http://127.0.0.1:3017/health -Method Get",
-      "cwd": "F:\\web_agents",
-      "result": "passed",
-      "notes": "Local gateway is running and reports permissionApproval=true."
-    },
-    {
-      "command": "claude -p --model qwen3.7-max --permission-mode plan",
-      "cwd": "F:\\web_agents",
-      "result": "passed",
-      "notes": "Claude Code read-only review of the key manual takeover snippets returned NO_ISSUES_FOUND. Earlier strict full-repo review attempts timed out, and the provided resume id was not found in this CLI context."
-    }
+    { "command": "npm.cmd run test:all", "result": "passed", "duration_seconds": 101.3, "evidence": { "boundaries": "passed", "local_core": "33/33", "plugin_legacy": "18/18", "plugin_services": "26/26", "plugin_source": "65/65 plus typecheck", "roundtable_core": "172/172", "roundtable_browser": "8/8", "roundtable_launcher": "13/13" } },
+    { "command": "npm.cmd run build:plugin", "result": "passed", "evidence": "Production build emitted no case-insensitive roundtable token." },
+    { "command": "npm.cmd --workspace @web-agents/roundtable-product run test:compat", "result": "passed", "evidence": "67/67; separate from default roundtable tests." },
+    { "command": "node --test tools/product-runtime-isolation.test.mjs", "result": "passed", "evidence": "2/2; either product can stop while the other remains healthy." },
+    { "command": "git worktree prune --verbose", "result": "passed", "evidence": "Removed only the missing web_agents-new-plugin-rewrite registration; local and remote branch refs remain at 8b4b416." },
+    { "command": "git diff --check", "result": "passed", "evidence": "No whitespace errors; Windows line-ending warnings only where reported." }
   ],
-  "passed": [
-    "Content script detects model refusal text that mentions write_file, permission/path whitelist signals, a Windows path, and content.",
-    "Detected refusal renders a manual panel with reject and allow execution actions.",
-    "Manual allow sends webAgentManualToolCall to the background script with write_file path/content arguments.",
-    "Background manual tool call only accepts write_file and validates path/content are strings.",
-    "Manual calls still execute through Uy(Pt(), toolName, args, adapterName), so the local MCP backend remains the final write authority.",
-    "Permission markers returned by manual calls are remembered with original args and can flow into the existing approve-and-retry token path.",
-    "Content result unwrapping preserves raw WEB_AGENT_PERMISSION_REQUEST text so the existing approve/retry UI can appear after manual allow.",
-    "The aggregate scan calls enhanceAllCards and enhanceManualWriteRequests without recursion.",
-    "Local gateway health confirms permission approval support is active."
-  ],
-  "failed": [],
-  "not_run": [
-    {
-      "command": "Full unpacked legacy extension + live MCP server + real model page E2E",
-      "reason": "Automated local checks passed, but final visual confirmation requires the user to reload the unpacked extension and trigger a real model refusal in Chrome."
-    },
-    {
-      "command": "Service worker suspend/resume E2E",
-      "reason": "Requires installed extension lifecycle control in Chrome."
-    },
-    {
-      "command": "Multi-tab concurrent manual approvals E2E",
-      "reason": "Requires installed extension and multiple provider tabs."
-    }
-  ],
-  "summary": "The legacy plugin now has a manual takeover path for model write_file refusals. Automated tests, syntax checks, gateway health, and a bounded Claude review passed.",
-  "residual_risk": "The browser UI still needs one real user-side test on a live model page after reloading the unpacked legacy extension."
+  "launcher_timing": {
+    "baseline_chain_seconds": 243.7,
+    "verified_chain_seconds_range": "8.5-12.5",
+    "per_phase_limit_seconds": 30,
+    "total_limit_seconds": 90
+  },
+  "live_acceptance": {
+    "normal_plugin_browser_smoke": "pending user-controlled extension load",
+    "deepseek_doubao_roundtable": "pending user-owned logged-in tabs",
+    "chatgpt": "not accessed"
+  }
 }

@@ -25,3 +25,22 @@ test("plugin and roundtable lifecycles are independent", async (t) => {
   await plugin.close();
   assert.equal((await fetch(roundtable.healthUrl)).ok, true);
 });
+
+test("roundtable can stop while plugin services remain healthy", async (t) => {
+  const pluginRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-plugin-runtime-"));
+  t.after(() => fs.rm(pluginRoot, { recursive: true, force: true }));
+  const plugin = await startPluginServices({ productRoot: pluginRoot, filesystemPort: 0, gatewayPort: 0 });
+  const roundtable = await startRoundtableServices({
+    roundtablePort: 0,
+    skipPlaywrightMcp: true,
+    requireWorkspaceSelection: false,
+  });
+  t.after(() => Promise.allSettled([plugin.close(), roundtable.close()]));
+
+  await roundtable.close();
+  const health = await Promise.all([
+    fetch(`http://127.0.0.1:${plugin.ports.filesystem}/health`),
+    fetch(`http://127.0.0.1:${plugin.ports.gateway}/health`),
+  ]);
+  assert.equal(health.every((response) => response.ok), true);
+});
