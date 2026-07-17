@@ -7,11 +7,16 @@ import {
   createPermissionRequest,
   defaultPermissionStoreDir,
 } from "./web-agent-permission-store.mjs";
+import {
+  assertMutationPathIdentity,
+  resolvePathIdentity,
+} from "../apps/roundtable-web/mcp/real-path-policy.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRepoRoot = path.resolve(__dirname, "..");
 const defaultConfigFile = path.join(defaultRepoRoot, "config", "allowed-directories.local.txt");
+export const CONTROLLER_TOOL_CAPABILITY = Symbol("web-agents-controller-tool-capability");
 const maxTextReadBytes = Number(process.env.WEB_AGENT_FS_MAX_TEXT_BYTES || 10 * 1024 * 1024);
 const maxMediaReadBytes = Number(process.env.WEB_AGENT_FS_MAX_MEDIA_BYTES || 50 * 1024 * 1024);
 const maxSearchResults = Number(process.env.WEB_AGENT_FS_MAX_SEARCH_RESULTS || 1000);
@@ -46,7 +51,7 @@ async function appendWriteAudit(event) {
   }
 }
 
-const toolDefinitions = [
+export const toolDefinitions = [
   {
     name: "read_text_file",
     description: "Read a local text file. Local trust mode allows reading across directories.",
@@ -80,7 +85,7 @@ const toolDefinitions = [
   },
   {
     name: "write_file",
-    description: "Create or overwrite a file at any local path. Local trust mode records the write in generated/audit/writes.jsonl.",
+    description: "Create or overwrite a file in an allowed directory or with one-time approval. Writes are audited.",
     inputSchema: {
       type: "object",
       properties: {
@@ -92,7 +97,7 @@ const toolDefinitions = [
   },
   {
     name: "edit_file",
-    description: "Apply text replacements to a file at any local path. Local trust mode records the edit in generated/audit/writes.jsonl.",
+    description: "Apply text replacements in an allowed directory or with one-time approval. Edits are audited.",
     inputSchema: {
       type: "object",
       properties: {
@@ -117,7 +122,7 @@ const toolDefinitions = [
   },
   {
     name: "create_directory",
-    description: "Create a directory recursively at any local path. Local trust mode records the operation in generated/audit/writes.jsonl.",
+    description: "Create a directory within an allowed directory or with one-time approval. Changes are audited.",
     inputSchema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -156,7 +161,7 @@ const toolDefinitions = [
   },
   {
     name: "move_file",
-    description: "Move or rename a file/directory at any local path. Local trust mode records the operation in generated/audit/writes.jsonl.",
+    description: "Move or rename only when both paths are allowed or covered by one-time approval. Changes are audited.",
     inputSchema: {
       type: "object",
       properties: {
@@ -190,7 +195,7 @@ const toolDefinitions = [
   },
   {
     name: "list_allowed_directories",
-    description: "Show local trust mode status and the legacy whitelist entries kept for compatibility.",
+    description: "Show directories where mutating tools can run without one-time approval.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -313,18 +318,42 @@ function expandEnvironmentVariables(value) {
 }
 
 export async function getWritablePermissionCheck(targetPath, allowedDirectories) {
-  const resolvedTarget = path.resolve(targetPath);
-  const allowed = allowedDirectories.some((directory) => isInsideOrEqual(resolvedTarget, directory));
-  if (allowed) {
-    return { allowed: true, targetPath: resolvedTarget, directoriesToApprove: [] };
-  }
+  const resolved = await resolveMutationTarget(targetPath, allowedDirectories);
+  if (resolved.error) return resolved.error;
+  if (resolved.allowed) return { allowed: true, targetPath: resolved.path, directoriesToApprove: [] };
 
-  const approvalDirectory = await nearestExistingDirectory(path.dirname(resolvedTarget));
+  const approvalDirectory = await nearestExistingDirectory(path.dirname(resolved.path));
   return {
     allowed: false,
-    targetPath: resolvedTarget,
+    targetPath: resolved.path,
     directoriesToApprove: [approvalDirectory],
   };
+}
+
+async function resolveMutationTarget(targetPath, allowedDirectories) {
+  const lexicalPath = path.resolve(targetPath);
+  const lexicalAllowedRoot = allowedDirectories.find((directory) => isInsideOrEqual(lexicalPath, directory));
+  const policyRoot = lexicalAllowedRoot || path.parse(lexicalPath).root;
+  try {
+    const identity = await resolvePathIdentity(lexicalPath, { workspaceRoot: policyRoot });
+    assertMutationPathIdentity(identity);
+    const physicalAllowedRoots = await Promise.all(allowedDirectories.map((directory) => fs.realpath(directory)));
+    return {
+      path: identity.physicalPath,
+      allowed: physicalAllowedRoots.some((directory) => isInsideOrEqual(identity.physicalPath, directory)),
+    };
+  } catch (error) {
+    if (error?.code !== "REPARSE_PATH_WRITE_DENIED") throw error;
+    return {
+      error: {
+        allowed: false,
+        code: error.code,
+        targetPath: lexicalPath,
+        resolvedPath: error.details?.resolvedPath || null,
+        directoriesToApprove: [],
+      },
+    };
+  }
 }
 
 async function getWritablePermissionForTargets(targets, allowedDirectories) {
@@ -332,13 +361,14 @@ async function getWritablePermissionForTargets(targets, allowedDirectories) {
   const normalizedTargets = [];
 
   for (const target of targets) {
-    const resolvedTarget = path.resolve(target.path);
-    normalizedTargets.push(resolvedTarget);
-    if (allowedDirectories.some((directory) => isInsideOrEqual(resolvedTarget, directory))) {
+    const resolved = await resolveMutationTarget(target.path, allowedDirectories);
+    if (resolved.error) return resolved.error;
+    normalizedTargets.push(resolved.path);
+    if (resolved.allowed) {
       continue;
     }
 
-    const approvalBase = target.kind === "directory" ? resolvedTarget : path.dirname(resolvedTarget);
+    const approvalBase = target.kind === "directory" ? resolved.path : path.dirname(resolved.path);
     deniedDirectories.push(await nearestExistingDirectory(approvalBase));
   }
 
@@ -494,6 +524,61 @@ function normalizeToolPathArgs(name, args) {
   }
 
   return normalized;
+}
+
+function getMutationTargets(name, args) {
+  switch (name) {
+    case "write_file":
+    case "edit_file":
+      return [{ path: requireString(args, "path"), kind: "file" }];
+    case "create_directory":
+      return [{ path: requireString(args, "path"), kind: "directory" }];
+    case "move_file":
+      return [
+        { path: requireString(args, "source"), kind: "directory" },
+        { path: requireString(args, "destination"), kind: "directory" },
+      ];
+    default:
+      return null;
+  }
+}
+
+async function authorizeMutation(name, args, allowedDirectories, options = {}) {
+  const targets = getMutationTargets(name, args);
+  if (!targets) {
+    return null;
+  }
+
+  const permission = await getWritablePermissionForTargets(targets, allowedDirectories);
+  if (permission.code === "REPARSE_PATH_WRITE_DENIED") {
+    return errorTextResult([
+      "REPARSE_PATH_WRITE_DENIED: 不允许通过符号链接或 junction 执行写入。",
+      `请求路径: ${permission.targetPath}`,
+      permission.resolvedPath ? `真实路径: ${permission.resolvedPath}` : null,
+      "请改用真实路径重新发起操作；工作区外路径会进入一次性授权流程。",
+    ].filter(Boolean).join("\n"));
+  }
+  if (permission.allowed) {
+    return null;
+  }
+
+  const approved = await hasOneTimePermission({
+    operation: name,
+    targetPaths: permission.targetPaths,
+    args,
+    permissionStoreDir: options.permissionStoreDir,
+  });
+  if (approved) {
+    return null;
+  }
+
+  return buildPermissionRequiredResultWithMarker({
+    operation: name,
+    targetPaths: permission.targetPaths,
+    directoriesToApprove: permission.directoriesToApprove,
+    args,
+    permissionStoreDir: options.permissionStoreDir,
+  });
 }
 
 function applyLineLimit(text, { head, tail } = {}) {
@@ -799,11 +884,12 @@ async function getFileInfo(args) {
 function listAllowedDirectoriesResult(allowedDirectories) {
   return textResult(
     [
-      "Local trust mode enabled.",
-      "write_file, edit_file, create_directory, and move_file can target any local path.",
+      "Mutating filesystem tools are permission-gated.",
+      "Allowed directories can be changed without restarting the service.",
+      "Other targets require a matching one-time permission token.",
       "Write operations are audited at generated/audit/writes.jsonl.",
       "",
-      "Legacy allowed directories file entries (informational only):",
+      "Allowed directories:",
       ...allowedDirectories.map((directory) => `  - ${directory}`),
     ].join("\n")
   );
@@ -815,6 +901,12 @@ export async function callTool(name, args = {}, context = {}) {
   const configFile = context.configFile || defaultConfigFile;
   const permissionOptions = { permissionStoreDir: context.permissionStoreDir || defaultPermissionStoreDir };
   const allowedDirectories = await getAllowedDirectories({ repoRoot, configFile });
+  const permissionResult = context.controllerCapability === CONTROLLER_TOOL_CAPABILITY
+    ? null
+    : await authorizeMutation(name, toolArgs, allowedDirectories, permissionOptions);
+  if (permissionResult) {
+    return permissionResult;
+  }
 
   switch (name) {
     case "read_text_file":

@@ -6,9 +6,23 @@
 extensions/mcp-superassistant-local-fixed
 ```
 
-当前本地版本：`0.6.1`。
+当前本地版本：`0.6.8`。
 
 这条分支只负责旧插件小步增强：新增站点权限、修选择器、优化提示词、补中文说明和做小范围 UI polish。新插件重构不放在这里。
+
+## 圆桌桥接
+
+唯一扩展加载路径：F:\web_agents\extensions\mcp-superassistant-local-fixed
+
+圆桌地址：http://127.0.0.1:3020
+
+manifest 使用 Chrome 标准 localhost 匹配模式注入页面桥；脚本只信任 127.0.0.1:3020 和 localhost:3020，其他端口不会建立桥接。
+
+不要同时启用 extensions\web-agents-extension\dist
+
+旧侧栏和手动 MCP 模式保持可独立使用。
+
+圆桌兼容桥需要 `tabs` 和 `scripting` 权限，用于发现用户已经打开的受支持模型标签页、校验其网址并注入桥接脚本。这些权限可以读取受支持标签页的网址并在 manifest 白名单站点执行脚本，因此只应加载本项目目录中的可信版本。桥接层不读取 Cookie、令牌、localStorage 或会话响应体，对外只返回去除查询参数、片段和凭证字段后的状态。
 
 ## 快速开始
 

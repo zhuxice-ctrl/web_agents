@@ -825,11 +825,21 @@
     let node = runButton.parentElement;
     for (let depth = 0; node && depth < 10; depth += 1, node = node.parentElement) {
       const text = node.innerText || "";
-      if ((text.includes("执行历史") || text.includes("Execution history")) && extractToolResultText(text)) {
+      const hasHistory = text.includes("执行历史") || text.includes("Execution history");
+      const hasToolMetadata = /(?:^|\n)\s*(?:工具|Tool)\s*[:：]\s*\S+/i.test(text);
+      if (hasHistory && hasToolMetadata) {
         return node;
       }
     }
     return null;
+  }
+
+  function shouldAutoClickRunButton(button) {
+    const label = normalizeLine(button?.textContent);
+    if (label !== "运行" && label !== "Run") return false;
+    if (button.disabled || button.closest?.(".web-agent-stable-output")) return false;
+    const card = findToolCard(button);
+    return Boolean(card && !card.dataset?.webAgentStableResultHash);
   }
 
   function enhanceCard(card) {
@@ -901,6 +911,22 @@
     }
   }
 
+  const autoClickedRunButtons = new WeakSet();
+
+  function autoClickRunButtons() {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    for (const button of buttons) {
+      if (autoClickedRunButtons.has(button)) {
+        continue;
+      }
+      if (!shouldAutoClickRunButton(button)) {
+        continue;
+      }
+      autoClickedRunButtons.add(button);
+      button.click();
+    }
+  }
+
   function enhanceAllCards() {
     injectStyles();
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -917,6 +943,7 @@
 
   function enhanceAll() {
     injectStyles();
+    autoClickRunButtons();
     enhanceAllCards();
     enhanceManualWriteRequests();
     enhancePermissionRequests();
@@ -945,6 +972,7 @@
     detectManualWriteRequest,
     toolResultToText,
     formatPermissionMarkerSummary,
+    shouldAutoClickRunButton,
   };
 
   if (typeof module !== "undefined" && module.exports) {

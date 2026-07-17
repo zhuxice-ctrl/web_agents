@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Web Agents 圆桌</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="appShell" class="app-shell is-locked">
+      <header class="topbar">
+        <div class="brand" aria-label="Web Agents">
+          <span class="brand-mark">WA</span>
+          <div><strong>Web Agents</strong><small>本地模型圆桌</small></div>
+        </div>
+
+        <button id="workspaceButton" class="selector-button" type="button" title="切换工作区">
+          <span class="selector-icon" aria-hidden="true">⌂</span>
+          <span><small>工作区</small><strong id="workspaceName">未选择</strong></span>
+          <span aria-hidden="true">⌄</span>
+        </button>
+
+        <div class="session-selector">
+          <label class="sr-only" for="sessionSelectTop">当前圆桌会话</label>
+          <select id="sessionSelectTop" aria-label="当前圆桌会话">
+            <option value="">未创建圆桌</option>
+          </select>
+          <button id="renameSessionButton" class="icon-button" type="button" title="重命名圆桌" aria-label="重命名圆桌">✎</button>
+          <button id="newSessionButton" class="icon-button is-primary" type="button" title="新建圆桌" aria-label="新建圆桌">＋</button>
+        </div>
+
+        <div class="topbar-status">
+          <span id="sessionState" class="status-badge is-idle"><i></i>未运行</span>
+          <button id="runtimeButton" class="icon-button" type="button" title="本地链路状态" aria-label="本地链路状态">◉</button>
+        </div>
+      </header>
+
+      <div class="workspace-layout">
+        <aside class="seat-sidebar" aria-label="模型席位">
+          <div class="panel-heading">
+            <div><small>圆桌成员</small><h2>模型席位</h2></div>
+            <button id="addParticipantButton" class="icon-button" type="button" title="模型入席" aria-label="模型入席">＋</button>
+          </div>
+          <div id="participantList" class="participant-list empty-state">
+            <p>创建圆桌后选择模型入席</p>
+          </div>
+          <div class="sidebar-foot">
+            <span><i class="legend-dot is-ready"></i>可用</span>
+            <span><i class="legend-dot is-waiting"></i>待处理</span>
+            <span><i class="legend-dot is-error"></i>异常</span>
+          </div>
+        </aside>
+
+        <main class="roundtable-workspace">
+          <section class="roundtable-stage" aria-label="圆桌节点视图">
+            <div class="stage-toolbar">
+              <div>
+                <small id="roundtableEyebrow">未命名圆桌</small>
+                <strong id="roundtableObjective">从底部输入第一条议题</strong>
+              </div>
+              <span id="roundProgress" class="round-progress">0 / 0</span>
+            </div>
+            <div id="hostSnap" class="host-snap" title="东家固定吸附点">
+              <span>东家</span>
+            </div>
+            <div id="roundtableSeats" class="roundtable-seats"></div>
+            <div class="table-core" aria-hidden="true">
+              <span class="table-ring"></span>
+              <strong>ROUNDTABLE</strong>
+              <small>共享上下文</small>
+            </div>
+          </section>
+
+          <section class="conversation-pane" aria-label="圆桌会话记录">
+            <div class="panel-heading conversation-heading">
+              <div><small>PUBLIC LEDGER</small><h2>公共会话</h2></div>
+              <span id="eventCount" class="count-badge">0</span>
+            </div>
+            <div id="chatStream" class="chat-stream empty-state">
+              <p>第一条消息会命名当前圆桌，并进入公共上下文。</p>
+            </div>
+          </section>
+
+          <section class="composer-pane" aria-label="唯一会话输入区">
+            <div id="mentionTokens" class="mention-tokens" aria-label="本轮发言模型"></div>
+            <form id="commandForm" class="command-form">
+              <div class="composer-input-wrap">
+                <label class="sr-only" for="commandInput">圆桌指令</label>
+                <textarea id="commandInput" rows="3" placeholder="输入 @ 选择发言模型，然后给出本轮指令" autocomplete="off"></textarea>
+                <div id="mentionSuggestions" class="mention-suggestions" role="listbox" hidden></div>
+              </div>
+              <div class="composer-actions">
+                <div class="mode-control" role="radiogroup" aria-label="会话模式">
+                  <label><input type="radio" name="conversationMode" value="discussion" checked /><span>讨论</span></label>
+                  <label><input type="radio" name="conversationMode" value="relay" /><span>传递</span></label>
+                </div>
+                <label class="round-stepper"><span>轮数</span><button id="roundDown" type="button" aria-label="减少轮数">−</button><output id="roundValue">3</output><button id="roundUp" type="button" aria-label="增加轮数">＋</button></label>
+                <button id="settingsButton" class="icon-button" type="button" title="高级设置" aria-label="高级设置">⚙</button>
+                <button id="pauseButton" class="icon-button" type="button" title="暂停当前圆桌" aria-label="暂停当前圆桌">Ⅱ</button>
+                <button id="stopButton" class="icon-button is-danger" type="button" title="终止当前圆桌" aria-label="终止当前圆桌">■</button>
+                <button id="sendButton" class="send-button" type="submit"><span>发送</span><b aria-hidden="true">↵</b></button>
+              </div>
+            </form>
+            <div id="sendPreview" class="send-preview" aria-live="polite">
+              <span>本轮发言：未选择</span><span>模式：讨论</span><span>轮数：3</span><span>文本提及：无</span>
+            </div>
+          </section>
+        </main>
+
+        <aside class="detail-sidebar" aria-label="圆桌详情">
+          <nav class="detail-tabs" aria-label="详情视图">
+            <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
+            <button class="tab-button" type="button" data-tab="files">文件</button>
+            <button class="tab-button" type="button" data-tab="audit">审计</button>
+          </nav>
+          <section class="tab-panel is-active" data-panel="plan">
+            <div class="panel-heading"><div><small>EXECUTION</small><h2>执行计划</h2></div><span id="planCount" class="count-badge">0</span></div>
+            <div id="planView" class="detail-list empty-state"><p>发送指令后显示轮次与队列</p></div>
+          </section>
+          <section class="tab-panel" data-panel="files">
+            <div class="panel-heading"><div><small>WORKSPACE</small><h2>本地文件</h2></div><span id="artifactCount" class="count-badge">0</span></div>
+            <div id="workspacePath" class="workspace-path">未选择工作区</div>
+            <div id="fileView" class="detail-list empty-state"><p>事务产物会显示在这里</p></div>
+          </section>
+          <section class="tab-panel" data-panel="audit">
+            <div class="panel-heading"><div><small>TRACE</small><h2>审计记录</h2></div><span id="auditCount" class="count-badge">0</span></div>
+            <div id="auditView" class="detail-list empty-state"><p>本地读写和恢复操作均会留痕</p></div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <dialog id="workspaceDialog" class="modal compact-modal">
+      <form id="workspaceForm" method="dialog">
+        <div class="modal-heading"><div><small>LOCAL WORKSPACE</small><h2>选择工作区</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <p>会话、交接、审计和回撤备份将保存在所选目录的 <code>.web-agents</code> 中。</p>
+        <label><span>本地绝对路径</span><input id="workspaceInput" type="text" autocomplete="off" placeholder="F:\project" required /></label>
+        <div id="recentWorkspaces" class="recent-workspaces"></div>
+        <p id="workspaceError" class="form-error" role="alert"></p>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">验证并进入</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="newSessionDialog" class="modal compact-modal">
+      <form id="newSessionForm" method="dialog">
+        <div class="modal-heading"><div><small>NEW ROUNDTABLE</small><h2>选择首批席位</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <div id="newSessionProviders" class="provider-picker"></div>
+        <p class="form-hint">每个入席模型都会在项目专用 Chrome 中获得新的网页会话。登录与人机验证由你手动完成。</p>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">创建圆桌</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="participantDialog" class="modal compact-modal">
+      <form id="participantForm" method="dialog">
+        <div class="modal-heading"><div><small>ADD SEAT</small><h2>模型入席</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <label><span>模型</span><select id="participantProvider"></select></label>
+        <fieldset><legend>上下文策略</legend><label><input type="radio" name="joinPolicy" value="sync_all" checked />同步圆桌公共上下文</label><label><input type="radio" name="joinPolicy" value="from_now" />从加入后开始记录</label></fieldset>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">加入下一轮</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="handoffDialog" class="modal wide-modal">
+      <form id="handoffForm" method="dialog">
+        <div class="modal-heading"><div><small>CONTEXT HANDOFF</small><h2>交接包预览</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <pre id="handoffPreview"></pre>
+        <input id="handoffId" type="hidden" />
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">确认并切换线程</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="permissionDialog" class="modal wide-modal">
+      <form id="permissionForm" method="dialog">
+        <div class="modal-heading"><div><small>EXTERNAL WRITE</small><h2>工作区外写入确认</h2></div></div>
+        <div id="permissionDetails" class="permission-details"></div>
+        <input id="permissionRequestId" type="hidden" />
+        <div class="modal-actions split-actions"><button id="rejectPermissionButton" class="danger-button" type="button">拒绝</button><span></span><button id="allowOnceButton" class="secondary-button" type="button">仅允许本次</button><button id="allowTaskButton" class="primary-button" type="button">允许本次任务</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="recoveryDialog" class="modal wide-modal">
+      <form id="recoveryForm" method="dialog">
+        <div class="modal-heading"><div><small>TURN RECOVERY</small><h2>回合等待恢复</h2></div></div>
+        <div id="recoveryDetails" class="recovery-details"></div>
+        <input id="recoveryTurnId" type="hidden" />
+        <div class="modal-actions"><button id="skipRecoveryButton" class="danger-button" type="button">跳过本回合</button><button id="retryRecoveryButton" class="primary-button" type="button">重新执行</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="settingsDialog" class="settings-drawer">
+      <form id="settingsForm" method="dialog">
+        <div class="modal-heading"><div><small>ADVANCED</small><h2>自动化设置</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <label><span>提供商软并发上限</span><input id="providerConcurrency" type="number" min="1" max="8" value="3" /></label>
+        <label><span>单次上下文事件上限</span><input id="maxContextEvents" type="number" min="4" max="120" value="24" /></label>
+        <label><span>交接提醒阈值（估算 %）</span><input id="handoffThreshold" type="number" min="50" max="95" value="72" /></label>
+        <label><span>紧急交接阈值（估算 %）</span><input id="urgentHandoffThreshold" type="number" min="60" max="100" value="90" /></label>
+        <label class="check-row"><input id="spaceAcceptMention" type="checkbox" /><span>允许空格接受 @ 补全（中文输入法下默认关闭）</span></label>
+        <div class="runtime-details" id="runtimeDetails"></div>
+        <div class="modal-actions"><button class="primary-button dialog-close" type="button">完成</button></div>
+      </form>
+    </dialog>
+
+    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

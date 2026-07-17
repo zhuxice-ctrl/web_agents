@@ -163,12 +163,38 @@
         "*://*.chat.qwen.ai/*"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/roundtable-protocol.js",
+        "content/roundtable-page-bridge.js"
+      ],
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content/roundtable-protocol.js",
+        "content/roundtable-content-bridge.js"
+      ],
+      "matches": [
+        "*://*.chat.openai.com/*",
+        "*://*.chatgpt.com/*",
+        "*://*.chat.deepseek.com/*",
+        "*://*.doubao.com/*"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "default_locale": "zh_CN",
   "description": "web_Agent 本地 MCP 网页助手",
   "host_permissions": [
     "http://127.0.0.1:3017/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
     "*://*.perplexity.ai/*",
     "*://*.chat.openai.com/*",
     "*://*.chatgpt.com/*",
@@ -196,9 +222,11 @@
   "name": "web_Agent",
   "permissions": [
     "storage",
-    "clipboardWrite"
+    "clipboardWrite",
+    "tabs",
+    "scripting"
   ],
-  "version": "0.6.7",
+  "version": "0.6.8",
   "web_accessible_resources": [
     {
       "matches": [

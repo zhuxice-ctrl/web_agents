@@ -2,10 +2,21 @@
   "name": "web-ai-local-mcp-bridge",
   "private": true,
   "type": "module",
-  "scripts": {
-    "test:council-browser": "node --test scripts/council-browser.test.mjs"
+  "engines": {
+    "node": ">=24"
   },
-  "devDependencies": {
+  "scripts": {
+    "test:council-browser": "node --test scripts/council-browser.test.mjs",
+    "test:config-gateway": "node --test scripts/web-agent-config-gateway.test.mjs",
+    "test:legacy-roundtable-extension": "node --test scripts/web-agent-roundtable-protocol.test.mjs scripts/web-agent-roundtable-page-bridge.test.mjs scripts/web-agent-roundtable-content-bridge.test.mjs scripts/web-agent-roundtable-background.test.mjs scripts/web-agent-roundtable-manifest.test.mjs scripts/web-agent-insert-fallback.test.mjs scripts/web-agent-result-enhancer.test.mjs scripts/web-agent-background-permission.test.mjs",
+    "test:web-agents-extension": "npm --prefix extensions/web-agents-extension test && npm --prefix extensions/web-agents-extension run typecheck && npm --prefix extensions/web-agents-extension run build",
+    "test:launcher": "node --test scripts/start-web-agents-roundtable.test.mjs scripts/start-web-agents-browser.test.mjs scripts/start-web-agents-local-services.test.mjs scripts/web-agent-filesystem-http-server.test.mjs",
+    "test:roundtable-web": "node --test apps/roundtable-web/server.test.mjs apps/roundtable-web/server-runtime.test.mjs apps/roundtable-web/server-workspace.test.mjs apps/roundtable-web/storage/*.test.mjs apps/roundtable-web/orchestrator/*.test.mjs apps/roundtable-web/mcp/*.test.mjs apps/roundtable-web/public/*.test.mjs apps/roundtable-web/automation/browser-manager.test.mjs apps/roundtable-web/automation/provider-concurrency.test.mjs apps/roundtable-web/automation/controller-tool-worker.test.mjs apps/roundtable-web/automation/completion-detector.test.mjs apps/roundtable-web/automation/extension-relay.test.mjs apps/roundtable-web/automation/extension-browser-manager.test.mjs apps/roundtable-web/automation/extension-worker.test.mjs",
+    "test:roundtable-browser": "node --test apps/roundtable-web/automation/worker.e2e.test.mjs apps/roundtable-web/automation/roundtable-fake.e2e.test.mjs",
+    "test:local-runtime": "npm run test:config-gateway && npm run test:legacy-roundtable-extension && npm run test:web-agents-extension && npm run test:roundtable-web && npm run test:council-browser && npm run test:roundtable-browser && npm run test:launcher"
+  },
+  "dependencies": {
+    "@playwright/mcp": "0.0.78",
     "playwright": "^1.61.1"
   }
 }

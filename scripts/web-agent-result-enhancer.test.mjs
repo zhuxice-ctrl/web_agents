@@ -215,3 +215,34 @@ test("getCardTextWithoutStableOutput removes existing stable output before extra
   );
   assert.equal(stableNode.removeCalled, true);
 });
+
+test("auto-run clicks only a recognized MCP tool card", () => {
+  const toolCard = {
+    innerText: [
+      "write_file",
+      "运行",
+      "执行历史",
+      "工具: write_file",
+    ].join("\n"),
+    dataset: {},
+    parentElement: null,
+  };
+  const toolButton = {
+    textContent: "运行",
+    disabled: false,
+    parentElement: toolCard,
+    closest() { return null; },
+  };
+  const unrelatedParent = { innerText: "Run the build", dataset: {}, parentElement: null };
+  const unrelatedButton = {
+    textContent: "Run",
+    disabled: false,
+    parentElement: unrelatedParent,
+    closest() { return null; },
+  };
+
+  assert.equal(enhancer.shouldAutoClickRunButton(toolButton), true);
+  assert.equal(enhancer.shouldAutoClickRunButton(unrelatedButton), false);
+  toolCard.dataset.webAgentStableResultHash = "already-finished";
+  assert.equal(enhancer.shouldAutoClickRunButton(toolButton), false);
+});

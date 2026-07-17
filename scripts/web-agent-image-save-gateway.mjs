@@ -216,6 +216,10 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       return sendJson(response, 200, {
         ok: true,
+        service: "web-agents-local-gateway",
+        pid: process.pid,
+        repoRoot,
+        port: server.address()?.port || port,
         outputDir,
         toolResultsDir,
         permissionStoreDir,
@@ -264,4 +268,5 @@ export {
   saveImage,
   saveToolResult,
   sanitizeToolName,
+  server as imageSaveGatewayServer,
 };
