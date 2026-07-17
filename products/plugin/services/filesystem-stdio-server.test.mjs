@@ -8,16 +8,16 @@ import { fileURLToPath } from "node:url";
 
 import {
   approvePermissionRequest,
-} from "./web-agent-permission-store.mjs";
+} from "./permission-store-adapter.mjs";
 import {
   buildPermissionRequiredResult,
   callTool,
   CONTROLLER_TOOL_CAPABILITY,
   getAllowedDirectories,
   getWritablePermissionCheck,
-} from "./web-agent-filesystem-server.mjs";
+} from "./filesystem-stdio-server.mjs";
 
-const serverPath = fileURLToPath(new URL("./web-agent-filesystem-server.mjs", import.meta.url));
+const serverPath = fileURLToPath(new URL("./filesystem-stdio-server.mjs", import.meta.url));
 
 function parsePermissionMarker(result) {
   const match = result.content[0].text.match(

@@ -3,7 +3,7 @@
 这是当前可实机使用的 web_Agent 浏览器插件本地解压版，目录为：
 
 ```text
-extensions/mcp-superassistant-local-fixed
+products/plugin/legacy-extension
 ```
 
 当前本地版本：`0.6.7`。

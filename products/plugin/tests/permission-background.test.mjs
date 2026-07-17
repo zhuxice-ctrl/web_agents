@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const backgroundSource = fs.readFileSync("extensions/mcp-superassistant-local-fixed/background.js", "utf8");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const backgroundSource = fs.readFileSync(path.join(testDir, "../legacy-extension/background.js"), "utf8");
 
 test("legacy background keeps permission request payloads for approve-and-retry", () => {
   assert.ok(backgroundSource.includes("WEB_AGENT_PERMISSION_PENDING_CALLS_KEY"));

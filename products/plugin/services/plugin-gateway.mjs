@@ -4,20 +4,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   approvePermissionRequest,
-  defaultPermissionStoreDir,
   rejectPermissionRequest,
-} from "./web-agent-permission-store.mjs";
+} from "./permission-store-adapter.mjs";
+import { buildGatewayConfig, evaluatePermission, getAllowedRoots } from "./config-gateway.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
-const outputDir = path.join(repoRoot, "generated", "gpt-images");
-const toolResultsDir = path.join(repoRoot, "generated", "tool-results");
-const port = Number(process.env.WEB_AGENT_IMAGE_SAVE_PORT || 3017);
-const host = process.env.WEB_AGENT_IMAGE_SAVE_HOST || "127.0.0.1";
+const defaultProductRoot = path.resolve(__dirname, "..");
 const maxBytes = Number(process.env.WEB_AGENT_IMAGE_SAVE_MAX_BYTES || 50 * 1024 * 1024);
 const maxToolResultBytes = Number(process.env.WEB_AGENT_TOOL_RESULT_MAX_BYTES || 5 * 1024 * 1024);
-const permissionStoreDir = process.env.WEB_AGENT_PERMISSION_STORE_DIR || defaultPermissionStoreDir;
 const allowedMimeTypes = new Map([
   ["image/png", ".png"],
   ["image/jpeg", ".jpg"],
@@ -55,12 +50,30 @@ function makeTimestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
 }
 
-function resolveOutputDir(payload) {
+function createGatewayRuntime({
+  productRoot = defaultProductRoot,
+  configDir = path.join(productRoot, "config"),
+  dataDir = path.join(productRoot, "data"),
+} = {}) {
+  const resolvedProductRoot = path.resolve(productRoot);
+  const resolvedDataDir = path.resolve(dataDir);
+  return {
+    productRoot: resolvedProductRoot,
+    configDir: path.resolve(configDir),
+    configFile: path.join(path.resolve(configDir), "allowed-directories.local.txt"),
+    dataDir: resolvedDataDir,
+    outputDir: path.join(resolvedDataDir, "gpt-images"),
+    toolResultsDir: path.join(resolvedDataDir, "tool-results"),
+    permissionStoreDir: process.env.WEB_AGENT_PERMISSION_STORE_DIR || path.join(resolvedDataDir, "permissions"),
+  };
+}
+
+function resolveOutputDir(payload, runtime) {
   const requested = String(
     payload?.targetDirectory || payload?.directoryPath || payload?.targetPath || ""
   ).trim();
   if (!requested) {
-    return outputDir;
+    return runtime.outputDir;
   }
 
   const requestedPath = path.resolve(requested);
@@ -69,7 +82,7 @@ function resolveOutputDir(payload) {
     ? path.dirname(requestedPath)
     : requestedPath;
   const resolvedTargetDir = path.resolve(targetDir);
-  const resolvedRepoRoot = path.resolve(repoRoot);
+  const resolvedRepoRoot = runtime.productRoot;
 
   if (resolvedTargetDir !== resolvedRepoRoot && !resolvedTargetDir.startsWith(resolvedRepoRoot + path.sep)) {
     const error = new Error("TARGET_DIRECTORY_OUTSIDE_REPO");
@@ -93,7 +106,7 @@ async function readJson(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function saveImage(payload) {
+async function saveImage(payload, runtime = createGatewayRuntime()) {
   const mimeType = String(payload?.mimeType || "").toLowerCase();
   const extension = allowedMimeTypes.get(mimeType);
   if (!extension) {
@@ -121,7 +134,7 @@ async function saveImage(payload) {
     throw error;
   }
 
-  const saveDir = resolveOutputDir(payload);
+  const saveDir = resolveOutputDir(payload, runtime);
   await fs.mkdir(saveDir, { recursive: true });
   const fileName = sanitizeFileName(payload?.fileName, extension);
   const filePath = path.join(saveDir, fileName);
@@ -137,7 +150,7 @@ async function saveImage(payload) {
   return { filePath: resolved, outputDir: resolvedOutput, bytes: imageBuffer.length, mimeType };
 }
 
-async function saveToolResult(payload) {
+async function saveToolResult(payload, runtime = createGatewayRuntime()) {
   const text = String(payload?.text || payload?.content || "");
   if (!text.trim()) {
     const error = new Error("EMPTY_TOOL_RESULT");
@@ -152,13 +165,13 @@ async function saveToolResult(payload) {
     throw error;
   }
 
-  await fs.mkdir(toolResultsDir, { recursive: true });
+  await fs.mkdir(runtime.toolResultsDir, { recursive: true });
   const extension = String(payload?.extension || ".md").toLowerCase() === ".txt" ? ".txt" : ".md";
   const toolName = sanitizeToolName(payload?.toolName || payload?.name);
   const fileName = sanitizeFileName(payload?.fileName || `${toolName}-${makeTimestamp()}${extension}`, extension);
-  const filePath = path.join(toolResultsDir, fileName);
+  const filePath = path.join(runtime.toolResultsDir, fileName);
   const resolved = path.resolve(filePath);
-  const resolvedOutput = path.resolve(toolResultsDir);
+  const resolvedOutput = path.resolve(runtime.toolResultsDir);
   if (!resolved.startsWith(resolvedOutput + path.sep)) {
     const error = new Error("INVALID_TOOL_RESULT_PATH");
     error.statusCode = 400;
@@ -178,9 +191,9 @@ async function saveToolResult(payload) {
   return { filePath: resolved, outputDir: resolvedOutput, bytes, toolName };
 }
 
-async function approvePermissionViaGateway(payload) {
+async function approvePermissionViaGateway(payload, runtime = createGatewayRuntime()) {
   const result = await approvePermissionRequest({
-    storeDir: payload?.storeDir || permissionStoreDir,
+    storeDir: payload?.storeDir || runtime.permissionStoreDir,
     requestId: payload?.requestId,
     argsHash: payload?.argsHash,
     mode: payload?.mode || "once",
@@ -196,9 +209,9 @@ async function approvePermissionViaGateway(payload) {
   };
 }
 
-async function rejectPermissionViaGateway(payload) {
+async function rejectPermissionViaGateway(payload, runtime = createGatewayRuntime()) {
   const result = await rejectPermissionRequest({
-    storeDir: payload?.storeDir || permissionStoreDir,
+    storeDir: payload?.storeDir || runtime.permissionStoreDir,
     requestId: payload?.requestId,
   });
   return {
@@ -208,58 +221,77 @@ async function rejectPermissionViaGateway(payload) {
   };
 }
 
-const server = http.createServer(async (request, response) => {
-  try {
-    if (request.method === "OPTIONS") {
-      return sendJson(response, 204, {});
+export function createPluginGatewayServer(options = {}) {
+  const runtime = createGatewayRuntime(options);
+  const server = http.createServer(async (request, response) => {
+    try {
+      if (request.method === "OPTIONS") return sendJson(response, 204, {});
+      if (request.method === "GET" && request.url === "/health") {
+        return sendJson(response, 200, {
+          ok: true,
+          service: "web-agents-plugin-gateway",
+          pid: process.pid,
+          productRoot: runtime.productRoot,
+          port: server.address()?.port || 0,
+          outputDir: runtime.outputDir,
+          toolResultsDir: runtime.toolResultsDir,
+          permissionStoreDir: runtime.permissionStoreDir,
+          features: { saveGptImage: true, saveToolResult: true, permissionApproval: true },
+        });
+      }
+      if (request.method === "GET" && request.url === "/config") {
+        const config = await buildGatewayConfig({
+          repoRoot: runtime.productRoot,
+          configFile: runtime.configFile,
+          gatewayUrl: `http://${request.headers.host || "127.0.0.1:3017"}`,
+        });
+        return sendJson(response, 200, config);
+      }
+      if (request.method === "POST" && request.url === "/permission/evaluate") {
+        const payload = await readJson(request);
+        const allowedRoots = await getAllowedRoots({
+          repoRoot: runtime.productRoot,
+          configFile: runtime.configFile,
+        });
+        const decision = evaluatePermission({
+          allowedRoots,
+          mode: process.env.WEB_AGENT_PERMISSION_MODE || "standard",
+          highPrivilege: process.env.WEB_AGENT_HIGH_PRIVILEGE === "1",
+          toolName: String(payload.toolName || ""),
+          targetPath: payload.path ? String(payload.path) : undefined,
+        });
+        return sendJson(response, 200, decision);
+      }
+      if (request.method === "POST" && request.url === "/save-gpt-image") {
+        const result = await saveImage(await readJson(request), runtime);
+        return sendJson(response, 200, { ok: true, ...result });
+      }
+      if (request.method === "POST" && request.url === "/save-tool-result") {
+        const result = await saveToolResult(await readJson(request), runtime);
+        return sendJson(response, 200, { ok: true, ...result });
+      }
+      if (request.method === "POST" && (request.url === "/permissions/approve" || request.url === "/permissions/approve-once")) {
+        return sendJson(response, 200, await approvePermissionViaGateway(await readJson(request), runtime));
+      }
+      if (request.method === "POST" && request.url === "/permissions/reject") {
+        return sendJson(response, 200, await rejectPermissionViaGateway(await readJson(request), runtime));
+      }
+      return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode = error?.statusCode || (message === "PAYLOAD_TOO_LARGE" ? 413 : 500);
+      return sendJson(response, statusCode, { ok: false, error: message });
     }
-    if (request.method === "GET" && request.url === "/health") {
-      return sendJson(response, 200, {
-        ok: true,
-        service: "web-agents-local-gateway",
-        pid: process.pid,
-        repoRoot,
-        port: server.address()?.port || port,
-        outputDir,
-        toolResultsDir,
-        permissionStoreDir,
-        features: { saveGptImage: true, saveToolResult: true, permissionApproval: true },
-      });
-    }
-    if (request.method === "POST" && request.url === "/save-gpt-image") {
-      const payload = await readJson(request);
-      const result = await saveImage(payload);
-      return sendJson(response, 200, { ok: true, ...result });
-    }
-    if (request.method === "POST" && request.url === "/save-tool-result") {
-      const payload = await readJson(request);
-      const result = await saveToolResult(payload);
-      return sendJson(response, 200, { ok: true, ...result });
-    }
-    if (request.method === "POST" && (request.url === "/permissions/approve" || request.url === "/permissions/approve-once")) {
-      const payload = await readJson(request);
-      const result = await approvePermissionViaGateway(payload);
-      return sendJson(response, 200, result);
-    }
-    if (request.method === "POST" && request.url === "/permissions/reject") {
-      const payload = await readJson(request);
-      const result = await rejectPermissionViaGateway(payload);
-      return sendJson(response, 200, result);
-    }
-    return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const statusCode = error?.statusCode || (message === "PAYLOAD_TOO_LARGE" ? 413 : 500);
-    return sendJson(response, statusCode, { ok: false, error: message });
-  }
-});
+  });
+  server.runtime = runtime;
+  return server;
+}
 
 if (path.resolve(process.argv[1] || "") === __filename) {
-  server.listen(port, host, () => {
-    console.log(`web_Agent image save gateway listening at http://${host}:${port}`);
-    console.log(`Saving GPT images to ${outputDir}`);
-    console.log(`Saving tool results to ${toolResultsDir}`);
-  });
+  const port = Number(process.env.WEB_AGENT_IMAGE_SAVE_PORT || 3017);
+  const host = process.env.WEB_AGENT_IMAGE_SAVE_HOST || "127.0.0.1";
+  const server = createPluginGatewayServer();
+  server.listen(port, host, () => console.log(`Web Agents plugin gateway listening at http://${host}:${port}`));
 }
 
 export {
@@ -268,5 +300,4 @@ export {
   saveImage,
   saveToolResult,
   sanitizeToolName,
-  server as imageSaveGatewayServer,
 };

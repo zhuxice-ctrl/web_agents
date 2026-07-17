@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const pluginDir = path.resolve(testDir, "../../../extensions/mcp-superassistant-local-fixed");
+const pluginDir = path.resolve(testDir, "../legacy-extension");
 const repoRoot = path.resolve(testDir, "../../..");
 
 test("legacy normal plugin contains no roundtable runtime", async () => {
@@ -21,7 +21,7 @@ test("legacy normal plugin contains no roundtable runtime", async () => {
 
 test("root scripts keep normal plugin and compatibility tests separate", async () => {
   const rootPackage = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
-  assert.doesNotMatch(rootPackage.scripts["test:legacy-plugin"], /roundtable|compat-extension/i);
+  assert.doesNotMatch(rootPackage.scripts["test:plugin"], /roundtable|compat-extension/i);
   assert.match(rootPackage.scripts["test:roundtable-compat-extension"], /products\/roundtable\/compat-extension/);
   assert.doesNotMatch(rootPackage.scripts["test:roundtable-compat-extension"], /insert-fallback|result-enhancer|background-permission/);
 });

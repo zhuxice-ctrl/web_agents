@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 function loadContentScriptExports(filePath) {
@@ -10,7 +12,8 @@ function loadContentScriptExports(filePath) {
   return module.exports;
 }
 
-const insertFallback = loadContentScriptExports("extensions/mcp-superassistant-local-fixed/content/web-agent-insert-fallback.js");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const insertFallback = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-insert-fallback.js"));
 
 test("isInsertButtonText recognizes exact insert labels with leading icon text", () => {
   assert.equal(insertFallback.isInsertButtonText("插入"), true);

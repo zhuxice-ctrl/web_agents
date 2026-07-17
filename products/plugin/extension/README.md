@@ -46,7 +46,7 @@ npm run build
 构建后在 Chrome 中加载：
 
 ```text
-extensions/web-agents-extension/dist
+products/plugin/extension/dist
 ```
 
 ## 当前范围

@@ -12,7 +12,7 @@ import {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
-export const defaultPermissionStoreDir = path.join(repoRoot, "generated", "permissions");
+export const defaultPermissionStoreDir = path.join(repoRoot, "data", "permissions");
 
 function withDefaultStore(options = {}) {
   return { ...options, storeDir: options.storeDir || defaultPermissionStoreDir };

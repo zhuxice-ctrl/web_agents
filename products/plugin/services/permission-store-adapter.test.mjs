@@ -9,7 +9,7 @@ import {
   consumePermissionToken,
   createPermissionRequest,
   rejectPermissionRequest,
-} from "./web-agent-permission-store.mjs";
+} from "./permission-store-adapter.mjs";
 
 test("permission store issues a one-time token and consumes it only for matching request details", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-perm-"));

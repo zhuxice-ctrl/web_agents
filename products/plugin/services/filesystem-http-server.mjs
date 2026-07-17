@@ -4,13 +4,13 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { createFilesystemTools } from "@web-agents/local-core/filesystem-tools";
-import { defaultPermissionStoreDir } from "./web-agent-permission-store.mjs";
+import { defaultPermissionStoreDir } from "./permission-store-adapter.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRepoRoot = path.resolve(__dirname, "..");
 const defaultConfigFile = path.join(defaultRepoRoot, "config", "allowed-directories.local.txt");
-const defaultAuditFile = path.join(defaultRepoRoot, "generated", "audit", "writes.jsonl");
+const defaultAuditFile = path.join(defaultRepoRoot, "data", "audit", "writes.jsonl");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function sendJson(response, status, body) {
@@ -142,12 +142,15 @@ async function handleRpc(message, { filesystemTools }) {
 }
 
 export function createFilesystemHttpServer({
-  repoRoot = defaultRepoRoot,
+  productRoot = defaultRepoRoot,
+  repoRoot = productRoot,
+  configDir = path.join(productRoot, "config"),
+  dataDir = path.join(productRoot, "data"),
   host = "127.0.0.1",
   port = 3006,
-  configFile,
-  permissionStoreDir = null,
-  auditFile,
+  configFile = path.join(configDir, "allowed-directories.local.txt"),
+  permissionStoreDir = path.join(dataDir, "permissions"),
+  auditFile = path.join(dataDir, "audit", "writes.jsonl"),
   filesystemTools = null,
 } = {}) {
   const tools = filesystemTools || createFilesystemTools({

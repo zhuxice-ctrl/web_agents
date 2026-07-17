@@ -10,13 +10,13 @@ import {
   getWritablePermissionCheck,
   toolDefinitions,
 } from "@web-agents/local-core/filesystem-tools";
-import { defaultPermissionStoreDir } from "./web-agent-permission-store.mjs";
+import { defaultPermissionStoreDir } from "./permission-store-adapter.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRepoRoot = path.resolve(__dirname, "..");
 const defaultConfigFile = path.join(defaultRepoRoot, "config", "allowed-directories.local.txt");
-const defaultAuditFile = path.join(defaultRepoRoot, "generated", "audit", "writes.jsonl");
+const defaultAuditFile = path.join(defaultRepoRoot, "data", "audit", "writes.jsonl");
 
 function filesystemToolsFor(context = {}) {
   return createFilesystemTools({

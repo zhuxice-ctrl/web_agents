@@ -12,6 +12,8 @@ browser-profiles/
 config/data-root.local.txt
 config/workspace.local.json
 config/*.local.*
+products/*/config/*.local.*
+products/*/data/
 .codegraph/*.lock
 
 config.local.json

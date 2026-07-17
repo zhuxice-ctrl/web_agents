@@ -9,15 +9,15 @@ import {
   rejectPermissionViaGateway,
   saveToolResult,
   sanitizeToolName,
-} from "./web-agent-image-save-gateway.mjs";
-import { createPermissionRequest } from "./web-agent-permission-store.mjs";
+} from "./plugin-gateway.mjs";
+import { createPermissionRequest } from "./permission-store-adapter.mjs";
 
 test("sanitizeToolName produces a filesystem-safe name", () => {
   assert.equal(sanitizeToolName("list directory:*?"), "list-directory");
   assert.equal(sanitizeToolName("   "), "tool-result");
 });
 
-test("saveToolResult writes markdown under generated/tool-results", async () => {
+test("saveToolResult writes markdown under plugin-owned data", async () => {
   const result = await saveToolResult({
     toolName: "list_directory",
     fileName: `test-tool-result-${Date.now()}.md`,
@@ -25,7 +25,7 @@ test("saveToolResult writes markdown under generated/tool-results", async () => 
   });
 
   try {
-    assert.match(result.filePath, /generated[\\/]tool-results[\\/]/);
+    assert.match(result.filePath, /products[\\/]plugin[\\/]data[\\/]tool-results[\\/]/);
     const saved = await fs.readFile(result.filePath, "utf8");
     assert.match(saved, /# web_Agent 工具结果/);
     assert.match(saved, /Tool: list_directory/);

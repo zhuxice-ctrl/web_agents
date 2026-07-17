@@ -10,7 +10,7 @@ import {
   createConfigGatewayServer,
   evaluatePermission,
   getAllowedRoots,
-} from "./web-agent-config-gateway.mjs";
+} from "./config-gateway.mjs";
 
 test("getAllowedRoots includes repo root and configured existing directories", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-config-"));

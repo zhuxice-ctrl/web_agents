@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { once } from "node:events";
 
-import { createFilesystemHttpServer } from "./web-agent-filesystem-http-server.mjs";
+import { createFilesystemHttpServer } from "./filesystem-http-server.mjs";
 
 async function startFilesystemServer(t, prefix) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));

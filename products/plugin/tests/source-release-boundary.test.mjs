@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const extensionDir = path.resolve(testDir, "../../../extensions/web-agents-extension");
+const extensionDir = path.resolve(testDir, "../extension");
 
 async function sourceFiles(directory) {
   const output = [];

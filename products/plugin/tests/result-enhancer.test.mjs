@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import vm from "node:vm";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 function loadContentScriptExports(filePath) {
   const code = fs.readFileSync(filePath, "utf8");
@@ -10,7 +12,8 @@ function loadContentScriptExports(filePath) {
   return module.exports;
 }
 
-const enhancer = loadContentScriptExports("extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const enhancer = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-result-enhancer.js"));
 
 test("extractToolResultText returns text between Run and execution history", () => {
   const cardText = [
