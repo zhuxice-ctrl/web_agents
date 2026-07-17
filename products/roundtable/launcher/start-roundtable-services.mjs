@@ -7,12 +7,11 @@ import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
 import { createRoundtableServer } from "../app/server.mjs";
-import { createFilesystemHttpServer } from "../../plugin/services/filesystem-http-server.mjs";
-import { createPluginGatewayServer } from "../../plugin/services/plugin-gateway.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRepoRoot = path.resolve(__dirname, "..", "..", "..");
+const defaultProductRoot = path.resolve(__dirname, "..");
 
 async function listen(server, port, host) {
   server.listen(port, host);
@@ -48,7 +47,7 @@ async function httpReady(url, timeoutMs = 1000) {
   }
 }
 
-function spawnPlaywrightMcp({ repoRoot, host, port, cdpEndpoint, logDir }) {
+function spawnPlaywrightMcp({ repoRoot, host, port, cdpEndpoint, logDir, outputDir }) {
   const cli = path.join(repoRoot, "node_modules", "@playwright", "mcp", "cli.js");
   if (!fs.existsSync(cli)) throw new Error(`PLAYWRIGHT_MCP_NOT_INSTALLED:${cli}`);
   fs.mkdirSync(logDir, { recursive: true });
@@ -61,7 +60,7 @@ function spawnPlaywrightMcp({ repoRoot, host, port, cdpEndpoint, logDir }) {
     "--cdp-endpoint", cdpEndpoint,
     "--shared-browser-context",
     "--output-mode", "file",
-    "--output-dir", path.join(repoRoot, "generated", "playwright-mcp"),
+    "--output-dir", outputDir,
   ], {
     cwd: repoRoot,
     windowsHide: true,
@@ -71,35 +70,26 @@ function spawnPlaywrightMcp({ repoRoot, host, port, cdpEndpoint, logDir }) {
   return child;
 }
 
-export async function startLocalServices({
+export async function startRoundtableServices({
   repoRoot = defaultRepoRoot,
+  productRoot = defaultProductRoot,
   host = "127.0.0.1",
-  filesystemPort = 3006,
-  gatewayPort = 3017,
   roundtablePort = 3020,
   cdpPort = 9223,
   playwrightMcpPort = 8931,
   skipPlaywrightMcp = false,
   requireWorkspaceSelection = true,
-  gatewayServer = null,
   roundtableOptions = {},
 } = {}) {
   const resolvedRoot = path.resolve(repoRoot);
-  const pluginRoot = path.join(resolvedRoot, "products", "plugin");
-  const filesystemServer = createFilesystemHttpServer({
-    productRoot: pluginRoot,
-    host,
-    port: filesystemPort,
-  });
-  const activeGatewayServer = gatewayServer || createPluginGatewayServer({ productRoot: pluginRoot });
+  const resolvedProductRoot = path.resolve(productRoot);
+  const dataDir = path.join(resolvedProductRoot, "data");
   let playwrightProcess = null;
-  const ports = { filesystem: filesystemPort, gateway: gatewayPort, roundtable: roundtablePort, cdp: cdpPort, playwrightMcp: playwrightMcpPort };
+  const ports = { roundtable: roundtablePort, chromeCdp: cdpPort, playwrightMcp: playwrightMcpPort };
   const localServicesProvider = async () => ({
-    filesystem: { port: ports.filesystem, healthy: await httpReady(`http://${host}:${ports.filesystem}/health`) },
-    gateway: { port: ports.gateway, healthy: await httpReady(`http://${host}:${ports.gateway}/health`) },
-    chromeCdp: { port: ports.cdp, healthy: await httpReady(`http://${host}:${ports.cdp}/json/version`) },
-    playwrightMcp: { port: ports.playwrightMcp, healthy: skipPlaywrightMcp ? null : await tcpReady(host, ports.playwrightMcp) },
     roundtable: { port: ports.roundtable, healthy: true },
+    chromeCdp: { port: ports.chromeCdp, healthy: await httpReady(`http://${host}:${ports.chromeCdp}/json/version`) },
+    playwrightMcp: { port: ports.playwrightMcp, healthy: skipPlaywrightMcp ? null : await tcpReady(host, ports.playwrightMcp) },
   });
   const roundtableServer = createRoundtableServer({
     repoRoot: resolvedRoot,
@@ -111,24 +101,21 @@ export async function startLocalServices({
   });
 
   try {
-    const filesystemAddress = await listen(filesystemServer, filesystemPort, host);
-    ports.filesystem = filesystemAddress.port;
-    const gatewayAddress = await listen(activeGatewayServer, gatewayPort, host);
-    ports.gateway = gatewayAddress.port;
     if (!skipPlaywrightMcp) {
       playwrightProcess = spawnPlaywrightMcp({
         repoRoot: resolvedRoot,
         host,
         port: playwrightMcpPort,
         cdpEndpoint: `http://${host}:${cdpPort}`,
-        logDir: path.join(resolvedRoot, "generated", "logs"),
+        logDir: path.join(dataDir, "logs"),
+        outputDir: path.join(dataDir, "playwright-mcp"),
       });
     }
     const roundtableAddress = await listen(roundtableServer, roundtablePort, host);
     ports.roundtable = roundtableAddress.port;
   } catch (error) {
     if (playwrightProcess && !playwrightProcess.killed) playwrightProcess.kill();
-    await Promise.allSettled([closeServer(roundtableServer), closeServer(activeGatewayServer), closeServer(filesystemServer)]);
+    await closeServer(roundtableServer);
     throw error;
   }
 
@@ -140,15 +127,15 @@ export async function startLocalServices({
       playwrightProcess.kill();
       await Promise.race([once(playwrightProcess, "exit"), new Promise((resolve) => setTimeout(resolve, 3000))]).catch(() => {});
     }
-    await Promise.allSettled([closeServer(roundtableServer), closeServer(activeGatewayServer), closeServer(filesystemServer)]);
+    await closeServer(roundtableServer);
   }
 
   return {
     repoRoot: resolvedRoot,
+    productRoot: resolvedProductRoot,
     host,
     ports,
-    filesystemServer,
-    gatewayServer: activeGatewayServer,
+    healthUrl: `http://${host}:${ports.roundtable}/api/health`,
     roundtableServer,
     get playwrightProcess() { return playwrightProcess; },
     status: localServicesProvider,
@@ -159,27 +146,28 @@ export async function startLocalServices({
 if (path.resolve(process.argv[1] || "") === __filename) {
   const repoRoot = process.env.WEB_AGENTS_REPO_ROOT || defaultRepoRoot;
   const host = "127.0.0.1";
-  const services = await startLocalServices({
+  const productRoot = process.env.WEB_AGENTS_ROUNDTABLE_ROOT || defaultProductRoot;
+  const services = await startRoundtableServices({
     repoRoot,
+    productRoot,
     host,
-    filesystemPort: Number(process.env.WEB_AGENTS_FILESYSTEM_PORT || 3006),
-    gatewayPort: Number(process.env.WEB_AGENT_IMAGE_SAVE_PORT || 3017),
     roundtablePort: Number(process.env.WEB_AGENTS_ROUNDTABLE_PORT || 3020),
     cdpPort: Number(process.env.WEB_AGENTS_CDP_PORT || 9223),
     playwrightMcpPort: Number(process.env.WEB_AGENTS_PLAYWRIGHT_MCP_PORT || 8931),
     skipPlaywrightMcp: process.env.WEB_AGENTS_SKIP_PLAYWRIGHT_MCP === "1",
     requireWorkspaceSelection: process.env.WEB_AGENTS_REQUIRE_WORKSPACE !== "0",
   });
-  await fsp.mkdir(path.join(repoRoot, "generated", "runtime"), { recursive: true });
-  await fsp.writeFile(path.join(repoRoot, "generated", "runtime", "services.json"), `${JSON.stringify({
-    schema: "web-agents-local-services.v1",
+  const runtimeDir = path.join(productRoot, "data", "runtime");
+  await fsp.mkdir(runtimeDir, { recursive: true });
+  await fsp.writeFile(path.join(runtimeDir, "services.json"), `${JSON.stringify({
+    schema: "web-agents-roundtable-services.v1",
     pid: process.pid,
     repoRoot: path.resolve(repoRoot),
     ports: services.ports,
     startedAt: new Date().toISOString(),
   }, null, 2)}\n`, "utf8");
-  console.log(`Web Agents local services ready at http://${host}:${services.ports.roundtable}`);
-  console.log(`PID ${process.pid}; MCP ${services.ports.filesystem}; gateway ${services.ports.gateway}; Playwright MCP ${services.ports.playwrightMcp}`);
+  console.log(`Web Agents roundtable services ready at ${services.healthUrl}`);
+  console.log(`PID ${process.pid}; Chrome CDP ${services.ports.chromeCdp}; Playwright MCP ${services.ports.playwrightMcp}`);
   const shutdown = async () => {
     await services.close();
     process.exit(0);

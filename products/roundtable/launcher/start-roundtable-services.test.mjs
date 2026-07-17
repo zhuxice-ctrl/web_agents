@@ -4,14 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { startLocalServices } from "./start-roundtable-services.mjs";
+import { startRoundtableServices } from "./start-roundtable-services.mjs";
 
-test("local service host owns filesystem, gateway, and roundtable health endpoints", async (t) => {
-  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-services-"));
-  const services = await startLocalServices({
+test("roundtable service host owns no plugin service", async (t) => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-services-"));
+  const productRoot = path.join(repoRoot, "roundtable-product");
+  const services = await startRoundtableServices({
     repoRoot,
-    filesystemPort: 0,
-    gatewayPort: 0,
+    productRoot,
     roundtablePort: 0,
     skipPlaywrightMcp: true,
     requireWorkspaceSelection: false,
@@ -21,15 +21,15 @@ test("local service host owns filesystem, gateway, and roundtable health endpoin
     await fs.rm(repoRoot, { recursive: true, force: true });
   });
 
-  const filesystem = await fetch(`http://127.0.0.1:${services.ports.filesystem}/health`).then((response) => response.json());
-  const gateway = await fetch(`http://127.0.0.1:${services.ports.gateway}/health`).then((response) => response.json());
-  const roundtable = await fetch(`http://127.0.0.1:${services.ports.roundtable}/api/health`).then((response) => response.json());
-  assert.equal(filesystem.service, "web-agents-filesystem-mcp");
-  assert.equal(gateway.service, "web-agents-plugin-gateway");
+  assert.deepEqual(Object.keys(services.ports).sort(), ["chromeCdp", "playwrightMcp", "roundtable"]);
+  const roundtable = await fetch(services.healthUrl).then((response) => response.json());
   assert.equal(roundtable.service, "web-agents-roundtable");
-  assert.equal(filesystem.pid, process.pid);
-  assert.equal(gateway.pid, process.pid);
   assert.equal(roundtable.pid, process.pid);
-  assert.equal(roundtable.localServices.filesystem.healthy, true);
-  assert.equal(roundtable.localServices.gateway.healthy, true);
+  assert.equal("filesystem" in roundtable.localServices, false);
+  assert.equal("gateway" in roundtable.localServices, false);
+});
+
+test("roundtable launcher source does not import the plugin product", async () => {
+  const source = await fs.readFile(new URL("./start-roundtable-services.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /products[\\/]plugin|plugin[\\/]services|filesystem-http-server|plugin-gateway/i);
 });

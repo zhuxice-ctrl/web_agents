@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import syncFs from "node:fs";
 import fs from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -6,6 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { once } from "node:events";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -142,33 +144,54 @@ async function createControlledChrome() {
   };
 }
 
+function runPowerShellScript(scriptPath, args, env, timeout) {
+  const captureDir = syncFs.mkdtempSync(path.join(os.tmpdir(), "web-agents-launcher-capture-"));
+  const stdoutPath = path.join(captureDir, "stdout.log");
+  const stderrPath = path.join(captureDir, "stderr.log");
+  const stdoutFd = syncFs.openSync(stdoutPath, "w");
+  const stderrFd = syncFs.openSync(stderrPath, "w");
+  let result;
+  try {
+    result = spawnSync(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, ...args],
+      {
+        cwd: repoRoot,
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", stdoutFd, stderrFd],
+        timeout,
+        windowsHide: true,
+      }
+    );
+  } finally {
+    syncFs.closeSync(stdoutFd);
+    syncFs.closeSync(stderrFd);
+  }
+  const output = {
+    ...result,
+    stdout: syncFs.readFileSync(stdoutPath, "utf8"),
+    stderr: syncFs.readFileSync(stderrPath, "utf8"),
+  };
+  syncFs.rmSync(captureDir, { recursive: true, force: true });
+  return output;
+}
+
 function runLauncher(args, env = process.env) {
-  return spawnSync(
-    "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath, ...args],
-    {
-      cwd: repoRoot,
-      env,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 120_000,
-      windowsHide: true,
-    }
-  );
+  return runPowerShellScript(launcherPath, args, env, 120_000);
 }
 
 function runBrowserLauncher(args, env = process.env) {
-  return spawnSync(
+  return runPowerShellScript(browserLauncherPath, args, env, 60_000);
+}
+
+function getProcessCount() {
+  const result = spawnSync(
     "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", browserLauncherPath, ...args],
-    {
-      cwd: repoRoot,
-      env,
-      encoding: "utf8",
-      timeout: 60_000,
-      windowsHide: true,
-    }
+    ["-NoLogo", "-NoProfile", "-Command", "(Get-Process).Count"],
+    { cwd: repoRoot, encoding: "utf8", windowsHide: true, timeout: 10_000 }
   );
+  return Number.parseInt(result.stdout.trim(), 10) || null;
 }
 
 async function getFreePort() {
@@ -201,7 +224,8 @@ test("launcher source is parseable and defaults to the verified CDP service host
   assert.doesNotMatch(source, /mcp-proxy@latest/i);
   assert.match(source, /start-roundtable-services\.mjs/i);
   assert.match(source, /start-browser\.ps1/i);
-  assert.match(source, /MCP 3006, gateway 3017, Chrome CDP \$CdpPort, Playwright MCP 8931/i);
+  assert.match(source, /Chrome CDP \$CdpPort, Playwright MCP 8931, roundtable \$RoundtablePort/i);
+  assert.doesNotMatch(source, /MCP 3006|gateway 3017|local\.filesystem|local\.gateway/i);
   assert.match(source, /\[int\] \$CdpPort = 9223/i);
   assert.match(source, /\[string\] \$BrowserMode = "cdp"/i);
   assert.match(source, /WEB_AGENTS_ROUNDTABLE_PORT/);
@@ -244,7 +268,16 @@ test("launcher starts, reuses, identifies, and stops one roundtable process", { 
     await fs.rm(dataRoot, { recursive: true, force: true });
   });
 
-  const started = runLauncher(["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen"], env);
+  const processCounts = { before: getProcessCount(), after: null };
+  const durations = {};
+  const runPhase = (name, args) => {
+    const startedAt = performance.now();
+    const result = runLauncher(args, env);
+    durations[name] = Math.round(performance.now() - startedAt);
+    return result;
+  };
+  const chainStartedAt = performance.now();
+  const started = runPhase("start", ["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen"]);
   assert.equal(started.status, 0, started.stderr || started.stdout);
   const healthUrl = `http://127.0.0.1:${port}/api/health`;
   const firstHealth = await fetchFreshJson(healthUrl);
@@ -254,19 +287,26 @@ test("launcher starts, reuses, identifies, and stops one roundtable process", { 
   assert.equal(path.resolve(firstHealth.storage.dataRoot), path.resolve(dataRoot));
   assert.equal(firstHealth.browser.mode, "cdp");
 
-  const reused = runLauncher(["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen"], env);
+  const reused = runPhase("reuse", ["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen"]);
   assert.equal(reused.status, 0, reused.stderr || reused.stdout);
   const secondHealth = await fetchFreshJson(healthUrl);
   assert.equal(secondHealth.pid, firstHealth.pid);
 
-  const restarted = runLauncher(["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen", "-Restart"], env);
+  const restarted = runPhase("restart", ["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-NoOpen", "-Restart"]);
   assert.equal(restarted.status, 0, restarted.stderr || restarted.stdout);
   const restartedHealth = await fetchFreshJson(healthUrl);
   assert.notEqual(restartedHealth.pid, firstHealth.pid);
 
-  const stopped = runLauncher(["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-Stop"], env);
+  const stopped = runPhase("stop", ["-RoundtablePort", String(port), "-BrowserMode", "cdp", "-RoundtableOnly", "-Stop"]);
   assert.equal(stopped.status, 0, stopped.stderr || stopped.stdout);
   assert.equal(await isReachable(healthUrl), false);
+  durations.total = Math.round(performance.now() - chainStartedAt);
+  processCounts.after = getProcessCount();
+  const diagnostic = JSON.stringify({ durationsMs: durations, processCounts });
+  for (const phase of ["start", "reuse", "restart", "stop"]) {
+    assert.ok(durations[phase] < 30_000, diagnostic);
+  }
+  assert.ok(durations.total < 90_000, diagnostic);
 });
 
 test("launcher refuses fake health and restart never kills the foreign listener", { skip: !isWindows, timeout: 60_000 }, async (t) => {

@@ -118,12 +118,10 @@ function Get-RoundtableIdentity {
     $local = $health.localServices
     $matches =
       $local -and
-      $local.filesystem.healthy -eq $true -and
-      $local.gateway.healthy -eq $true -and
+      $local.roundtable.healthy -eq $true -and
       $local.chromeCdp.healthy -eq $true -and
       $local.playwrightMcp.healthy -eq $true -and
-      [int]$local.filesystem.port -eq 3006 -and
-      [int]$local.gateway.port -eq 3017 -and
+      [int]$local.roundtable.port -eq $Port -and
       [int]$local.chromeCdp.port -eq $CdpPort -and
       [int]$local.playwrightMcp.port -eq 8931
   }
@@ -458,7 +456,7 @@ try {
     }
     else {
       Write-Host "Workspace: select or resume it in the roundtable page."
-      Write-Host "Services: MCP 3006, gateway 3017, Chrome CDP $CdpPort, Playwright MCP 8931, roundtable $RoundtablePort"
+      Write-Host "Services: Chrome CDP $CdpPort, Playwright MCP 8931, roundtable $RoundtablePort"
     }
     if (-not $NoOpen) { Start-Process -FilePath $roundtableUrl }
   }

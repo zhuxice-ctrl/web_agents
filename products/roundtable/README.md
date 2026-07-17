@@ -10,3 +10,5 @@ The roundtable is a standalone local workbench. Its default browser path uses a 
 - `start-roundtable.bat` starts the Windows launcher and dedicated browser lifecycle.
 
 Workspace sessions live under `<workspace>/.web-agents`. Product browser state and logs live under `products/roundtable/data` unless a user-local override is supplied.
+
+The default lifecycle owns only the workbench on `3020`, dedicated Chrome CDP on `9223`, and Playwright MCP on `8931`. Filesystem operations run in process through `@web-agents/local-core`; the roundtable does not start or depend on plugin ports `3006/3017`.
