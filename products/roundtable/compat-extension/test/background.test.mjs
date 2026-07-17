@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
@@ -10,15 +9,14 @@ import {
   runProviderAuthProbe,
   sanitizeDetectedStatus,
   sanitizeProviderUrl,
-} from "../extensions/mcp-superassistant-local-fixed/roundtable/background-core.js";
+} from "../background/background-core.js";
 import {
   createRoundtableBackgroundRouter,
   registerRoundtableBackground,
-} from "../extensions/mcp-superassistant-local-fixed/roundtable-background.js";
+} from "../background.js";
 
-const BACKGROUND_PATH = "extensions/mcp-superassistant-local-fixed/background.js";
-const LEGACY_BACKGROUND_SHA256 = "c8272d0fc5df8db6dfe4436bbc13575360a2f5b0a5c9207df6759ce5ebd9e873";
-const ROUNDTABLE_IMPORT = 'import "./roundtable-background.js";';
+const NORMAL_BACKGROUND_PATH = "extensions/mcp-superassistant-local-fixed/background.js";
+const COMPAT_BACKGROUND_PATH = "products/roundtable/compat-extension/background.js";
 
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -807,13 +805,9 @@ test("background listener accepts allowlisted commands from the fixed local roun
   });
 });
 
-test("legacy background body is byte-identical after the one static import", () => {
-  const bytes = fs.readFileSync(BACKGROUND_PATH);
-  const firstLineEnd = bytes.indexOf(0x0a);
-  assert.notEqual(firstLineEnd, -1);
-  assert.equal(bytes.subarray(0, firstLineEnd).toString("utf8").replace(/\r$/, ""), ROUNDTABLE_IMPORT);
-
-  const legacyBytes = bytes.subarray(firstLineEnd + 1);
-  assert.equal(legacyBytes.length, 576_570);
-  assert.equal(createHash("sha256").update(legacyBytes).digest("hex"), LEGACY_BACKGROUND_SHA256);
+test("compatibility background is isolated from the normal plugin", () => {
+  const normalBackground = fs.readFileSync(NORMAL_BACKGROUND_PATH, "utf8");
+  const compatBackground = fs.readFileSync(COMPAT_BACKGROUND_PATH, "utf8");
+  assert.doesNotMatch(normalBackground, /roundtable-background|background-core/);
+  assert.match(compatBackground, /\.\/background\/background-core\.js/);
 });

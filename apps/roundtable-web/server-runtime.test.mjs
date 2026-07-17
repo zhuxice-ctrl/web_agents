@@ -314,14 +314,14 @@ test("extension relay API carries one allowlisted command through the local roun
     body: JSON.stringify({
       clientId,
       available: true,
-      extensionVersion: "0.6.8",
+      extensionVersion: "0.1.0",
       bridgeRevision: "legacy-sidecar-v1",
       token: "must-not-cross",
     }),
   });
   assert.equal(registered.response.status, 200);
   assert.equal(registered.payload.extensionBridge.connected, true);
-  assert.equal(registered.payload.client.extensionVersion, "0.6.8");
+  assert.equal(registered.payload.client.extensionVersion, "0.1.0");
   assert.equal(registered.payload.client.bridgeRevision, "legacy-sidecar-v1");
   assert.equal(Object.hasOwn(registered.payload.client, "token"), false);
 
@@ -366,7 +366,7 @@ test("extension relay API carries one allowlisted command through the local roun
   assert.equal(status.extensionBridge.clients[0].bridgeRevision, "legacy-sidecar-v1");
 
   const health = await fetch(`${baseUrl}/api/health`).then((response) => response.json());
-  assert.equal(health.extensionBridge.clients[0].extensionVersion, "0.6.8");
+  assert.equal(health.extensionBridge.clients[0].extensionVersion, "0.1.0");
   assert.equal(health.extensionBridge.clients[0].bridgeRevision, "legacy-sidecar-v1");
 });
 
@@ -378,7 +378,7 @@ test("extension relay API rejects a disallowed command without exposing it to a 
     body: JSON.stringify({
       clientId,
       available: true,
-      extensionVersion: "0.6.8",
+      extensionVersion: "0.1.0",
       bridgeRevision: "legacy-sidecar-v1",
     }),
   });
@@ -398,7 +398,7 @@ test("extension relay API rejects an incompatible available bridge client", asyn
     body: JSON.stringify({
       clientId: "roundtable-incompatible-client",
       available: true,
-      extensionVersion: "0.6.7",
+      extensionVersion: "0.0.9",
       bridgeRevision: "legacy-sidecar-v1",
     }),
   });
@@ -417,7 +417,7 @@ test("extension runtime auto-binds a normal Chrome tab and completes a real sche
     body: JSON.stringify({
       clientId,
       available: true,
-      extensionVersion: "0.6.8",
+      extensionVersion: "0.1.0",
       bridgeRevision: "legacy-sidecar-v1",
     }),
   });

@@ -3,8 +3,8 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const protocolPath = "extensions/mcp-superassistant-local-fixed/content/roundtable-protocol.js";
-const pageBridgePath = "extensions/mcp-superassistant-local-fixed/content/roundtable-page-bridge.js";
+const protocolPath = "products/roundtable/compat-extension/content/roundtable-protocol.js";
+const pageBridgePath = "products/roundtable/compat-extension/content/roundtable-page-bridge.js";
 
 function loadContentScriptExports(filePath) {
   const code = fs.readFileSync(filePath, "utf8");
@@ -20,7 +20,7 @@ function toPlain(value) {
 
 function createHarness({
   origin = "http://127.0.0.1:3020",
-  version = "0.6.8",
+  version = "0.1.0",
   sendMessage = async (request) => ({ ok: true, type: request.type, data: {} }),
 } = {}) {
   const protocol = loadContentScriptExports(protocolPath);
@@ -84,7 +84,7 @@ test("announces the legacy extension version and bridge revision", () => {
       source: "web-agents-roundtable-bridge",
       direction: "extension-to-page",
       type: "bridge:ready",
-      extensionVersion: "0.6.8",
+      extensionVersion: "0.1.0",
       bridgeRevision: "legacy-sidecar-v1",
     },
     targetOrigin: "http://127.0.0.1:3020",
@@ -140,7 +140,7 @@ test("answers bridge ping locally", () => {
       response: {
         ok: true,
         type: "bridge:ping",
-        data: { extensionVersion: "0.6.8", bridgeRevision: "legacy-sidecar-v1" },
+        data: { extensionVersion: "0.1.0", bridgeRevision: "legacy-sidecar-v1" },
       },
     },
     targetOrigin: "http://127.0.0.1:3020",

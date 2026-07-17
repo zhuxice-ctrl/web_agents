@@ -6,7 +6,7 @@ import {
   runProviderAuthProbe,
   sanitizeDetectedStatus,
   sanitizeProviderUrl,
-} from "./roundtable/background-core.js";
+} from "./background/background-core.js";
 
 const PROVIDER_DEFAULT_URLS = Object.freeze({
   chatgpt: "https://chatgpt.com/",

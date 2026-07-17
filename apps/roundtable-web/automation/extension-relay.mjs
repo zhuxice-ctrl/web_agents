@@ -14,7 +14,7 @@ export const EXTENSION_RELAY_REQUEST_TYPES = new Set([
   "tab:capture-latest",
   "tab:capture-recent",
 ]);
-export const LEGACY_EXTENSION_VERSION = "0.6.8";
+export const LEGACY_EXTENSION_VERSION = "0.1.0";
 export const LEGACY_BRIDGE_REVISION = "legacy-sidecar-v1";
 const EXTENSION_PROVIDER_IDS = new Set(["chatgpt", "deepseek", "doubao"]);
 const EXTENSION_RESULT_PROVIDER_IDS = new Set([...EXTENSION_PROVIDER_IDS, "unknown"]);

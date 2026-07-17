@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Web Agents Roundtable Compatibility Bridge",
+  "description": "Temporary bridge for the standalone Web Agents roundtable.",
+  "version": "0.1.0",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:3020/*",
+    "http://localhost:3020/*",
+    "*://*.chat.openai.com/*",
+    "*://*.chatgpt.com/*",
+    "*://*.chat.deepseek.com/*",
+    "*://*.doubao.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:3020/*",
+        "http://localhost:3020/*"
+      ],
+      "js": [
+        "content/roundtable-protocol.js",
+        "content/roundtable-page-bridge.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.chat.openai.com/*",
+        "*://*.chatgpt.com/*",
+        "*://*.chat.deepseek.com/*",
+        "*://*.doubao.com/*"
+      ],
+      "js": [
+        "content/roundtable-protocol.js",
+        "content/roundtable-content-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

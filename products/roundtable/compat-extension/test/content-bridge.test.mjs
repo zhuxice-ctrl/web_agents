@@ -3,7 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const contentBridgePath = "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js";
+const contentBridgePath = "products/roundtable/compat-extension/content/roundtable-content-bridge.js";
 const composerSelector = "#prompt-textarea, textarea:not([readonly]):not([disabled]), [role='textbox'][contenteditable='true']";
 
 function toPlain(value) {

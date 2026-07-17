@@ -3,7 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const protocolPath = "extensions/mcp-superassistant-local-fixed/content/roundtable-protocol.js";
+const protocolPath = "products/roundtable/compat-extension/content/roundtable-protocol.js";
 
 function loadProtocol({ includeModule = true } = {}) {
   const code = fs.readFileSync(protocolPath, "utf8");

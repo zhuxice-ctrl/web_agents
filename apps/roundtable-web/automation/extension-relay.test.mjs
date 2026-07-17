@@ -5,7 +5,7 @@ import { ExtensionRelay } from "./extension-relay.mjs";
 
 const verifiedBridge = Object.freeze({
   available: true,
-  extensionVersion: "0.6.8",
+  extensionVersion: "0.1.0",
   bridgeRevision: "legacy-sidecar-v1",
 });
 
@@ -136,7 +136,7 @@ test("extension relay removes stale clients and exposes status without command p
 
   const initial = relay.status();
   assert.equal(initial.connected, true);
-  assert.equal(initial.clients[0].extensionVersion, "0.6.8");
+  assert.equal(initial.clients[0].extensionVersion, "0.1.0");
   assert.equal(initial.clients[0].verified, true);
   assert.equal("queue" in initial.clients[0], false);
 
@@ -150,7 +150,7 @@ test("extension relay carries bounded legacy bridge metadata without secret fiel
 
   relay.register("legacy-client-123", {
     available: true,
-    extensionVersion: "0.6.8",
+    extensionVersion: "0.1.0",
     bridgeRevision: "legacy-sidecar-v1",
     token: "must-not-cross",
   });
@@ -160,7 +160,7 @@ test("extension relay carries bounded legacy bridge metadata without secret fiel
   });
 
   const [client] = relay.status().clients;
-  assert.equal(client.extensionVersion, "0.6.8");
+  assert.equal(client.extensionVersion, "0.1.0");
   assert.equal(client.bridgeRevision, "legacy-sidecar-v1");
   assert.equal(client.verified, true);
   assert.equal(Object.hasOwn(client, "token"), false);
@@ -174,7 +174,7 @@ test("extension relay rejects an available client with incompatible bridge metad
   assert.throws(
     () => relay.register("client-12345678", {
       available: true,
-      extensionVersion: "0.6.7",
+      extensionVersion: "0.0.9",
       bridgeRevision: "legacy-sidecar-v1",
     }),
     (error) => error.code === "EXTENSION_BRIDGE_INCOMPATIBLE",
@@ -182,7 +182,7 @@ test("extension relay rejects an available client with incompatible bridge metad
   assert.throws(
     () => relay.register("client-abcdefgh", {
       available: true,
-      extensionVersion: "0.6.8",
+      extensionVersion: "0.1.0",
       bridgeRevision: "rewrite-v2",
     }),
     (error) => error.code === "EXTENSION_BRIDGE_INCOMPATIBLE",
