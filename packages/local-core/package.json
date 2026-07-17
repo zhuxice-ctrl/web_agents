@@ -1,0 +1,14 @@
+{
+  "name": "@web-agents/local-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./paths": "./src/path-lock-manager.mjs",
+    "./real-paths": "./src/real-path-policy.mjs",
+    "./atomic-file": "./src/atomic-file.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

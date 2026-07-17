@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { assertMutationPathIdentity, resolvePathIdentity } from "../mcp/real-path-policy.mjs";
+import { assertMutationPathIdentity, resolvePathIdentity } from "@web-agents/local-core/real-paths";
 
 function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");

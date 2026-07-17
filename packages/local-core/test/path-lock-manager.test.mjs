@@ -6,7 +6,7 @@ import {
   canonicalizeWindowsPath,
   PathLockManager,
   sourceTargetLockKeys,
-} from "./path-lock-manager.mjs";
+} from "../src/path-lock-manager.mjs";
 
 function deferred() {
   let resolve;

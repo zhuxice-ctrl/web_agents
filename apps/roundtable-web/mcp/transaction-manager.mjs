@@ -2,9 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { canonicalizeWindowsPath, PathLockManager } from "./path-lock-manager.mjs";
+import { canonicalizeWindowsPath, PathLockManager } from "@web-agents/local-core/paths";
+import { atomicWriteJson } from "@web-agents/local-core/atomic-file";
 import { calculateArgsHash } from "./permission-broker.mjs";
-import { assertMutationPathIdentity, resolvePathIdentity } from "./real-path-policy.mjs";
+import { assertMutationPathIdentity, resolvePathIdentity } from "@web-agents/local-core/real-paths";
 import { defaultToolRegistry, validateToolMetadata } from "./tool-registry.mjs";
 
 const TRANSACTION_SCHEMA = "web-agents.transaction.v1";
@@ -134,49 +135,6 @@ async function copyPath(source, destination) {
     errorOnExist: true,
     verbatimSymlinks: true,
   });
-}
-
-function isWindowsReplaceConflict(error) {
-  return error?.code === "EEXIST" || error?.code === "EPERM";
-}
-
-async function replaceFileWithRecovery(filePath, temporaryPath, exchangePath, fileSystem) {
-  try {
-    await fileSystem.rename(temporaryPath, filePath);
-  } catch (error) {
-    if (!isWindowsReplaceConflict(error)) throw error;
-    await fileSystem.rename(filePath, exchangePath);
-    try {
-      await fileSystem.rename(temporaryPath, filePath);
-    } catch (replaceError) {
-      try {
-        await fileSystem.rename(exchangePath, filePath);
-      } catch (restoreError) {
-        const recoveryError = new AggregateError(
-          [replaceError, restoreError],
-          `Atomic replacement failed and the original remains at ${exchangePath}`
-        );
-        recoveryError.code = "ATOMIC_REPLACE_RESTORE_FAILED";
-        recoveryError.recoveryPath = exchangePath;
-        throw recoveryError;
-      }
-      throw replaceError;
-    }
-    await fileSystem.rm(exchangePath, { force: true });
-  }
-}
-
-export async function atomicWriteJson(filePath, value, { fileSystem = fs, idFactory = randomUUID } = {}) {
-  await fileSystem.mkdir(path.dirname(filePath), { recursive: true });
-  const suffix = `${process.pid}-${idFactory()}`;
-  const temporaryPath = `${filePath}.tmp-${suffix}`;
-  const exchangePath = `${filePath}.swap-${suffix}`;
-  await fileSystem.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  try {
-    await replaceFileWithRecovery(filePath, temporaryPath, exchangePath, fileSystem);
-  } finally {
-    await fileSystem.rm(temporaryPath, { force: true });
-  }
 }
 
 function normalizePathSpecs(input, output = []) {

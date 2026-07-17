@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
-import { canonicalizeWindowsPath } from "./path-lock-manager.mjs";
-import { resolvePathIdentity } from "./real-path-policy.mjs";
+import { canonicalizeWindowsPath } from "@web-agents/local-core/paths";
+import { resolvePathIdentity } from "@web-agents/local-core/real-paths";
 import { defaultToolRegistry, validateToolMetadata } from "./tool-registry.mjs";
 
 const INTERNAL_PERMISSION_FIELDS = new Set(["_webAgentPermission", "__webAgentPermission"]);

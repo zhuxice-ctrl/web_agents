@@ -10,7 +10,7 @@ import {
 import {
   assertMutationPathIdentity,
   resolvePathIdentity,
-} from "../apps/roundtable-web/mcp/real-path-policy.mjs";
+} from "@web-agents/local-core/real-paths";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

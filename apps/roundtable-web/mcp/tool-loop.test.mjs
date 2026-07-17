@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { PathLockManager } from "./path-lock-manager.mjs";
+import { PathLockManager } from "@web-agents/local-core/paths";
 import { PermissionBroker } from "./permission-broker.mjs";
 import { ToolLoop } from "./tool-loop.mjs";
 import { TransactionManager } from "./transaction-manager.mjs";

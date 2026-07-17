@@ -4,34 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { PathLockManager } from "./path-lock-manager.mjs";
-import { atomicWriteJson, TransactionError, TransactionManager } from "./transaction-manager.mjs";
-
-function createFaultInjectingFileSystem({ failures, onRename } = {}) {
-  let renameCalls = 0;
-  const removedPaths = [];
-  return {
-    fileSystem: {
-      mkdir: (...args) => fs.mkdir(...args),
-      writeFile: (...args) => fs.writeFile(...args),
-      async rename(source, destination) {
-        renameCalls += 1;
-        await onRename?.({ call: renameCalls, source, destination });
-        const code = failures?.get(renameCalls);
-        if (code) throw Object.assign(new Error(`Injected rename failure ${code}`), { code });
-        return fs.rename(source, destination);
-      },
-      async rm(target, options) {
-        removedPaths.push(target);
-        return fs.rm(target, options);
-      },
-    },
-    get renameCalls() {
-      return renameCalls;
-    },
-    removedPaths,
-  };
-}
+import { PathLockManager } from "@web-agents/local-core/paths";
+import { TransactionError, TransactionManager } from "./transaction-manager.mjs";
 
 async function createFixture(t, executeTool) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-transaction-"));
@@ -55,60 +29,6 @@ async function writeExecutor(name, args) {
   await fs.writeFile(args.path, args.content, "utf8");
   return { content: [{ type: "text", text: `wrote ${args.path}` }] };
 }
-
-test("transaction JSON replacement keeps a recoverable original on Windows conflicts", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-transaction-atomic-success-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const target = path.join(root, "transaction.json");
-  await fs.writeFile(target, '{"status":"before"}\n', "utf8");
-
-  let exchangePath = null;
-  let recoverableContent = null;
-  const injected = createFaultInjectingFileSystem({
-    failures: new Map([[1, "EEXIST"]]),
-    async onRename({ call, destination }) {
-      if (call === 2) exchangePath = destination;
-      if (call === 3) recoverableContent = await fs.readFile(exchangePath, "utf8");
-    },
-  });
-
-  await atomicWriteJson(target, { status: "after" }, {
-    fileSystem: injected.fileSystem,
-    idFactory: () => "success",
-  });
-
-  assert.equal(recoverableContent, '{"status":"before"}\n');
-  assert.deepEqual(JSON.parse(await fs.readFile(target, "utf8")), { status: "after" });
-  assert.equal(injected.removedPaths.includes(target), false);
-  assert.equal(injected.renameCalls, 3);
-  assert.deepEqual((await fs.readdir(root)).filter((name) => /\.(?:tmp|swap)-/.test(name)), []);
-});
-
-test("transaction JSON replacement restores the original after a second rename failure", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-transaction-atomic-restore-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const target = path.join(root, "transaction.json");
-  await fs.writeFile(target, '{"status":"before"}\n', "utf8");
-  const injected = createFaultInjectingFileSystem({
-    failures: new Map([
-      [1, "EPERM"],
-      [3, "EEXIST"],
-    ]),
-  });
-
-  await assert.rejects(
-    () => atomicWriteJson(target, { status: "after" }, {
-      fileSystem: injected.fileSystem,
-      idFactory: () => "restore",
-    }),
-    (error) => error?.code === "EEXIST"
-  );
-
-  assert.deepEqual(JSON.parse(await fs.readFile(target, "utf8")), { status: "before" });
-  assert.equal(injected.removedPaths.includes(target), false);
-  assert.equal(injected.renameCalls, 4);
-  assert.deepEqual((await fs.readdir(root)).filter((name) => /\.(?:tmp|swap)-/.test(name)), []);
-});
 
 test("transactions record sequence, hashes, backups, UTF-8 instruction, and idempotent execution IDs", async (t) => {
   let executions = 0;

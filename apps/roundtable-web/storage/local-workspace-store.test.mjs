@@ -4,33 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { atomicWriteFile, LocalWorkspaceStore } from "./local-workspace-store.mjs";
-
-function createFaultInjectingFileSystem({ failures, onRename } = {}) {
-  let renameCalls = 0;
-  const removedPaths = [];
-  return {
-    fileSystem: {
-      mkdir: (...args) => fs.mkdir(...args),
-      writeFile: (...args) => fs.writeFile(...args),
-      async rename(source, destination) {
-        renameCalls += 1;
-        await onRename?.({ call: renameCalls, source, destination });
-        const code = failures?.get(renameCalls);
-        if (code) throw Object.assign(new Error(`Injected rename failure ${code}`), { code });
-        return fs.rename(source, destination);
-      },
-      async rm(target, options) {
-        removedPaths.push(target);
-        return fs.rm(target, options);
-      },
-    },
-    get renameCalls() {
-      return renameCalls;
-    },
-    removedPaths,
-  };
-}
+import { LocalWorkspaceStore } from "./local-workspace-store.mjs";
 
 async function createFixture() {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-store-"));
@@ -39,60 +13,6 @@ async function createFixture() {
   await store.initialize();
   return { repoRoot, dataRoot, store };
 }
-
-test("Windows atomic replacement keeps a recoverable original before installing the new file", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-atomic-success-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const target = path.join(root, "state.json");
-  await fs.writeFile(target, "before", "utf8");
-
-  let exchangePath = null;
-  let recoverableContent = null;
-  const injected = createFaultInjectingFileSystem({
-    failures: new Map([[1, "EPERM"]]),
-    async onRename({ call, destination }) {
-      if (call === 2) exchangePath = destination;
-      if (call === 3) recoverableContent = await fs.readFile(exchangePath, "utf8");
-    },
-  });
-
-  await atomicWriteFile(target, "after", {
-    fileSystem: injected.fileSystem,
-    idFactory: () => "success",
-  });
-
-  assert.equal(recoverableContent, "before");
-  assert.equal(await fs.readFile(target, "utf8"), "after");
-  assert.equal(injected.removedPaths.includes(target), false);
-  assert.equal(injected.renameCalls, 3);
-  assert.deepEqual((await fs.readdir(root)).filter((name) => /\.(?:tmp|swap)-/.test(name)), []);
-});
-
-test("Windows atomic replacement restores the original when the second rename fails", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-atomic-restore-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const target = path.join(root, "state.json");
-  await fs.writeFile(target, "before", "utf8");
-  const injected = createFaultInjectingFileSystem({
-    failures: new Map([
-      [1, "EEXIST"],
-      [3, "EPERM"],
-    ]),
-  });
-
-  await assert.rejects(
-    () => atomicWriteFile(target, "after", {
-      fileSystem: injected.fileSystem,
-      idFactory: () => "restore",
-    }),
-    (error) => error?.code === "EPERM"
-  );
-
-  assert.equal(await fs.readFile(target, "utf8"), "before");
-  assert.equal(injected.removedPaths.includes(target), false);
-  assert.equal(injected.renameCalls, 4);
-  assert.deepEqual((await fs.readdir(root)).filter((name) => /\.(?:tmp|swap)-/.test(name)), []);
-});
 
 test("local workspace store writes atomic state and append-only ledger records", async () => {
   const { dataRoot, store } = await createFixture();

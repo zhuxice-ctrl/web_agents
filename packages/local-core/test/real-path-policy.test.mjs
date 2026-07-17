@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { assertMutationPathIdentity, resolvePathIdentity } from "./real-path-policy.mjs";
+import { assertMutationPathIdentity, resolvePathIdentity } from "../src/real-path-policy.mjs";
 
 test("missing targets resolve through the nearest existing ancestor", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-real-path-"));

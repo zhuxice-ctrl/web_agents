@@ -2,6 +2,11 @@
   "name": "web-ai-local-mcp-bridge",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "products/*",
+    "products/*/*"
+  ],
   "engines": {
     "node": ">=24"
   },

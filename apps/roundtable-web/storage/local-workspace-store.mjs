@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { atomicWriteFile, atomicWriteJson } from "@web-agents/local-core/atomic-file";
 
 const STORE_SCHEMA = "web-agents-local-store.v1";
 const SESSION_SCHEMA = "web-agents-roundtable-session.v1";
@@ -29,53 +30,6 @@ async function readJson(filePath, fallback = null) {
     if (fallback !== null && error?.code === "ENOENT") return fallback;
     throw error;
   }
-}
-
-function isWindowsReplaceConflict(error) {
-  return error?.code === "EEXIST" || error?.code === "EPERM";
-}
-
-async function replaceFileWithRecovery(filePath, temporaryPath, exchangePath, fileSystem) {
-  try {
-    await fileSystem.rename(temporaryPath, filePath);
-  } catch (error) {
-    if (!isWindowsReplaceConflict(error)) throw error;
-    await fileSystem.rename(filePath, exchangePath);
-    try {
-      await fileSystem.rename(temporaryPath, filePath);
-    } catch (replaceError) {
-      try {
-        await fileSystem.rename(exchangePath, filePath);
-      } catch (restoreError) {
-        const recoveryError = new AggregateError(
-          [replaceError, restoreError],
-          `Atomic replacement failed and the original remains at ${exchangePath}`
-        );
-        recoveryError.code = "ATOMIC_REPLACE_RESTORE_FAILED";
-        recoveryError.recoveryPath = exchangePath;
-        throw recoveryError;
-      }
-      throw replaceError;
-    }
-    await fileSystem.rm(exchangePath, { force: true });
-  }
-}
-
-async function atomicWriteFile(filePath, content, { fileSystem = fs, idFactory = randomUUID } = {}) {
-  await fileSystem.mkdir(path.dirname(filePath), { recursive: true });
-  const suffix = `${process.pid}-${idFactory()}`;
-  const temporaryPath = `${filePath}.tmp-${suffix}`;
-  const exchangePath = `${filePath}.swap-${suffix}`;
-  await fileSystem.writeFile(temporaryPath, content, "utf8");
-  try {
-    await replaceFileWithRecovery(filePath, temporaryPath, exchangePath, fileSystem);
-  } finally {
-    await fileSystem.rm(temporaryPath, { force: true });
-  }
-}
-
-async function atomicWriteJson(filePath, value, options) {
-  await atomicWriteFile(filePath, `${JSON.stringify(value, null, 2)}\n`, options);
 }
 
 function metadataFromSession(session) {
