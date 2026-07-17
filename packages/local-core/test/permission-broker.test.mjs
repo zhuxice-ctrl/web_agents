@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { PermissionBroker, PermissionBrokerError } from "./permission-broker.mjs";
+import { PermissionBroker, PermissionBrokerError } from "../src/permission-broker.mjs";
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-permission-"));
@@ -70,10 +70,27 @@ test("identical external writes create only one pending request", async (t) => {
   const first = await broker.authorize(call);
   const duplicate = await broker.authorize(call);
   assert.equal(first.status, "permission_required");
+  assert.equal(first.request.kind, "local_permission_request");
   assert.equal(duplicate.request.requestId, first.request.requestId);
   assert.equal(broker.listRequests().length, 1);
   assert.deepEqual(first.request.reasons, ["external_write"]);
   assert.equal(JSON.stringify(broker.listAudit()).includes("secret body"), false);
+});
+
+test("permission request kind is injectable by a product adapter", async (t) => {
+  const { workspace, outside } = await fixture(t);
+  const broker = new PermissionBroker({
+    workspaceRoot: workspace,
+    requestKind: "roundtable_permission_request",
+  });
+
+  const result = await broker.authorize({
+    taskId: "task-product",
+    tool: "write_file",
+    args: { path: path.join(outside, "result.txt"), content: "outside" },
+  });
+
+  assert.equal(result.request.kind, "roundtable_permission_request");
 });
 
 test("allow_once binds request, task, tool, paths, and args hash and consumes once", async (t) => {

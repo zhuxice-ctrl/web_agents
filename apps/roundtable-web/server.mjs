@@ -29,13 +29,13 @@ import { RunRegistry } from "./orchestrator/run-registry.mjs";
 import { RoundtableScheduler, createTurnPlan } from "./orchestrator/scheduler.mjs";
 import { LocalWorkspaceStore } from "./storage/local-workspace-store.mjs";
 import { WorkspaceRegistry } from "./storage/workspace-registry.mjs";
-import { PermissionBroker } from "./mcp/permission-broker.mjs";
-import { TransactionManager } from "./mcp/transaction-manager.mjs";
-import { defaultToolRegistry } from "./mcp/tool-registry.mjs";
 import {
-  callTool,
   CONTROLLER_TOOL_CAPABILITY,
-} from "../../scripts/web-agent-filesystem-server.mjs";
+  createFilesystemTools,
+} from "@web-agents/local-core/filesystem-tools";
+import { PermissionBroker } from "@web-agents/local-core/permissions";
+import { TransactionManager } from "@web-agents/local-core/transactions";
+import { defaultToolRegistry } from "@web-agents/local-core/tool-registry";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -282,9 +282,14 @@ function createWorkspaceServices(runtime, store, overrides = {}) {
   const existing = runtime.workspaceServices?.get(key);
   if (existing) return existing;
   const workspaceRoot = store.workspaceRoot || runtime.repoRoot;
-  const executeTool = (name, args, context = {}) => callTool(name, args, {
-    repoRoot: runtime.repoRoot,
-    permissionStoreDir: path.join(store.dataRoot || runtime.repoRoot, "permissions"),
+  const filesystemRoot = store.dataRoot || path.join(workspaceRoot, ".web-agents");
+  const filesystemTools = createFilesystemTools({
+    repoRoot: workspaceRoot,
+    configFile: path.join(filesystemRoot, "config", "allowed-directories.txt"),
+    permissionStoreDir: path.join(filesystemRoot, "permissions"),
+    auditFile: path.join(filesystemRoot, "audit", "filesystem-writes.jsonl"),
+  });
+  const executeTool = (name, args, context = {}) => filesystemTools.call(name, args, {
     ...context,
     controllerCapability: CONTROLLER_TOOL_CAPABILITY,
   });
@@ -292,6 +297,7 @@ function createWorkspaceServices(runtime, store, overrides = {}) {
     workspaceRoot,
     registry: defaultToolRegistry,
     audit: store,
+    requestKind: "roundtable_permission_request",
   });
   const transactionManager = new TransactionManager({
     workspaceRoot,

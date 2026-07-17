@@ -3,11 +3,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { callTool, toolDefinitions } from "./web-agent-filesystem-server.mjs";
+import { createFilesystemTools } from "@web-agents/local-core/filesystem-tools";
+import { defaultPermissionStoreDir } from "./web-agent-permission-store.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRepoRoot = path.resolve(__dirname, "..");
+const defaultConfigFile = path.join(defaultRepoRoot, "config", "allowed-directories.local.txt");
+const defaultAuditFile = path.join(defaultRepoRoot, "generated", "audit", "writes.jsonl");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function sendJson(response, status, body) {
@@ -109,7 +112,7 @@ function authorizeLocalRequest(request, response, url) {
   return true;
 }
 
-async function handleRpc(message, { repoRoot, configFile, permissionStoreDir } = {}) {
+async function handleRpc(message, { filesystemTools }) {
   const { id, method, params } = message || {};
   if (method === "notifications/initialized" || (id === undefined && id !== 0)) return null;
   try {
@@ -125,13 +128,9 @@ async function handleRpc(message, { repoRoot, configFile, permissionStoreDir } =
       };
     }
     if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
-    if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: toolDefinitions } };
+    if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: filesystemTools.definitions } };
     if (method === "tools/call") {
-      const result = await callTool(params?.name, params?.arguments || {}, {
-        repoRoot,
-        configFile,
-        permissionStoreDir,
-      });
+      const result = await filesystemTools.call(params?.name, params?.arguments || {});
       return { jsonrpc: "2.0", id, result };
     }
     if (method === "resources/list") return { jsonrpc: "2.0", id, result: { resources: [] } };
@@ -148,7 +147,15 @@ export function createFilesystemHttpServer({
   port = 3006,
   configFile,
   permissionStoreDir = null,
+  auditFile,
+  filesystemTools = null,
 } = {}) {
+  const tools = filesystemTools || createFilesystemTools({
+    repoRoot,
+    configFile: configFile || defaultConfigFile,
+    permissionStoreDir: permissionStoreDir || defaultPermissionStoreDir,
+    auditFile: auditFile || defaultAuditFile,
+  });
   const sessions = new Map();
   const server = http.createServer(async (request, response) => {
     try {
@@ -163,7 +170,7 @@ export function createFilesystemHttpServer({
           repoRoot: path.resolve(repoRoot),
           port: server.address()?.port || port,
           transports: ["sse", "streamable-http"],
-          tools: toolDefinitions.length,
+          tools: tools.definitions.length,
         });
       }
       if (request.method === "GET" && url.pathname === "/sse") {
@@ -188,14 +195,14 @@ export function createFilesystemHttpServer({
         const stream = sessions.get(sessionId);
         if (!stream) return sendJson(response, 404, { ok: false, error: "MCP_SESSION_NOT_FOUND" });
         const message = await readJson(request);
-        const result = await handleRpc(message, { repoRoot, configFile, permissionStoreDir });
+        const result = await handleRpc(message, { filesystemTools: tools });
         sendJson(response, 202, { ok: true });
         if (result) stream.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
         return;
       }
       if (request.method === "POST" && url.pathname === "/mcp") {
         const message = await readJson(request);
-        const result = await handleRpc(message, { repoRoot, configFile, permissionStoreDir });
+        const result = await handleRpc(message, { filesystemTools: tools });
         if (!result) return sendJson(response, 202, { ok: true });
         return sendJson(response, 200, result);
       }

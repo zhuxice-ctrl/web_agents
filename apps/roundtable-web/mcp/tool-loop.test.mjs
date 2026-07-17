@@ -5,9 +5,9 @@ import path from "node:path";
 import test from "node:test";
 
 import { PathLockManager } from "@web-agents/local-core/paths";
-import { PermissionBroker } from "./permission-broker.mjs";
+import { PermissionBroker } from "@web-agents/local-core/permissions";
 import { ToolLoop } from "./tool-loop.mjs";
-import { TransactionManager } from "./transaction-manager.mjs";
+import { TransactionManager } from "@web-agents/local-core/transactions";
 
 function protocolCall(name, callId, args = {}) {
   return [

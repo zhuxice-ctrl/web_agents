@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { canonicalizeWindowsPath, PathLockManager } from "@web-agents/local-core/paths";
-import { atomicWriteJson } from "@web-agents/local-core/atomic-file";
+import { canonicalizeWindowsPath, PathLockManager } from "./path-lock-manager.mjs";
+import { atomicWriteJson } from "./atomic-file.mjs";
 import { calculateArgsHash } from "./permission-broker.mjs";
-import { assertMutationPathIdentity, resolvePathIdentity } from "@web-agents/local-core/real-paths";
+import { assertMutationPathIdentity, resolvePathIdentity } from "./real-path-policy.mjs";
 import { defaultToolRegistry, validateToolMetadata } from "./tool-registry.mjs";
 
 const TRANSACTION_SCHEMA = "web-agents.transaction.v1";

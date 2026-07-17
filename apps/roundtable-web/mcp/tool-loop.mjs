@@ -6,7 +6,7 @@ import {
   parseToolCall,
   toolCallFingerprint,
 } from "./tool-call-parser.mjs";
-import { defaultToolRegistry, validateToolMetadata } from "./tool-registry.mjs";
+import { defaultToolRegistry, validateToolMetadata } from "@web-agents/local-core/tool-registry";
 
 const TERMINAL_STATUSES = new Set([
   "completed",

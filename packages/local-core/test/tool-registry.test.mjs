@@ -7,7 +7,7 @@ import {
   TOOL_METADATA_FIELDS,
   ToolRegistry,
   ToolRegistryError,
-} from "./tool-registry.mjs";
+} from "../src/tool-registry.mjs";
 
 test("default filesystem tools have every explicit permission metadata field", () => {
   const descriptors = defaultToolRegistry.list();

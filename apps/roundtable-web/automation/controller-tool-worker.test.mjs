@@ -5,9 +5,9 @@ import path from "node:path";
 import test from "node:test";
 
 import { ControllerToolWorker } from "./controller-tool-worker.mjs";
-import { PermissionBroker } from "../mcp/permission-broker.mjs";
-import { TransactionManager } from "../mcp/transaction-manager.mjs";
-import { defaultToolRegistry } from "../mcp/tool-registry.mjs";
+import { PermissionBroker } from "@web-agents/local-core/permissions";
+import { TransactionManager } from "@web-agents/local-core/transactions";
+import { defaultToolRegistry } from "@web-agents/local-core/tool-registry";
 import { LocalWorkspaceStore } from "../storage/local-workspace-store.mjs";
 
 async function fixture(t) {

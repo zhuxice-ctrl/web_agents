@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { PathLockManager } from "@web-agents/local-core/paths";
-import { TransactionError, TransactionManager } from "./transaction-manager.mjs";
+import { PathLockManager } from "../src/path-lock-manager.mjs";
+import { TransactionError, TransactionManager } from "../src/transaction-manager.mjs";
 
 async function createFixture(t, executeTool) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-transaction-"));

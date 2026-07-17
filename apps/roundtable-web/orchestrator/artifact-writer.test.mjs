@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { LocalWorkspaceStore } from "../storage/local-workspace-store.mjs";
-import { TransactionManager } from "../mcp/transaction-manager.mjs";
+import { TransactionManager } from "@web-agents/local-core/transactions";
 import { ArtifactWriter } from "./artifact-writer.mjs";
 
 async function createFixture() {

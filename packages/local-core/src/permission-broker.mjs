@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
-import { canonicalizeWindowsPath } from "@web-agents/local-core/paths";
-import { resolvePathIdentity } from "@web-agents/local-core/real-paths";
+import { canonicalizeWindowsPath } from "./path-lock-manager.mjs";
+import { resolvePathIdentity } from "./real-path-policy.mjs";
 import { defaultToolRegistry, validateToolMetadata } from "./tool-registry.mjs";
 
 const INTERNAL_PERMISSION_FIELDS = new Set(["_webAgentPermission", "__webAgentPermission"]);
@@ -100,6 +100,7 @@ export class PermissionBroker {
     idFactory = () => `permission_${randomUUID()}`,
     tokenFactory = () => randomBytes(24).toString("hex"),
     ttlMs = 10 * 60 * 1000,
+    requestKind = "local_permission_request",
   } = {}) {
     if (typeof workspaceRoot !== "string" || !workspaceRoot.trim()) {
       throw new PermissionBrokerError("WORKSPACE_ROOT_REQUIRED", "PermissionBroker requires a workspace root.");
@@ -112,6 +113,7 @@ export class PermissionBroker {
     this.idFactory = idFactory;
     this.tokenFactory = tokenFactory;
     this.ttlMs = ttlMs;
+    this.requestKind = requestKind || "local_permission_request";
     this.requests = new Map();
     this.pendingByFingerprint = new Map();
     this.taskGrants = new Map();
@@ -235,7 +237,7 @@ export class PermissionBroker {
     const createdAt = this.#nowDate();
     const request = {
       version: 1,
-      kind: "roundtable_permission_request",
+      kind: this.requestKind,
       requestId: String(this.idFactory()),
       status: "pending",
       taskId: call.taskId,
