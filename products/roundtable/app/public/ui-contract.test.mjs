@@ -16,6 +16,14 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(html, /id="permissionDialog"/);
   assert.match(html, /id="recoveryDialog"/);
   assert.match(html, /id="handoffDialog"/);
+  assert.match(html, /data-tab="context"/);
+  assert.match(html, /id="contextUsage"/);
+  assert.match(html, /id="compressionRevision"/);
+  assert.match(html, /id="compressionCoverage"/);
+  assert.match(html, /id="compressedContextView"/);
+  assert.match(html, /id="recentRawContextView"/);
+  assert.match(html, /id="compressionEditDialog"/);
+  assert.equal((html.match(/data-task-input="true"/g) || []).length, 1);
   assert.doesNotMatch(html, /当前任务|数据根目录/);
   assert.match(app, /getComposerSuggestions/);
   assert.match(app, /findSnappedHost/);

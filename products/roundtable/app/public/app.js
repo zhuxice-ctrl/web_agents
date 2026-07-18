@@ -319,6 +319,89 @@ function renderAudit() {
   root.innerHTML = [...state.audit].reverse().slice(0, 80).map((event) => `<div class="detail-item"><div class="detail-item-head"><strong>${escapeHtml(event.kind || event.type || "event")}</strong><span>${escapeHtml(new Date(event.at || event.createdAt || Date.now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }))}</span></div><p>${escapeHtml(event.path || event.operation || event.transactionId || "")}</p></div>`).join("");
 }
 
+const COMPRESSION_BUCKET_LABELS = {
+  consensus: "共识",
+  disagreements: "分歧",
+  evidence: "证据",
+  decisions: "决策",
+  unclassified: "未分类索引",
+};
+
+function renderCompressionEntries(entries = []) {
+  return entries.map((entry) => `<div class="context-entry"><strong>${escapeHtml(entry.text)}</strong><small>来源：${escapeHtml((entry.sourceEventIds || []).join(", ") || "未知")}</small></div>`).join("");
+}
+
+function renderContext() {
+  const active = state.session?.context?.compression?.active || null;
+  const settings = state.session?.settings || {};
+  const windowTokens = Number(settings.contextWindowTokens || 131072);
+  const trigger = Number(settings.compressionTriggerPercent || 80);
+  const target = Number(settings.compressionTargetPercent || 20);
+  const usage = active?.estimate;
+  $("#contextUsage").textContent = usage
+    ? `压缩前 ${Number(usage.beforeTokens || 0).toLocaleString()} / ${(windowTokens / 1000).toFixed(0)}K（估算） · 压缩后 ${Number(usage.afterTokens || 0).toLocaleString()}`
+    : `${(windowTokens / 1000).toFixed(0)}K 窗口 · 尚未触发压缩（${trigger}%）`;
+  $("#compressionRevision").textContent = active ? `v${active.revision}` : "未压缩";
+  $("#compressionCoverage").textContent = active
+    ? `覆盖事件 ${active.coveredFromEventIndex}..${active.coveredThroughEventIndex} · 目标 ${target}% · ${active.reason === "user_revision" ? "用户修订" : "自动生成"}`
+    : `自动压缩在 ${trigger}% 触发，目标 ${target}%`;
+  const editButton = $("#editCompressionButton");
+  editButton.disabled = !active;
+  const compressedRoot = $("#compressedContextView");
+  if (!active) {
+    compressedRoot.className = "context-section empty-state";
+    compressedRoot.innerHTML = "<p>达到上下文阈值后，较早记录会显示在这里</p>";
+  } else {
+    compressedRoot.className = "context-section";
+    compressedRoot.innerHTML = `<div class="context-section-heading"><strong>压缩摘要</strong><span>v${escapeHtml(active.revision)}</span></div>${Object.entries(COMPRESSION_BUCKET_LABELS).map(([bucket, label]) => {
+      const entries = active[bucket] || [];
+      return `<section class="context-bucket"><h3>${label}</h3>${entries.length ? renderCompressionEntries(entries) : "<p class=\"context-muted\">暂无</p>"}</section>`;
+    }).join("")}`;
+  }
+  const recentRoot = $("#recentRawContextView");
+  const start = active ? Number(active.coveredThroughEventIndex) + 1 : Math.max(0, (state.session?.events?.length || 0) - 16);
+  const recent = (state.session?.events || []).slice(start);
+  recentRoot.className = recent.length ? "context-section" : "context-section empty-state";
+  recentRoot.innerHTML = recent.length
+    ? `<div class="context-section-heading"><strong>近期原文</strong><span>${recent.length} 条</span></div>${recent.map((event) => `<div class="context-entry raw"><strong>${escapeHtml(eventSpeaker(event))}</strong><p>${escapeHtml(event.content)}</p><small>${escapeHtml(event.id || "")}</small></div>`).join("")}`
+    : "<p>暂无近期原文</p>";
+}
+
+function appendCompressionEditRow(bucket, entry = null) {
+  const group = $(`.compression-edit-group[data-compression-bucket="${CSS.escape(bucket)}"]`);
+  const rows = group.querySelector(".compression-edit-rows");
+  const row = document.createElement("div");
+  row.className = "compression-edit-row";
+  row.dataset.entryId = entry?.id || `user:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  row.dataset.sourceEventIds = (entry?.sourceEventIds || []).join(",");
+  const sourceText = entry?.sourceEventIds?.length ? `来源：${entry.sourceEventIds.join(", ")}` : "选择来源事件";
+  const sourceOptions = entry ? "" : (state.session?.events || []).map((event) => `<option value="${escapeHtml(event.id || "")}">${escapeHtml(event.id || "事件")}</option>`).join("");
+  row.innerHTML = `<input class="compression-edit-text" type="text" value="${escapeHtml(entry?.text || "")}" placeholder="${escapeHtml(COMPRESSION_BUCKET_LABELS[bucket])}" /><small class="compression-edit-source">${escapeHtml(sourceText)}</small>${entry ? "" : `<select class="compression-edit-source-picker" multiple aria-label="选择来源事件">${sourceOptions}</select>`}<button class="icon-button remove-compression-entry" type="button" title="移除" aria-label="移除">×</button>`;
+  rows.append(row);
+}
+
+function openCompressionEditor() {
+  const active = state.session?.context?.compression?.active;
+  if (!active) return;
+  $("#compressionBaseRevision").value = active.revision;
+  $("#compressionEditError").textContent = "";
+  for (const [bucket] of Object.entries(COMPRESSION_BUCKET_LABELS)) {
+    const rows = $(`.compression-edit-group[data-compression-bucket="${CSS.escape(bucket)}"] .compression-edit-rows`);
+    rows.innerHTML = "";
+    for (const entry of active[bucket] || []) appendCompressionEditRow(bucket, entry);
+  }
+  $("#compressionEditDialog").showModal();
+}
+
+function collectCompressionEntries(bucket) {
+  const group = $(`.compression-edit-group[data-compression-bucket="${CSS.escape(bucket)}"]`);
+  return [...group.querySelectorAll(".compression-edit-row")].map((row) => {
+    const picker = row.querySelector(".compression-edit-source-picker");
+    const sourceEventIds = picker ? [...picker.selectedOptions].map((option) => option.value).filter(Boolean) : row.dataset.sourceEventIds.split(",").filter(Boolean);
+    return { id: row.dataset.entryId, text: row.querySelector(".compression-edit-text").value.trim(), sourceEventIds };
+  }).filter((entry) => entry.text || entry.sourceEventIds.length);
+}
+
 function renderComposerTokens() {
   const root = $("#mentionTokens");
   root.innerHTML = state.tokens.map((token) => `<span class="mention-token" data-token-id="${escapeHtml(token.id)}">@${escapeHtml(token.label)}<button type="button" aria-label="移除 ${escapeHtml(token.label)}">×</button></span>`).join("");
@@ -381,6 +464,7 @@ function renderAll() {
   renderPlan();
   renderFiles();
   renderAudit();
+  renderContext();
   renderComposerTokens();
   renderSendPreview();
   renderRuntimeDetails();
@@ -735,6 +819,37 @@ $("#handoffForm").addEventListener("submit", async (event) => {
     showToast("交接完成，席位已原子切换到新线程");
   } catch (error) {
     showToast(`交接失败，旧线程仍保留：${error.message}`, { error: true, timeout: 7000 });
+  }
+});
+
+$("#editCompressionButton").addEventListener("click", openCompressionEditor);
+$("#compressionEditBuckets").addEventListener("click", (event) => {
+  const addButton = event.target.closest(".add-compression-entry");
+  if (addButton) {
+    const group = addButton.closest(".compression-edit-group");
+    appendCompressionEditRow(group.dataset.compressionBucket);
+    return;
+  }
+  const removeButton = event.target.closest(".remove-compression-entry");
+  if (removeButton) removeButton.closest(".compression-edit-row")?.remove();
+});
+
+$("#compressionEditForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.session) return;
+  const payload = { baseRevision: Number($("#compressionBaseRevision").value) };
+  for (const bucket of Object.keys(COMPRESSION_BUCKET_LABELS)) payload[bucket] = collectCompressionEntries(bucket);
+  try {
+    const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/context/compression/revise`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.session = result.session;
+    $("#compressionEditDialog").close();
+    renderAll();
+    showToast(`上下文摘要已保存为 v${result.active.revision}`);
+  } catch (error) {
+    $("#compressionEditError").textContent = `保存失败：${error.message}`;
   }
 });
 

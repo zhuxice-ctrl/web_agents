@@ -87,7 +87,7 @@
             <form id="commandForm" class="command-form">
               <div class="composer-input-wrap">
                 <label class="sr-only" for="commandInput">圆桌指令</label>
-                <textarea id="commandInput" rows="3" placeholder="输入 @ 选择发言模型，然后给出本轮指令" autocomplete="off"></textarea>
+                <textarea id="commandInput" data-task-input="true" rows="3" placeholder="输入 @ 选择发言模型，然后给出本轮指令" autocomplete="off"></textarea>
                 <div id="mentionSuggestions" class="mention-suggestions" role="listbox" hidden></div>
               </div>
               <div class="composer-actions">
@@ -113,6 +113,7 @@
             <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
             <button class="tab-button" type="button" data-tab="files">文件</button>
             <button class="tab-button" type="button" data-tab="audit">审计</button>
+            <button class="tab-button" type="button" data-tab="context">上下文</button>
           </nav>
           <section class="tab-panel is-active" data-panel="plan">
             <div class="panel-heading"><div><small>EXECUTION</small><h2>执行计划</h2></div><span id="planCount" class="count-badge">0</span></div>
@@ -126,6 +127,14 @@
           <section class="tab-panel" data-panel="audit">
             <div class="panel-heading"><div><small>TRACE</small><h2>审计记录</h2></div><span id="auditCount" class="count-badge">0</span></div>
             <div id="auditView" class="detail-list empty-state"><p>本地读写和恢复操作均会留痕</p></div>
+          </section>
+          <section class="tab-panel" data-panel="context">
+            <div class="panel-heading"><div><small>CONTEXT WINDOW</small><h2>上下文</h2></div><span id="compressionRevision" class="count-badge">未压缩</span></div>
+            <div id="contextUsage" class="context-usage">128K 窗口 · 等待会话</div>
+            <div id="compressionCoverage" class="context-coverage">自动压缩在 80% 触发，目标 20%</div>
+            <div class="context-actions"><button id="editCompressionButton" class="secondary-button" type="button" disabled>修订摘要</button></div>
+            <div id="compressedContextView" class="context-section empty-state"><p>暂无压缩摘要</p></div>
+            <div id="recentRawContextView" class="context-section empty-state"><p>近期原文会显示在这里</p></div>
           </section>
         </aside>
       </div>
@@ -166,6 +175,23 @@
         <pre id="handoffPreview"></pre>
         <input id="handoffId" type="hidden" />
         <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">确认并切换线程</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="compressionEditDialog" class="modal wide-modal">
+      <form id="compressionEditForm" method="dialog">
+        <div class="modal-heading"><div><small>CONTEXT REVISION</small><h2>修订压缩摘要</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <p class="form-hint">修订只影响后续模型上下文，原始事件和历史版本不会改变。</p>
+        <input id="compressionBaseRevision" type="hidden" />
+        <div id="compressionEditBuckets" class="compression-edit-buckets">
+          <section class="compression-edit-group" data-compression-bucket="consensus"><h3>共识</h3><div class="compression-edit-rows"></div><button class="icon-button add-compression-entry" type="button" title="增加共识" aria-label="增加共识">＋</button></section>
+          <section class="compression-edit-group" data-compression-bucket="disagreements"><h3>分歧</h3><div class="compression-edit-rows"></div><button class="icon-button add-compression-entry" type="button" title="增加分歧" aria-label="增加分歧">＋</button></section>
+          <section class="compression-edit-group" data-compression-bucket="evidence"><h3>证据</h3><div class="compression-edit-rows"></div><button class="icon-button add-compression-entry" type="button" title="增加证据" aria-label="增加证据">＋</button></section>
+          <section class="compression-edit-group" data-compression-bucket="decisions"><h3>决策</h3><div class="compression-edit-rows"></div><button class="icon-button add-compression-entry" type="button" title="增加决策" aria-label="增加决策">＋</button></section>
+          <section class="compression-edit-group" data-compression-bucket="unclassified"><h3>未分类索引</h3><div class="compression-edit-rows"></div><button class="icon-button add-compression-entry" type="button" title="增加未分类索引" aria-label="增加未分类索引">＋</button></section>
+        </div>
+        <p id="compressionEditError" class="form-error" role="alert"></p>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">保存新修订</button></div>
       </form>
     </dialog>
 
