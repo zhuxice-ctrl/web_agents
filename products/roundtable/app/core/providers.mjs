@@ -45,6 +45,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   autoCapture: true,
   maxContextEvents: 24,
   recentRawEvents: 6,
+  contextWindowTokens: 131072,
+  compressionTriggerPercent: 80,
+  compressionTargetPercent: 20,
+  recentRawTokenBudget: 16384,
   providerConcurrency: 3,
   estimatedThreadCapacityChars: 120000,
   handoffThreshold: 72,
@@ -113,6 +117,28 @@ export function coerceInteger(value, fallback, min, max) {
 }
 
 export function coerceSettings(value = {}) {
+  const contextWindowTokens = coerceInteger(
+    value.contextWindowTokens,
+    DEFAULT_SETTINGS.contextWindowTokens,
+    16384,
+    1000000,
+  );
+  const compressionTriggerPercent = coerceInteger(
+    value.compressionTriggerPercent,
+    DEFAULT_SETTINGS.compressionTriggerPercent,
+    50,
+    95,
+  );
+  const compressionTargetPercent = Math.min(
+    compressionTriggerPercent - 1,
+    coerceInteger(
+      value.compressionTargetPercent,
+      DEFAULT_SETTINGS.compressionTargetPercent,
+      10,
+      40,
+    ),
+  );
+  const targetTokens = Math.floor((contextWindowTokens * compressionTargetPercent) / 100);
   return {
     defaultRounds: coerceInteger(value.defaultRounds, DEFAULT_SETTINGS.defaultRounds, 1, 10),
     conversationMode: value.conversationMode === "relay" ? "relay" : "discussion",
@@ -121,6 +147,15 @@ export function coerceSettings(value = {}) {
     autoCapture: value.autoCapture === undefined ? DEFAULT_SETTINGS.autoCapture : Boolean(value.autoCapture),
     maxContextEvents: coerceInteger(value.maxContextEvents, DEFAULT_SETTINGS.maxContextEvents, 4, 120),
     recentRawEvents: coerceInteger(value.recentRawEvents, DEFAULT_SETTINGS.recentRawEvents, 1, 30),
+    contextWindowTokens,
+    compressionTriggerPercent,
+    compressionTargetPercent,
+    recentRawTokenBudget: coerceInteger(
+      value.recentRawTokenBudget,
+      Math.min(DEFAULT_SETTINGS.recentRawTokenBudget, targetTokens),
+      1024,
+      targetTokens,
+    ),
     providerConcurrency: coerceInteger(
       value.providerConcurrency,
       DEFAULT_SETTINGS.providerConcurrency,
