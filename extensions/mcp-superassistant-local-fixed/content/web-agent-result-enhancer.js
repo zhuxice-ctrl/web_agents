@@ -4,7 +4,12 @@
   const saveEndpoint = "http://127.0.0.1:3017/save-tool-result";
   const autoSaveLength = 2000;
   const autoSaveLines = 40;
+  const autoRunFallbackDelay = 1600;
+  const autoRunWarmupDelay = 2000;
   const dismissedPermissionMarkerKeys = new Set();
+  const observedAutoRunCards = new WeakSet();
+  const pendingAutoRunCards = new WeakSet();
+  let autoRunArmed = false;
   const actionLabels = new Set([
     "显示原始信息",
     "运行",
@@ -822,6 +827,16 @@
   }
 
   function findToolCard(runButton) {
+    const functionCard = runButton?.closest?.(".function-block");
+    if (
+      functionCard &&
+      !functionCard.classList?.contains("function-result-container") &&
+      functionCard.querySelector?.(".function-name-text") &&
+      functionCard.querySelector?.(".call-id")
+    ) {
+      return functionCard;
+    }
+
     let node = runButton.parentElement;
     for (let depth = 0; node && depth < 10; depth += 1, node = node.parentElement) {
       const text = node.innerText || "";
@@ -830,6 +845,81 @@
       }
     }
     return null;
+  }
+
+  function getAutomationState() {
+    return typeof window !== "undefined" ? window.__mcpAutomationState : undefined;
+  }
+
+  function shouldAutoClickRunButton(button, automationState = getAutomationState()) {
+    if (automationState?.autoExecute !== true) {
+      return false;
+    }
+    const label = normalizeLine(button?.textContent);
+    if (label !== "运行" && label !== "Run") {
+      return false;
+    }
+    if (
+      button.disabled ||
+      button.isConnected === false ||
+      !button.classList?.contains("execute-button") ||
+      button.closest?.(".web-agent-stable-output")
+    ) {
+      return false;
+    }
+    const card = findToolCard(button);
+    if (
+      !card ||
+      card.isConnected === false ||
+      !card.matches?.(".function-block") ||
+      !card.classList?.contains("function-complete") ||
+      card.dataset?.webAgentStableResultHash ||
+      card.querySelector?.(".function-reexecute-button")
+    ) {
+      return false;
+    }
+    return !extractToolResultText(getCardTextWithoutStableOutput(card));
+  }
+
+  function rememberVisibleAutoRunCards() {
+    for (const button of document.querySelectorAll("button.execute-button")) {
+      const card = findToolCard(button);
+      if (card) {
+        observedAutoRunCards.add(card);
+      }
+    }
+  }
+
+  function autoClickRunButtons() {
+    if (!autoRunArmed) {
+      rememberVisibleAutoRunCards();
+      return;
+    }
+
+    const automationState = getAutomationState();
+    for (const button of document.querySelectorAll("button.execute-button")) {
+      const card = findToolCard(button);
+      if (!card || observedAutoRunCards.has(card) || pendingAutoRunCards.has(card)) {
+        continue;
+      }
+      if (automationState?.autoExecute === false) {
+        observedAutoRunCards.add(card);
+        continue;
+      }
+      if (!shouldAutoClickRunButton(button, automationState)) {
+        continue;
+      }
+
+      pendingAutoRunCards.add(card);
+      window.setTimeout(() => {
+        pendingAutoRunCards.delete(card);
+        const currentButton = card.querySelector?.("button.execute-button");
+        observedAutoRunCards.add(card);
+        if (shouldAutoClickRunButton(currentButton, getAutomationState())) {
+          currentButton.click();
+        }
+      }, autoRunFallbackDelay);
+    }
   }
 
   function enhanceCard(card) {
@@ -917,6 +1007,7 @@
 
   function enhanceAll() {
     injectStyles();
+    autoClickRunButtons();
     enhanceAllCards();
     enhanceManualWriteRequests();
     enhancePermissionRequests();
@@ -932,6 +1023,10 @@
       install.pendingTimer = window.setTimeout(enhanceAll, 250);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    window.setTimeout(() => {
+      autoRunArmed = true;
+      autoClickRunButtons();
+    }, autoRunWarmupDelay);
     window.addEventListener("beforeunload", () => observer.disconnect(), { once: true });
   }
 
@@ -945,6 +1040,7 @@
     detectManualWriteRequest,
     toolResultToText,
     formatPermissionMarkerSummary,
+    shouldAutoClickRunButton,
   };
 
   if (typeof module !== "undefined" && module.exports) {

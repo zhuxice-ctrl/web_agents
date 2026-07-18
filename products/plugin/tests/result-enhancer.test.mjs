@@ -14,6 +14,10 @@ function loadContentScriptExports(filePath) {
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const enhancer = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-result-enhancer.js"));
+const activeEnhancer = loadContentScriptExports(path.join(
+  testDir,
+  "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js",
+));
 
 test("extractToolResultText returns text between Run and execution history", () => {
   const cardText = [
@@ -248,4 +252,36 @@ test("auto-run clicks only a recognized MCP tool card", () => {
   assert.equal(enhancer.shouldAutoClickRunButton(unrelatedButton), false);
   toolCard.dataset.webAgentStableResultHash = "already-finished";
   assert.equal(enhancer.shouldAutoClickRunButton(toolButton), false);
+});
+
+test("active extension auto-run requires the automatic execution preference", () => {
+  const toolName = { textContent: "write_file" };
+  const callId = { textContent: "3" };
+  const toolCard = {
+    innerText: ["write_file", "3", "显示原始信息", "运行"].join("\n"),
+    dataset: {},
+    classList: { contains: (name) => name === "function-complete" },
+    matches: (selector) => selector === ".function-block",
+    querySelector(selector) {
+      if (selector === ".function-name-text") return toolName;
+      if (selector === ".call-id") return callId;
+      if (selector === ".function-reexecute-button") return null;
+      return null;
+    },
+  };
+  const toolButton = {
+    textContent: "运行",
+    disabled: false,
+    classList: { contains: (name) => name === "execute-button" },
+    closest(selector) {
+      if (selector === ".web-agent-stable-output") return null;
+      if (selector === ".function-block") return toolCard;
+      return null;
+    },
+  };
+
+  assert.equal(activeEnhancer.shouldAutoClickRunButton(toolButton, { autoExecute: false }), false);
+  assert.equal(activeEnhancer.shouldAutoClickRunButton(toolButton, { autoExecute: true }), true);
+  toolCard.querySelector = (selector) => selector === ".function-reexecute-button" ? {} : null;
+  assert.equal(activeEnhancer.shouldAutoClickRunButton(toolButton, { autoExecute: true }), false);
 });
