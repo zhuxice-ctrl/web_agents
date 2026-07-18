@@ -1,59 +1,58 @@
-# MCP SuperAssistant Local Fixed Build
+# web_Agent 本地固定版
 
-This folder contains an unpacked local-fixed build of MCP SuperAssistant for browser-based AI pages.
+这是 GitHub `main` 分支 `extensions/mcp-superassistant-local-fixed` 的中文入口适配版，同时保留本地开发分支的 Grok 反向任务通道。
 
-Use it when the store extension is unavailable, resets your local changes, or does not include the site permissions you need.
+## 加载路径
 
-## Install In Edge / Chrome
-
-1. Open `edge://extensions` or `chrome://extensions`.
-2. Enable `Developer mode`.
-3. Disable the store version of `MCP SuperAssistant` if it is already installed.
-4. Click `Load unpacked`.
-5. Select this folder:
+在 Chrome 或 Edge 打开 `chrome://extensions` / `edge://extensions`，启用开发者模式，选择“加载已解压的扩展程序”：
 
 ```text
-extensions/mcp-superassistant-local-fixed
+F:\web_agents-plugin-extension\extensions\mcp-superassistant-local-fixed
 ```
 
-6. Refresh Gemini / DeepSeek / Zhipu / Grok pages.
-7. In the extension settings, use:
+不要加载 `products/plugin/extension/dist`；那个目录是另一套源码构建产物。
+
+## MCP 连接
+
+扩展设置使用：
 
 ```text
 Connection Type: Server-Sent Events (SSE)
 Server URI: http://127.0.0.1:3006/sse
 ```
 
-Keep your local MCP backend running while using the extension.
+插件专属服务：
 
-## Included Site Permissions
+- MCP 文件读写：`http://127.0.0.1:3006`
+- 反向任务和图片保存：`http://127.0.0.1:3017`
 
-This build includes permissions for common web AI pages, including:
+## 已适配入口
 
-- ChatGPT
-- Gemini
-- DeepSeek
-- BigModel / Zhipu
-- Qwen
-- Kimi
-- GitHub Copilot
-- Grok, including typed reverse image-generation tasks through the local gateway
+保留原有输入框 MCP 集成，并补齐中文入口和国产模型站点：
 
-## Local Reverse Tasks
+- ChatGPT、Gemini、Google AI Studio
+- DeepSeek、豆包、Kimi、Qwen
+- BigModel / Zhipu / GLM、Chat Z、Mistral、OpenRouter
+- GitHub Copilot、Perplexity、Grok / X
 
-The Grok content integration can claim `provider.generate_image` tasks from
-`http://127.0.0.1:3017`. Each task carries its own `sessionId` and
-`workspaceRoot`, so different browser conversations can save into independent
-project folders without a global webpage-task concurrency limit. DOM writes are
-serialized inside each page while separate pages continue independently.
+`web-agent-result-enhancer.js` 和 `web-agent-insert-fallback.js` 负责跨网页的中文结果卡、稳定结果保存和“插入失败时复制”兜底；它们不替换原有 MCP 输入框 bundle。
 
-## Notes
+## Grok 反向任务
 
-- This is an unpacked extension. Browsers may show a warning because it is loaded in Developer Mode.
-- Do not run the store version and this local version at the same time on the same page.
-- If the extension panel shows `SSE error: Failed to fetch`, start or restart the local MCP backend at `http://127.0.0.1:3006/sse`.
-- This package should not contain local paths, tokens, accounts, or private data.
+Grok 页面会从 `3017` 异步领取 `provider.generate_image` 任务，输入提示词、等待新图片、保存到任务的 `targetDirectory`，再回传任务结果。不同页面可以并发执行，任务自身携带 `sessionId`、`workspaceRoot` 和目标目录。
 
-## Upstream
+目标项目目录必须位于插件白名单中。白名单文件是本机忽略配置：
 
-MCP SuperAssistant is an open-source project. This folder is provided as a practical local build for this bridge template.
+```text
+products/plugin/config/allowed-directories.local.txt
+```
+
+## 运行
+
+从 `F:\web_agents-plugin-extension` 启动：
+
+```powershell
+node products/plugin/services/start-plugin-services.mjs
+```
+
+启动后刷新模型网页。不要同时启用商店版和此本地版扩展。
