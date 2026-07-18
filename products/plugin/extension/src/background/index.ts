@@ -16,8 +16,16 @@ import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
 import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
+import { createAutomationClient } from "../automation/client";
+import { createSessionRunner } from "../automation/session-runner";
+import type { ProviderAutomationResult, ProviderAutomationTask } from "../shared/types";
 
 const CONFIG_STORAGE_KEY = "webAgentsConfig";
+const automationSessionRunner = createSessionRunner();
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function getConfig(): Promise<ExtensionConfig> {
   const stored = await chrome.storage.local.get(CONFIG_STORAGE_KEY);
@@ -247,6 +255,96 @@ async function focusProviderTab(tabId: number): Promise<ExtensionResponse<"tabs:
   };
 }
 
+async function resolveAutomationTab(task: ProviderAutomationTask): Promise<chrome.tabs.Tab | null> {
+  const provider = getProviderById(task.provider);
+  if (!provider?.imageGeneration) return null;
+  if (typeof task.tabId === "number") {
+    const requested = await getTabById(task.tabId);
+    if (requested?.url && tabUrlMatchesProvider(requested.url, task.provider)) return requested;
+    return null;
+  }
+  const existing = (await chrome.tabs.query({})).find(
+    (tab) => typeof tab.id === "number" && typeof tab.url === "string" && tabUrlMatchesProvider(tab.url, task.provider)
+  );
+  return existing ?? chrome.tabs.create({ url: provider.imageGeneration.defaultUrl, active: false });
+}
+
+async function requestGeneratedImage(
+  task: ProviderAutomationTask,
+  tab: chrome.tabs.Tab
+): Promise<ExtensionResponse<"tab:generate-image">> {
+  let response: ExtensionResponse<"tab:generate-image"> = {
+    ok: false,
+    type: "tab:generate-image",
+    error: "PROVIDER_TAB_NOT_READY"
+  };
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    response = await sendToTab<"tab:generate-image">({
+      type: "tab:generate-image",
+      prompt: task.payload.prompt,
+      tabId: tab.id
+    });
+    if (response.ok || !/Receiving end does not exist|暂不可操作|not ready/i.test(response.error)) return response;
+    await wait(250);
+  }
+  return response;
+}
+
+async function executeAutomationTask(task: ProviderAutomationTask): Promise<ProviderAutomationResult> {
+  if (task.type !== "provider.generate_image") {
+    return { ok: false, error: { code: "AUTOMATION_TASK_UNSUPPORTED" } };
+  }
+  const tab = await resolveAutomationTab(task);
+  if (!tab?.id) return { ok: false, error: { code: "PROVIDER_TAB_NOT_FOUND" } };
+
+  return automationSessionRunner.run(`${task.sessionId}:${tab.id}`, async () => {
+    const generated = await requestGeneratedImage(task, tab);
+    if (!generated.ok) return { ok: false, error: { code: generated.error } };
+    const config = await getConfig();
+    const response = await fetch(`${config.gateway.baseUrl.replace(/\/+$/g, "")}/save-gpt-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base64: generated.data.dataUrl,
+        mimeType: generated.data.mimeType,
+        targetDirectory: task.payload.targetDirectory,
+        fileName: task.payload.fileName
+      })
+    });
+    const payload = await response.json() as {
+      ok?: boolean;
+      error?: string;
+      filePath?: string;
+      mimeType?: string;
+      bytes?: number;
+    };
+    if (!response.ok || !payload.ok || !payload.filePath) {
+      return { ok: false, error: { code: payload.error || `IMAGE_SAVE_HTTP_${response.status}` } };
+    }
+    return {
+      ok: true,
+      filePath: payload.filePath,
+      mimeType: payload.mimeType,
+      bytes: payload.bytes
+    };
+  });
+}
+
+async function runAutomationLoop(): Promise<void> {
+  const config = await getConfig();
+  const client = createAutomationClient({ baseUrl: config.gateway.baseUrl, executeTask: executeAutomationTask });
+  let retryMs = 250;
+  while (true) {
+    try {
+      await client.dispatchOnce({ waitMs: 15_000 });
+      retryMs = 250;
+    } catch {
+      await wait(retryMs + Math.floor(Math.random() * Math.max(1, retryMs / 4)));
+      retryMs = Math.min(5_000, retryMs * 2);
+    }
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const config = await getConfig();
   await saveConfig(config);
@@ -351,6 +449,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
         case "tab:detect":
         case "tab:insert-text":
         case "tab:auto-send-text":
+        case "tab:generate-image":
         case "tab:capture-latest":
         case "tab:capture-recent": {
           sendResponse(await sendToTab(message, sender.tab?.id));
@@ -370,3 +469,5 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
   return true;
 });
+
+void runAutomationLoop();

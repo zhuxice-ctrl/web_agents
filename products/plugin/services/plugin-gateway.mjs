@@ -2,6 +2,12 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteFile } from "@web-agents/local-core/atomic-file";
+import { PathLockManager } from "@web-agents/local-core/paths";
+import {
+  assertMutationPathIdentity,
+  resolvePathIdentity,
+} from "@web-agents/local-core/real-paths";
 import {
   approvePermissionRequest,
   rejectPermissionRequest,
@@ -22,6 +28,7 @@ const allowedMimeTypes = new Map([
   ["image/gif", ".gif"],
 ]);
 const imagePathExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+const imagePathLocks = new PathLockManager();
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -69,7 +76,7 @@ function createGatewayRuntime({
   };
 }
 
-function resolveOutputDir(payload, runtime) {
+async function resolveOutputDir(payload, runtime) {
   const requested = String(
     payload?.targetDirectory || payload?.directoryPath || payload?.targetPath || ""
   ).trim();
@@ -83,15 +90,27 @@ function resolveOutputDir(payload, runtime) {
     ? path.dirname(requestedPath)
     : requestedPath;
   const resolvedTargetDir = path.resolve(targetDir);
-  const resolvedRepoRoot = runtime.productRoot;
-
-  if (resolvedTargetDir !== resolvedRepoRoot && !resolvedTargetDir.startsWith(resolvedRepoRoot + path.sep)) {
-    const error = new Error("TARGET_DIRECTORY_OUTSIDE_REPO");
-    error.statusCode = 400;
-    throw error;
+  const allowedRoots = await getAllowedRoots({
+    repoRoot: runtime.productRoot,
+    configFile: runtime.configFile,
+  });
+  for (const allowedRoot of allowedRoots) {
+    const identity = await resolvePathIdentity(resolvedTargetDir, {
+      cwd: runtime.productRoot,
+      workspaceRoot: allowedRoot,
+    });
+    if (!identity.isInsideWorkspace) continue;
+    try {
+      assertMutationPathIdentity(identity);
+    } catch (error) {
+      error.statusCode = 400;
+      throw error;
+    }
+    return identity.physicalPath;
   }
-
-  return resolvedTargetDir;
+  const error = new Error("OUTPUT_PATH_NOT_ALLOWED");
+  error.statusCode = 403;
+  throw error;
 }
 
 async function readJson(request) {
@@ -162,7 +181,7 @@ async function saveImage(payload, runtime = createGatewayRuntime()) {
     throw error;
   }
 
-  const saveDir = resolveOutputDir(payload, runtime);
+  const saveDir = await resolveOutputDir(payload, runtime);
   await fs.mkdir(saveDir, { recursive: true });
   const fileName = sanitizeFileName(payload?.fileName, extension);
   const filePath = path.join(saveDir, fileName);
@@ -174,7 +193,22 @@ async function saveImage(payload, runtime = createGatewayRuntime()) {
     throw error;
   }
 
-  await fs.writeFile(resolved, imageBuffer);
+  const identity = await resolvePathIdentity(resolved, {
+    cwd: resolvedOutput,
+    workspaceRoot: resolvedOutput,
+  });
+  try {
+    assertMutationPathIdentity(identity);
+  } catch (error) {
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!identity.isInsideWorkspace) {
+    const error = new Error("INVALID_FILE_PATH");
+    error.statusCode = 400;
+    throw error;
+  }
+  await imagePathLocks.runExclusive(identity.physicalPath, () => atomicWriteFile(identity.physicalPath, imageBuffer));
   return { filePath: resolved, outputDir: resolvedOutput, bytes: imageBuffer.length, mimeType };
 }
 

@@ -165,3 +165,61 @@ test("plugin gateway validates automation tasks and reports queue saturation", a
   assert.equal(saturated.response.status, 429);
   assert.equal(saturated.payload.error, "AUTOMATION_QUEUE_FULL");
 });
+
+test("plugin gateway saves images atomically inside a configured project workspace", async (t) => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-image-gateway-"));
+  const productRoot = path.join(tempRoot, "plugin");
+  const configDir = path.join(productRoot, "config");
+  const dataDir = path.join(productRoot, "data");
+  const projectRoot = path.join(tempRoot, "project");
+  const outsideRoot = path.join(tempRoot, "outside");
+  await Promise.all([
+    fs.mkdir(configDir, { recursive: true }),
+    fs.mkdir(projectRoot, { recursive: true }),
+    fs.mkdir(outsideRoot, { recursive: true }),
+  ]);
+  await fs.writeFile(path.join(configDir, "allowed-directories.local.txt"), `${projectRoot}\n`, "utf8");
+  const server = createPluginGatewayServer({ productRoot, configDir, dataDir });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    server.closeAllSessions();
+    server.close();
+    await once(server, "close");
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const targetDirectory = path.join(projectRoot, "assets");
+  const firstBytes = Buffer.from("complete-image-one");
+  const secondBytes = Buffer.from("complete-image-two-with-more-bytes");
+
+  const [first, second] = await Promise.all([
+    postJson(baseUrl, "/save-gpt-image", {
+      mimeType: "image/png",
+      base64: firstBytes.toString("base64"),
+      targetDirectory,
+      fileName: "generated.png",
+    }),
+    postJson(baseUrl, "/save-gpt-image", {
+      mimeType: "image/png",
+      base64: secondBytes.toString("base64"),
+      targetDirectory,
+      fileName: "generated.png",
+    }),
+  ]);
+
+  assert.equal(first.response.status, 200);
+  assert.equal(second.response.status, 200);
+  const saved = await fs.readFile(path.join(targetDirectory, "generated.png"));
+  assert.ok(saved.equals(firstBytes) || saved.equals(secondBytes));
+
+  const rejected = await postJson(baseUrl, "/save-gpt-image", {
+    mimeType: "image/png",
+    base64: firstBytes.toString("base64"),
+    targetDirectory: outsideRoot,
+    fileName: "rejected.png",
+  });
+  assert.equal(rejected.response.status, 403);
+  assert.equal(rejected.payload.error, "OUTPUT_PATH_NOT_ALLOWED");
+  await assert.rejects(fs.access(path.join(outsideRoot, "rejected.png")), /ENOENT/);
+});

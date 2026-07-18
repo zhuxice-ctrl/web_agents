@@ -2,7 +2,7 @@ import type { ExtensionConfig, McpStatus, ModelParticipant } from "./types";
 import { getDefaultParticipants } from "../providers/catalog";
 
 export const DEFAULT_SERVER_URI = "http://127.0.0.1:3006/sse";
-export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:3007";
+export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:3017";
 
 export const DEFAULT_CONFIG: ExtensionConfig = {
   locale: "zh-CN",

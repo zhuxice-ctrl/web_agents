@@ -229,3 +229,28 @@ export type OpenProviderResult = {
   status: ParticipantStatus;
   reused?: boolean;
 };
+
+export type ProviderAutomationTask = {
+  version: 1;
+  type: "provider.generate_image";
+  taskId: string;
+  clientRequestId: string;
+  sessionId: string;
+  provider: ProviderId;
+  tabId?: number;
+  workspaceRoot: string;
+  payload: {
+    prompt: string;
+    targetDirectory: string;
+    fileName?: string;
+  };
+};
+
+export type ProviderImageCapture = {
+  dataUrl: string;
+  mimeType: string;
+};
+
+export type ProviderAutomationResult =
+  | { ok: true; filePath: string; mimeType?: string; bytes?: number }
+  | { ok: false; error: { code: string; message?: string } };

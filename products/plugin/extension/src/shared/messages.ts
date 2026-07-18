@@ -8,6 +8,7 @@ import type {
   OpenProviderResult,
   PermissionDecision,
   PreparedTask,
+  ProviderImageCapture,
   ProviderAuthProbeResult,
   ProviderId,
   ProviderTabStatus,
@@ -34,6 +35,7 @@ export type ExtensionRequest =
   | { type: "tab:detect"; tabId?: number }
   | { type: "tab:insert-text"; text: string; tabId?: number }
   | { type: "tab:auto-send-text"; text: string; tabId?: number }
+  | { type: "tab:generate-image"; prompt: string; tabId?: number }
   | { type: "tab:capture-latest"; tabId?: number }
   | { type: "tab:capture-recent"; tabId?: number; limit?: number };
 
@@ -53,6 +55,7 @@ export type ExtensionResponseMap = {
   "tab:detect": AdapterStatus;
   "tab:insert-text": InsertResult;
   "tab:auto-send-text": AutoSendResult;
+  "tab:generate-image": ProviderImageCapture;
   "tab:capture-latest": ResponseSnapshot;
   "tab:capture-recent": RecentConversationCapture;
 };

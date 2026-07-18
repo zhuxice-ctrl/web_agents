@@ -9,6 +9,7 @@ import { mountInlineEntry } from "./inline-entry";
 import { sendTextIfComposerIdle, shouldStopAutoSubmitRetry } from "./auto-submit";
 import { removeAllToolExecutionCards, upsertToolExecutionCard } from "./tool-execution-card";
 import { collectToolCallsFromDocument, type CollectedToolCall } from "./tool-call-scanner";
+import { generateProviderImage } from "./provider-image";
 
 const OVERLAY_HOST_ID = "web-agents-overlay-root";
 const PANEL_OPEN_STORAGE_KEY = "webAgentsOverlayOpen";
@@ -472,6 +473,23 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
         data: { ...result, provider: provider?.id ?? "unknown" }
       });
     });
+    return true;
+  }
+
+  if (message.type === "tab:generate-image") {
+    const prompt = "prompt" in message && typeof message.prompt === "string" ? message.prompt : "";
+    const provider = detectProviderByHostname(window.location.hostname);
+    if (!provider?.imageGeneration) {
+      sendResponse({ ok: false, type: "tab:generate-image", error: "PROVIDER_IMAGE_UNSUPPORTED" });
+      return false;
+    }
+    void generateProviderImage(document, provider, prompt)
+      .then((capture) => sendResponse({ ok: true, type: "tab:generate-image", data: capture }))
+      .catch((error) => sendResponse({
+        ok: false,
+        type: "tab:generate-image",
+        error: (error as { code?: string })?.code || (error instanceof Error ? error.message : String(error))
+      }));
     return true;
   }
 
