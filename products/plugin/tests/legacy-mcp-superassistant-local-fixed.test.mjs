@@ -25,6 +25,10 @@ test("local fixed MCP extension loads the Grok automation sidecar after its inpu
   }
   const enhancer = manifest.content_scripts.find((entry) => entry.js.includes("content/web-agent-result-enhancer.js"));
   assert.deepEqual(enhancer.js, ["content/web-agent-result-enhancer.js", "content/web-agent-insert-fallback.js"]);
+  const deepSeek = manifest.content_scripts.find((entry) => entry.matches.includes("*://*.chat.deepseek.com/*"));
+  const doubao = manifest.content_scripts.find((entry) => entry.matches.includes("*://*.doubao.com/*"));
+  assert.deepEqual(deepSeek.js, ["content/index-main.iife.js"]);
+  assert.deepEqual(doubao.js, ["content/index-main.iife.js"]);
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:3006/*"));
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:3017/*"));
   assert.ok(manifest.host_permissions.includes("*://*.doubao.com/*"));
@@ -53,4 +57,11 @@ test("entry refresh does not replace the protected MCP bundle or background work
     await sha256(path.join(extensionRoot, "background.js")),
     "a723c96e83527b9c7788042c916ca6b592b93630d2280d8a1d258aae57ff6d6b"
   );
+});
+
+test("main model entry is the GitHub main Chinese bundle", async () => {
+  const source = await fs.readFile(path.join(extensionRoot, "content", "index-main.iife.js"), "utf8");
+  assert.match(source, /使用说明/);
+  assert.match(source, /DeepSeekAdapter/);
+  assert.match(source, /web_Agent/);
 });

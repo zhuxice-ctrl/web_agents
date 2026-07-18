@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.perplexity.ai/*"
@@ -20,7 +20,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.chat.openai.com/*",
@@ -53,7 +53,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.gemini.google.com/*"
@@ -62,7 +62,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.aistudio.google.com/*"
@@ -71,7 +71,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.openrouter.ai/*"
@@ -80,7 +80,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.chat.deepseek.com/*"
@@ -89,7 +89,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.kagi.com/*"
@@ -98,7 +98,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.t3.chat/*"
@@ -107,7 +107,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.chat.mistral.ai/*"
@@ -116,7 +116,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.github.com/*",
@@ -126,7 +126,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.kimi.com/*"
@@ -135,7 +135,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.doubao.com/*"
@@ -144,7 +144,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.bigmodel.cn/*",
@@ -154,7 +154,7 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index-main.iife.js"
       ],
       "matches": [
         "*://*.chat.qwen.ai/*"
