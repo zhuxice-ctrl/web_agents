@@ -14262,7 +14262,7 @@ class Ry extends wu {
 }
 const zo = {
   defaultTransport: "sse",
-  defaultUri: "http://localhost:3006/sse",
+  defaultUri: "http://127.0.0.1:3006/sse",
   plugins: {
     sse: {
       keepAlive: !0,
@@ -15140,14 +15140,23 @@ function cr(e) {
     };
   });
 }
-const x = nt("BACKGROUND"), Wn = "http://localhost:3006/sse", Iu = "ws://localhost:3006/message", Vy = "http://localhost:3006", us = "sse";
+const x = nt("BACKGROUND"), Wn = "http://127.0.0.1:3006/sse", Iu = "ws://127.0.0.1:3006/message", Vy = "http://127.0.0.1:3006", us = "sse";
 let ze = null, Er = Wn, Oe = us, Ou = !1, ls = !1;
+function normalizeLocalMcpUrl(e) {
+  try {
+    const t = new URL(e);
+    if (t.hostname === "localhost" && t.port === "3006")
+      return e.replace(t.hostname, "127.0.0.1");
+  } catch {
+  }
+  return e;
+}
 async function Hy() {
   try {
     const e = await chrome.storage.local.get(["mcpServerUrl", "mcpConnectionType"]);
     Oe = e.mcpConnectionType || us;
     const t = Oe === "websocket" ? Iu : Oe === "streamable-http" ? Vy : Wn;
-    Er = e.mcpServerUrl || t, ls = !0, x.debug("[Background] Server config loaded from storage:", {
+    Er = normalizeLocalMcpUrl(e.mcpServerUrl || t), e.mcpServerUrl && Er !== e.mcpServerUrl && await chrome.storage.local.set({ mcpServerUrl: Er }), ls = !0, x.debug("[Background] Server config loaded from storage:", {
       url: Er,
       type: Oe
     });
@@ -15163,7 +15172,7 @@ function Pt() {
   return Er;
 }
 function Jy(e, t) {
-  Er = e, t && (Oe = t), x.debug("[Background] Server config updated to:", { url: e, type: Oe });
+  Er = normalizeLocalMcpUrl(e), t && (Oe = t), x.debug("[Background] Server config updated to:", { url: Er, type: Oe });
 }
 function zu() {
   return Ou;
@@ -15462,8 +15471,10 @@ async function Gy(e, t, r) {
       }
       case "mcp:get-server-config": {
         const c = await chrome.storage.local.get(["mcpServerUrl", "mcpConnectionType"]), l = Oe === "websocket" ? Iu : Wn;
+        const d = normalizeLocalMcpUrl(c.mcpServerUrl || l);
+        c.mcpServerUrl && d !== c.mcpServerUrl && await chrome.storage.local.set({ mcpServerUrl: d });
         s = {
-          uri: c.mcpServerUrl || l,
+          uri: d,
           connectionType: c.mcpConnectionType || Oe
         };
         break;
@@ -15472,6 +15483,7 @@ async function Gy(e, t, r) {
         const { config: c } = i;
         if (!c || typeof c.uri != "string")
           throw new Error("Invalid server config: uri is required");
+        const d = normalizeLocalMcpUrl(c.uri);
         let l = c.connectionType;
         if (x.debug(`Received connection type: ${c.connectionType}, parsed as: ${l}`), !l)
           try {
@@ -15480,16 +15492,16 @@ async function Gy(e, t, r) {
           } catch {
             l = Oe;
           }
-        x.debug(`Updating server config to: ${c.uri} (${l})`), await chrome.storage.local.set({
-          mcpServerUrl: c.uri,
+        x.debug(`Updating server config to: ${d} (${l})`), await chrome.storage.local.set({
+          mcpServerUrl: d,
           mcpConnectionType: l
-        }), Jy(c.uri, l), Qy({ uri: c.uri, connectionType: l }), (async () => {
+        }), Jy(d, l), Qy({ uri: d, connectionType: l }), (async () => {
           try {
-            x.debug("[Background] Starting async reconnection after config update..."), await Ba(c.uri, l);
+            x.debug("[Background] Starting async reconnection after config update..."), await Ba(d, l);
             const m = await Zt();
             if (gt(m), ct(m), x.debug(`Async reconnection completed, connected: ${m}`), m)
               try {
-                const g = await ar(c.uri, !0, l), w = cr(g);
+                const g = await ar(d, !0, l), w = cr(g);
                 Rr(w), x.debug(`Broadcasted ${w.length} normalized tools after config update`);
               } catch (g) {
                 x.warn("[Background] Failed to fetch tools after config update:", g);

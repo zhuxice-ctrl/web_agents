@@ -63,20 +63,29 @@ test("Grok localization is scoped to MCP-owned UI and observes late-rendered con
   assert.doesNotMatch(source, /createElement\(["'](?:aside|iframe)["']\)/);
 });
 
-test("entry refresh does not replace the protected MCP bundle or background worker", async () => {
+test("entry refresh does not replace the protected MCP bundle", async () => {
   assert.equal(
     await sha256(path.join(extensionRoot, "content", "index.iife.js")),
     "3b34ee35d671c5f380adad0fd593a839db10ac2dac2de5fadeb924e17ced894f"
   );
-  assert.equal(
-    await sha256(path.join(extensionRoot, "background.js")),
-    "a723c96e83527b9c7788042c916ca6b592b93630d2280d8a1d258aae57ff6d6b"
-  );
 });
 
-test("main model entry is the GitHub main Chinese bundle", async () => {
+test("background migrates the legacy localhost MCP endpoint", async () => {
+  const background = await fs.readFile(path.join(extensionRoot, "background.js"), "utf8");
+
+  assert.doesNotMatch(background, /localhost:3006/);
+  assert.match(background, /http:\/\/127\.0\.0\.1:3006\/sse/);
+  assert.match(background, /hostname === "localhost"/);
+  assert.match(background, /chrome\.storage\.local\.set\(\{\s*mcpServerUrl:/);
+});
+
+test("main model entry preserves the readable GitHub prompt injection", async () => {
   const source = await fs.readFile(path.join(extensionRoot, "content", "index-main.iife.js"), "utf8");
-  assert.match(source, /使用说明/);
+  assert.match(source, /\[web_Agent 使用说明\]\[重要\]/);
+  assert.match(source, /你正在网页中通过 web_Agent 使用本地 MCP 工具/);
+  assert.match(source, /所有工具调用必须放在独立的/);
+  assert.match(source, /## web_Agent 可用工具/);
+  assert.doesNotMatch(source, /浣跨敤璇存槑|鏆傛棤鍙敤宸ュ叿|宸ュ叿璋冪敤/);
   assert.match(source, /DeepSeekAdapter/);
   assert.match(source, /web_Agent/);
 });
