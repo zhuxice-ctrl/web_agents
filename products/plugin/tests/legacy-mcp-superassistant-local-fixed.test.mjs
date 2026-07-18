@@ -21,7 +21,11 @@ test("local fixed MCP extension loads the Grok automation sidecar after its inpu
 
   assert.ok(grokScripts.length >= 2);
   for (const entry of grokScripts) {
-    assert.deepEqual(entry.js, ["content/index.iife.js", "content/local-automation-bridge.js"]);
+    assert.deepEqual(entry.js, [
+      "content/index.iife.js",
+      "content/local-automation-bridge.js",
+      "content/grok-zh-localization.js",
+    ]);
   }
   const enhancer = manifest.content_scripts.find((entry) => entry.js.includes("content/web-agent-result-enhancer.js"));
   assert.deepEqual(enhancer.js, ["content/web-agent-result-enhancer.js", "content/web-agent-insert-fallback.js"]);
@@ -34,7 +38,7 @@ test("local fixed MCP extension loads the Grok automation sidecar after its inpu
   assert.ok(manifest.host_permissions.includes("*://*.doubao.com/*"));
   assert.equal(manifest.default_locale, "zh_CN");
   assert.equal(manifest.name, "web_Agent");
-  assert.equal(manifest.version, "0.6.8");
+  assert.equal(manifest.version, "0.6.9");
 });
 
 test("Grok automation sidecar uses the typed gateway without adding a replacement overlay", async () => {
@@ -45,6 +49,17 @@ test("Grok automation sidecar uses the typed gateway without adding a replacemen
   assert.match(source, /\/automation\/tasks\/.*\/result/);
   assert.match(source, /provider/);
   assert.match(source, /sessionId/);
+  assert.doesNotMatch(source, /createElement\(["'](?:aside|iframe)["']\)/);
+});
+
+test("Grok localization is scoped to MCP-owned UI and observes late-rendered controls", async () => {
+  const source = await fs.readFile(path.join(extensionRoot, "content", "grok-zh-localization.js"), "utf8");
+
+  assert.match(source, /MutationObserver/);
+  assert.match(source, /mcp-/);
+  assert.match(source, /MCP 设置/);
+  assert.match(source, /自动插入/);
+  assert.match(source, /使用说明/);
   assert.doesNotMatch(source, /createElement\(["'](?:aside|iframe)["']\)/);
 });
 

@@ -31,7 +31,8 @@
     {
       "js": [
         "content/index.iife.js",
-        "content/local-automation-bridge.js"
+        "content/local-automation-bridge.js",
+        "content/grok-zh-localization.js"
       ],
       "matches": [
         "*://*.grok.com/*"
@@ -41,7 +42,8 @@
     {
       "js": [
         "content/index.iife.js",
-        "content/local-automation-bridge.js"
+        "content/local-automation-bridge.js",
+        "content/grok-zh-localization.js"
       ],
       "matches": [
         "*://*.x.com/*",
@@ -228,7 +230,7 @@
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.8",
+  "version": "0.6.9",
   "web_accessible_resources": [
     {
       "matches": [

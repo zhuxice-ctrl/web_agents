@@ -37,6 +37,8 @@ Server URI: http://127.0.0.1:3006/sse
 
 非 Grok 页面加载从 GitHub `main` 提取的 `content/index-main.iife.js` 中文 bundle；Grok / X 页面继续加载保留 Grok 适配的 `content/index.iife.js`，并叠加 `local-automation-bridge.js`。两个入口不会在同一页面重复加载。
 
+Grok / X 还会加载 `grok-zh-localization.js`，仅翻译插件自己的 MCP 按钮、弹层、侧栏、状态提示和结果卡操作，不改动 Grok 网页正文或对话内容。
+
 `web-agent-result-enhancer.js` 和 `web-agent-insert-fallback.js` 负责跨网页的中文结果卡、稳定结果保存和“插入失败时复制”兜底；它们不替换原有 MCP 输入框 bundle。
 
 ## Grok 反向任务
