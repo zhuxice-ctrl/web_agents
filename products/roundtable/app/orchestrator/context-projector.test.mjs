@@ -103,3 +103,32 @@ test("join policy initializes a new seat from history or from the current event"
   assert.equal(withHistory.context.seatCursors.doubao, -1);
   assert.equal(withHistory.threads.doubao.lastDeliveredEventIndex, -1);
 });
+
+test("active compression replaces covered prompt history without changing exact seat delta", () => {
+  const session = createSession();
+  const active = {
+    id: "compression-1",
+    revision: 1,
+    coveredFromEventIndex: 0,
+    coveredThroughEventIndex: 1,
+    consensus: [{ id: "c1", text: "保留原始记录", sourceEventIds: ["event-1"] }],
+    disagreements: [],
+    evidence: [],
+    decisions: [],
+    unclassified: [],
+    estimate: { beforeTokens: 110000, afterTokens: 24000, windowTokens: 131072 },
+  };
+  session.context.compression = {
+    schema: "web-agents-roundtable-compression.v1",
+    activeRevision: 1,
+    active,
+    revisions: [structuredClone(active)],
+  };
+
+  const projection = projectContextForSeat(session, "deepseek", { throughEventIndex: 3 });
+
+  assert.deepEqual(projection.events.map((event) => event.id), ["event-2", "event-3", "event-4"]);
+  assert.deepEqual(projection.promptEvents.map((event) => event.id), ["event-3", "event-4"]);
+  assert.equal(projection.compression.revision, 1);
+  assert.equal(projection.compression.coveredThroughEventIndex, 1);
+});

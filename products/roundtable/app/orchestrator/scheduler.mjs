@@ -9,6 +9,7 @@ import {
 } from "../core/providers.mjs";
 import { parseRoundtableCommand } from "./command-parser.mjs";
 import { buildPrompt, DISCUSSION_STAGES, getDiscussionStage } from "./context-builder.mjs";
+import { compressSessionContext, CONTEXT_COMPRESSION_SCHEMA } from "./context-compressor.mjs";
 import { applySeatProjection, projectContextForSeat } from "./context-projector.mjs";
 import {
   analyzeReplyQuality,
@@ -273,6 +274,7 @@ function projectionSummary(projection) {
     throughEventIndex: projection.throughEventIndex,
     sync: projection.sync,
     capacity: projection.capacity,
+    compression: projection.compression,
   };
 }
 
@@ -285,12 +287,13 @@ function cloneCheckpointMetadata(metadata) {
 }
 
 export class RoundtableScheduler {
-  constructor({ store, worker = null, eventBus = null, runRegistry = null } = {}) {
+  constructor({ store, worker = null, eventBus = null, runRegistry = null, contextCompression = {} } = {}) {
     if (!store) throw new Error("STORE_REQUIRED");
     this.store = store;
     this.worker = worker;
     this.eventBus = eventBus;
     this.runRegistry = runRegistry;
+    this.contextCompression = contextCompression;
     this.prepareLocks = new Map();
     this.executionCheckpointLocks = new Map();
   }
@@ -434,13 +437,12 @@ export class RoundtableScheduler {
 
   prepareTurnPrompt(session, plan, turn, eventsSnapshot = session.events) {
     const snapshotSession = { ...session, events: eventsSnapshot };
-    const projection = projectContextForSeat(snapshotSession, turn.providerId, {
+    let projection = projectContextForSeat(snapshotSession, turn.providerId, {
       throughEventIndex: eventsSnapshot.length - 1,
     });
     const baton = latestSuccessfulBaton(snapshotSession, plan);
     const absences = planAbsences(snapshotSession, plan);
-    turn.contextProjection = projectionSummary(projection);
-    turn.prompt = buildPrompt(snapshotSession, turn.providerId, {
+    const promptContext = {
       commandText: plan.commandText,
       originalTask: plan.originalTask,
       conversationMode: plan.conversationMode,
@@ -453,12 +455,56 @@ export class RoundtableScheduler {
       isClosure: isClosureTurn(turn),
       isHostSummary: isClosureTurn(turn),
       targets: plan.targets,
-      projection,
       lastSuccessfulBaton: baton,
       absences,
       fallbackFromProviderId: turn.fallbackFromProviderId || null,
       fallbackReason: turn.fallbackReason || null,
-    });
+    };
+    const buildProjectedPrompt = (targetSession, targetProjection) => buildPrompt(
+      targetSession,
+      turn.providerId,
+      { ...promptContext, projection: targetProjection },
+    );
+    let prompt = buildProjectedPrompt(snapshotSession, projection);
+    const previousCompression = structuredClone(snapshotSession.context?.compression || null);
+    try {
+      const compressor = this.contextCompression.compress || compressSessionContext;
+      const compressionResult = compressor(snapshotSession, {
+        prompt,
+        buildPrompt: (targetSession) => {
+          const targetProjection = projectContextForSeat(targetSession, turn.providerId, {
+            throughEventIndex: eventsSnapshot.length - 1,
+          });
+          return buildProjectedPrompt(targetSession, targetProjection);
+        },
+        estimatePromptTokens: this.contextCompression.estimatePromptTokens,
+        estimateEventTokens: this.contextCompression.estimateEventTokens,
+        now: this.contextCompression.now,
+      });
+      if (compressionResult.changed) {
+        projection = projectContextForSeat(snapshotSession, turn.providerId, {
+          throughEventIndex: eventsSnapshot.length - 1,
+        });
+        prompt = buildProjectedPrompt(snapshotSession, projection);
+      }
+    } catch (error) {
+      snapshotSession.context = snapshotSession.context && typeof snapshotSession.context === "object"
+        ? snapshotSession.context
+        : {};
+      snapshotSession.context.compression = previousCompression || {
+        schema: CONTEXT_COMPRESSION_SCHEMA,
+        activeRevision: 0,
+        active: null,
+        revisions: [],
+      };
+      snapshotSession.context.compression.lastError = {
+        code: error?.code || "COMPRESSION_FAILED",
+        message: error?.message || String(error),
+        at: new Date().toISOString(),
+      };
+    }
+    turn.contextProjection = projectionSummary(projection);
+    turn.prompt = prompt;
     return turn;
   }
 

@@ -200,6 +200,41 @@ test("context builder labels shared event speakers and respects context limits",
   assert.match(prompt, /用户: four/);
 });
 
+test("context builder separates compressed state from recent raw events", async () => {
+  const store = await createStore();
+  const session = await createSession(store);
+  const compression = {
+    id: "compression-7",
+    revision: 7,
+    coveredFromEventIndex: 0,
+    coveredThroughEventIndex: 1,
+    consensus: [{ id: "c1", text: "原始记录保留", sourceEventIds: ["event-1"] }],
+    disagreements: [{ id: "d1", text: "摘要生成方式", sourceEventIds: ["event-2"] }],
+    evidence: [],
+    decisions: [],
+    unclassified: [],
+    estimate: { beforeTokens: 110000, afterTokens: 24000, windowTokens: 131072 },
+  };
+  const prompt = buildPrompt(session, "chatgpt", {
+    commandText: "继续",
+    projection: {
+      providerId: "chatgpt",
+      promptEvents: [{ id: "event-3", type: "reply", providerId: "deepseek", content: "近期原文" }],
+      publicState: session.context,
+      compression,
+      sync: { current: 0, projected: 3, total: 3 },
+    },
+  });
+
+  assert.match(prompt, /<compressed_roundtable_context>/);
+  assert.match(prompt, /压缩修订：7/);
+  assert.match(prompt, /覆盖事件：0\.\.1/);
+  assert.match(prompt, /原始记录保留.*event-1/s);
+  assert.match(prompt, /摘要生成方式.*event-2/s);
+  assert.match(prompt, /<shared_roundtable_context>[\s\S]*近期原文/);
+  assert.doesNotMatch(prompt, /被覆盖的旧原文/);
+});
+
 test("turn plan preserves same-round target order", async () => {
   const store = await createStore();
   const session = await createSession(store, { defaultRounds: 2 });

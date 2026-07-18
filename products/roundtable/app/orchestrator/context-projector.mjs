@@ -96,6 +96,7 @@ function publicStateFrom(session) {
 
 export function projectContextForSeat(session, providerId, options = {}) {
   const allEvents = Array.isArray(session?.events) ? session.events : [];
+  const compression = session?.context?.compression?.active || null;
   const total = allEvents.length;
   const currentIndex = getSeatEventIndex(session, providerId);
   const requestedThroughIndex = options.throughEventIndex !== undefined
@@ -115,15 +116,22 @@ export function projectContextForSeat(session, providerId, options = {}) {
     .slice(currentIndex + 1, boundedProjectedIndex + 1)
     .filter(eventIsPublic)
     .map((event) => structuredClone(event));
+  const recentStartIndex = Math.max(
+    compression ? Number(compression.coveredThroughEventIndex) + 1 : 0,
+    Math.max(0, boundedProjectedIndex - recentLimit + 1),
+  );
   const recentEvents = recentLimit
     ? allEvents
-      .slice(Math.max(0, boundedProjectedIndex - recentLimit + 1), boundedProjectedIndex + 1)
+      .slice(recentStartIndex, boundedProjectedIndex + 1)
       .filter(eventIsPublic)
       .map((event) => structuredClone(event))
     : [];
-  const promptStartIndex = Math.min(
-    currentIndex + 1,
-    Math.max(0, boundedProjectedIndex - recentLimit + 1),
+  const promptStartIndex = Math.max(
+    compression ? Number(compression.coveredThroughEventIndex) + 1 : 0,
+    Math.min(
+      currentIndex + 1,
+      Math.max(0, boundedProjectedIndex - recentLimit + 1),
+    ),
   );
   const promptEvents = allEvents
     .slice(promptStartIndex, boundedProjectedIndex + 1)
@@ -140,6 +148,7 @@ export function projectContextForSeat(session, providerId, options = {}) {
     deltaEvents: events,
     recentEvents,
     promptEvents,
+    compression: compression ? structuredClone(compression) : null,
     publicState: publicStateFrom(session),
     sync: {
       exact: true,
