@@ -94,14 +94,104 @@ function normalizeTool(tool: McpTool): McpToolSummary | null {
   };
 }
 
-async function openSseSession(serverUri: string) {
+export function createJsonRpcResponseRouter({ timeoutMs = MCP_REQUEST_TIMEOUT_MS } = {}) {
+  const pending = new Map<number, {
+    method: string;
+    resolve(value: unknown): void;
+    reject(error: Error): void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
+
+  return {
+    wait<T>(id: number, method: string): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${method} 失败：等待 MCP 响应超时`));
+        }, timeoutMs);
+        pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject, timeout });
+      });
+    },
+    handle(payload: JsonRpcResponse<unknown>): boolean {
+      const request = pending.get(payload.id);
+      if (!request) return false;
+      pending.delete(payload.id);
+      clearTimeout(request.timeout);
+      if (payload.error) request.reject(new Error(`${request.method} 失败：${payload.error.message}`));
+      else request.resolve(payload.result);
+      return true;
+    },
+    rejectAll(error: Error): void {
+      for (const request of pending.values()) {
+        clearTimeout(request.timeout);
+        request.reject(error);
+      }
+      pending.clear();
+    },
+    get pendingCount(): number {
+      return pending.size;
+    }
+  };
+}
+
+type ClosableSession = { close?(): Promise<void> };
+
+export function createMcpSessionPool<TSession extends ClosableSession, TOptions = undefined>({
+  openSession,
+  initialize
+}: {
+  openSession(options?: TOptions): Promise<TSession>;
+  initialize(session: TSession): Promise<void>;
+}) {
+  const entries = new Map<string, Promise<TSession>>();
+  return {
+    get(key: string, options?: TOptions): Promise<TSession> {
+      const existing = entries.get(key);
+      if (existing) return existing;
+      const created = openSession(options).then(async (session) => {
+        await initialize(session);
+        return session;
+      }).catch((error) => {
+        entries.delete(key);
+        throw error;
+      });
+      entries.set(key, created);
+      return created;
+    },
+    async invalidate(key: string): Promise<void> {
+      const entry = entries.get(key);
+      entries.delete(key);
+      const session = await entry?.catch(() => null);
+      await session?.close?.();
+    },
+    get size(): number {
+      return entries.size;
+    }
+  };
+}
+
+type McpSessionContext = {
+  sessionId?: string;
+  workspaceRoot?: string;
+};
+
+function sessionHeaders(context: McpSessionContext): Record<string, string> {
+  if (!context.sessionId && !context.workspaceRoot) return {};
+  if (!context.sessionId || !context.workspaceRoot) throw new Error("MCP_SESSION_CONTEXT_INCOMPLETE");
+  return {
+    "X-Web-Agents-Session": context.sessionId,
+    "X-Web-Agents-Workspace": context.workspaceRoot
+  };
+}
+
+async function openSseSession(serverUri: string, context: McpSessionContext = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), MCP_REQUEST_TIMEOUT_MS);
   let response: Response;
 
   try {
     response = await fetch(serverUri, {
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...sessionHeaders(context) },
       signal: controller.signal
     });
   } finally {
@@ -116,45 +206,48 @@ async function openSseSession(serverUri: string) {
   const decoder = new TextDecoder();
   let pending = "";
   let nextId = 1;
+  const router = createJsonRpcResponseRouter();
+  let endpointResolve!: (value: string) => void;
+  let endpointReject!: (error: Error) => void;
+  const endpointPromise = new Promise<string>((resolve, reject) => {
+    endpointResolve = resolve;
+    endpointReject = reject;
+  });
+  const endpointTimeout = setTimeout(() => endpointReject(new Error("等待 MCP endpoint 超时")), MCP_REQUEST_TIMEOUT_MS);
 
-  async function readEvents(timeoutMs: number): Promise<SseEvent[]> {
-    const read = reader.read();
-    let readTimeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      readTimeoutId = setTimeout(() => reject(new Error("等待 MCP 响应超时")), timeoutMs);
-    });
-    const { value, done } = await Promise.race([read, timeout]).finally(() => {
-      if (readTimeoutId) clearTimeout(readTimeoutId);
-    });
-
-    if (done) {
-      throw new Error("SSE 连接已关闭");
+  void (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("SSE 连接已关闭");
+        pending += decoder.decode(value, { stream: true });
+        const blocks = pending.split(/\r?\n\r?\n/);
+        pending = blocks.pop() ?? "";
+        for (const block of blocks) {
+          const event = parseSseEvent(block);
+          if (!event) continue;
+          if (event.event === "endpoint" && event.data.includes("/message")) {
+            clearTimeout(endpointTimeout);
+            endpointResolve(buildMessageUrl(serverUri, event.data));
+          } else if (event.event === "message") {
+            try {
+              router.handle(JSON.parse(event.data) as JsonRpcResponse<unknown>);
+            } catch {
+              // Ignore malformed events without disturbing other in-flight requests.
+            }
+          }
+        }
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      clearTimeout(endpointTimeout);
+      endpointReject(failure);
+      router.rejectAll(failure);
     }
-
-    pending += decoder.decode(value, { stream: true });
-    const blocks = pending.split(/\r?\n\r?\n/);
-    pending = blocks.pop() ?? "";
-    return blocks.map(parseSseEvent).filter((event): event is SseEvent => Boolean(event));
-  }
-
-  async function waitForEvent(predicate: (event: SseEvent) => boolean): Promise<SseEvent> {
-    const deadline = Date.now() + MCP_REQUEST_TIMEOUT_MS;
-
-    while (Date.now() < deadline) {
-      const events = await readEvents(Math.max(1, deadline - Date.now()));
-      const match = events.find(predicate);
-      if (match) return match;
-    }
-
-    throw new Error("等待 MCP 事件超时");
-  }
-
-  const endpointEvent = await waitForEvent(
-    (event) => event.event === "endpoint" && event.data.includes("/messages")
-  );
-  const messageUrl = buildMessageUrl(serverUri, endpointEvent.data);
+  })();
 
   async function post(message: unknown): Promise<void> {
+    const messageUrl = await endpointPromise;
     const response = await fetch(messageUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -169,22 +262,12 @@ async function openSseSession(serverUri: string) {
   async function request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const id = nextId;
     nextId += 1;
-    await post({ jsonrpc: "2.0", id, method, params });
-
-    const responseEvent = await waitForEvent((event) => {
-      try {
-        return (JSON.parse(event.data) as JsonRpcResponse<T>).id === id;
-      } catch {
-        return false;
-      }
+    const result = router.wait<T>(id, method);
+    await post({ jsonrpc: "2.0", id, method, params }).catch((error) => {
+      router.rejectAll(error instanceof Error ? error : new Error(String(error)));
+      throw error;
     });
-
-    const payload = JSON.parse(responseEvent.data) as JsonRpcResponse<T>;
-    if (payload.error) {
-      throw new Error(`${method} 失败：${payload.error.message}`);
-    }
-
-    return payload.result as T;
+    return result;
   }
 
   async function close(): Promise<void> {
@@ -193,22 +276,10 @@ async function openSseSession(serverUri: string) {
     } catch {
       // The browser may already have closed the stream.
     }
+    router.rejectAll(new Error("SSE 连接已关闭"));
   }
 
   return { post, request, close };
-}
-
-async function listToolsFromSse(serverUri: string): Promise<McpToolSummary[]> {
-  const session = await openSseSession(serverUri);
-
-  try {
-    await initializeSession(session);
-
-    const result = await session.request<ToolsListResult>("tools/list");
-    return (result.tools ?? []).map(normalizeTool).filter((tool): tool is McpToolSummary => Boolean(tool));
-  } finally {
-    await session.close();
-  }
 }
 
 async function initializeSession(session: Awaited<ReturnType<typeof openSseSession>>): Promise<void> {
@@ -220,22 +291,48 @@ async function initializeSession(session: Awaited<ReturnType<typeof openSseSessi
   await session.post({ jsonrpc: "2.0", method: "notifications/initialized" });
 }
 
+const mcpSessionPool = createMcpSessionPool({
+  openSession: (options?: { serverUri: string; context: McpSessionContext }) => {
+    if (!options) throw new Error("MCP_SESSION_OPTIONS_REQUIRED");
+    return openSseSession(options.serverUri, options.context);
+  },
+  initialize: initializeSession
+});
+
+function sessionKey(serverUri: string, context: McpSessionContext): string {
+  return `${serverUri}\u0000${context.sessionId ?? "default"}\u0000${context.workspaceRoot ?? "default"}`;
+}
+
+async function pooledSession(serverUri: string, context: McpSessionContext) {
+  const key = sessionKey(serverUri, context);
+  return {
+    key,
+    session: await mcpSessionPool.get(key, { serverUri, context })
+  };
+}
+
+async function listToolsFromSse(serverUri: string, context: McpSessionContext = {}): Promise<McpToolSummary[]> {
+  const { session } = await pooledSession(serverUri, context);
+  const result = await session.request<ToolsListResult>("tools/list");
+  return (result.tools ?? []).map(normalizeTool).filter((tool): tool is McpToolSummary => Boolean(tool));
+}
+
 export async function callMcpTool(
   config: ExtensionConfig,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  context: McpSessionContext = {}
 ): Promise<McpToolCallResult> {
   if (config.mcp.transport !== "sse") {
     throw new Error("Only SSE MCP transport is supported for local tool calls.");
   }
 
-  const session = await openSseSession(config.mcp.serverUri);
-
+  const { key, session } = await pooledSession(config.mcp.serverUri, context);
   try {
-    await initializeSession(session);
     return await session.request<McpToolCallResult>("tools/call", { name, arguments: args });
-  } finally {
-    await session.close();
+  } catch (error) {
+    await mcpSessionPool.invalidate(key);
+    throw error;
   }
 }
 

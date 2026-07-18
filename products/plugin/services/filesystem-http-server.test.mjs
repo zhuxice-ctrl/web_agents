@@ -6,6 +6,7 @@ import test from "node:test";
 import { once } from "node:events";
 
 import { createFilesystemHttpServer } from "./filesystem-http-server.mjs";
+import { createAsyncRequestLimiter } from "./async-request-limiter.mjs";
 
 async function startFilesystemServer(t, prefix) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -291,4 +292,61 @@ test("SSE retains the session filesystem tools selected when the stream opens", 
   const messageChunk = decoder.decode((await reader.read()).value);
   assert.match(messageChunk, /sse session tools/);
   await reader.cancel();
+});
+
+test("filesystem HTTP returns 429 at capacity and recovers after active work", async (t) => {
+  let release;
+  let startedResolve;
+  const started = new Promise((resolve) => { startedResolve = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  const filesystemTools = {
+    definitions: [],
+    async call() {
+      startedResolve();
+      await gate;
+      return { content: [{ type: "text", text: "released" }] };
+    },
+  };
+  const requestLimiter = createAsyncRequestLimiter({ concurrency: 1, maxQueue: 0 });
+  const server = createFilesystemHttpServer({ filesystemTools, requestLimiter, port: 0 });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    release();
+    server.closeAllSessions();
+    server.close();
+    await once(server, "close");
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 30,
+    method: "tools/call",
+    params: { name: "read_text_file", arguments: { path: "note.md" } },
+  });
+  const first = fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  await started;
+
+  const saturated = await fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  assert.equal(saturated.status, 429);
+  assert.equal((await saturated.json()).error, "REQUEST_QUEUE_FULL");
+
+  release();
+  assert.equal((await first).status, 200);
+  const recovered = await fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  assert.equal(recovered.status, 200);
+  const health = await fetch(`${baseUrl}/health`).then((response) => response.json());
+  assert.deepEqual(health.concurrency, { active: 0, waiting: 0, rejected: 1 });
 });

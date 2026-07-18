@@ -1,11 +1,15 @@
 import http from "node:http";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
 import { createFilesystemTools } from "@web-agents/local-core/filesystem-tools";
+import { PathLockManager } from "@web-agents/local-core/paths";
+import { defaultToolRegistry } from "@web-agents/local-core/tool-registry";
 import { defaultPermissionStoreDir } from "./permission-store-adapter.mjs";
 import { createSessionFilesystemRegistry } from "./session-filesystem-registry.mjs";
+import { createAsyncRequestLimiter } from "./async-request-limiter.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -113,7 +117,7 @@ function authorizeLocalRequest(request, response, url) {
   return true;
 }
 
-async function handleRpc(message, { filesystemTools }) {
+async function handleRpc(message, { filesystemTools, callTool = null }) {
   const { id, method, params } = message || {};
   if (method === "notifications/initialized" || (id === undefined && id !== 0)) return null;
   try {
@@ -131,7 +135,11 @@ async function handleRpc(message, { filesystemTools }) {
     if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
     if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: filesystemTools.definitions } };
     if (method === "tools/call") {
-      const result = await filesystemTools.call(params?.name, params?.arguments || {});
+      const name = params?.name;
+      const args = params?.arguments || {};
+      const result = callTool
+        ? await callTool(name, args)
+        : await filesystemTools.call(name, args);
       return { jsonrpc: "2.0", id, result };
     }
     if (method === "resources/list") return { jsonrpc: "2.0", id, result: { resources: [] } };
@@ -154,6 +162,8 @@ export function createFilesystemHttpServer({
   auditFile = path.join(dataDir, "audit", "writes.jsonl"),
   filesystemTools = null,
   sessionRegistry = null,
+  requestLimiter = null,
+  pathLockManager = null,
 } = {}) {
   const tools = filesystemTools || createFilesystemTools({
     repoRoot,
@@ -167,6 +177,8 @@ export function createFilesystemHttpServer({
     permissionStoreDir: permissionStoreDir || defaultPermissionStoreDir,
     auditFile: auditFile || defaultAuditFile,
   });
+  const limiter = requestLimiter || createAsyncRequestLimiter({ concurrency: 8, maxQueue: 64 });
+  const pathLocks = pathLockManager || new PathLockManager();
   const sessions = new Map();
 
   async function toolsForRequest(request) {
@@ -179,6 +191,25 @@ export function createFilesystemHttpServer({
       throw error;
     }
     return registry.get({ sessionId, workspaceRoot });
+  }
+
+  async function callSessionTool(filesystemTools, name, args) {
+    const metadata = defaultToolRegistry.get(name);
+    if (!metadata?.mutating) return filesystemTools.call(name, args);
+    const paths = defaultToolRegistry.extractPaths(name, args);
+    return pathLocks.runExclusive(paths, () => filesystemTools.call(name, args));
+  }
+
+  function dispatchRpc(message, filesystemTools) {
+    return limiter.run(() => handleRpc(message, {
+      filesystemTools,
+      callTool: (name, args) => callSessionTool(filesystemTools, name, args),
+    }));
+  }
+
+  async function writeSse(response, chunk) {
+    if (response.write(chunk)) return;
+    await once(response, "drain");
   }
 
   const server = http.createServer(async (request, response) => {
@@ -195,6 +226,7 @@ export function createFilesystemHttpServer({
           port: server.address()?.port || port,
           transports: ["sse", "streamable-http"],
           tools: tools.definitions.length,
+          concurrency: limiter.snapshot(),
         });
       }
       if (request.method === "GET" && url.pathname === "/sse") {
@@ -205,9 +237,14 @@ export function createFilesystemHttpServer({
           "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
         });
-        sessions.set(sessionId, { response, filesystemTools: sessionTools });
-        response.write(`event: endpoint\ndata: /message?sessionId=${encodeURIComponent(sessionId)}\n\n`);
-        const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15000);
+        let writeQueue = Promise.resolve();
+        const write = (chunk) => {
+          writeQueue = writeQueue.then(() => writeSse(response, chunk));
+          return writeQueue;
+        };
+        sessions.set(sessionId, { response, filesystemTools: sessionTools, write });
+        await write(`event: endpoint\ndata: /message?sessionId=${encodeURIComponent(sessionId)}\n\n`);
+        const heartbeat = setInterval(() => void write(": heartbeat\n\n").catch(() => {}), 15000);
         heartbeat.unref?.();
         request.on("close", () => {
           clearInterval(heartbeat);
@@ -220,20 +257,22 @@ export function createFilesystemHttpServer({
         const session = sessions.get(sessionId);
         if (!session) return sendJson(response, 404, { ok: false, error: "MCP_SESSION_NOT_FOUND" });
         const message = await readJson(request);
-        const result = await handleRpc(message, { filesystemTools: session.filesystemTools });
+        const result = await dispatchRpc(message, session.filesystemTools);
         sendJson(response, 202, { ok: true });
-        if (result) session.response.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
+        if (result) await session.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
         return;
       }
       if (request.method === "POST" && url.pathname === "/mcp") {
         const message = await readJson(request);
-        const result = await handleRpc(message, { filesystemTools: await toolsForRequest(request) });
+        const result = await dispatchRpc(message, await toolsForRequest(request));
         if (!result) return sendJson(response, 202, { ok: true });
         return sendJson(response, 200, result);
       }
       return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
     } catch (error) {
-      const status = error?.message === "REQUEST_BODY_TOO_LARGE"
+      const status = error?.code === "REQUEST_QUEUE_FULL"
+        ? 429
+        : error?.message === "REQUEST_BODY_TOO_LARGE"
         ? 413
         : error?.code === "WORKSPACE_NOT_ALLOWED"
           ? 403
