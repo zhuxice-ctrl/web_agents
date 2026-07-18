@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,10 +7,12 @@ import test from "node:test";
 
 import {
   approvePermissionViaGateway,
+  createPluginGatewayServer,
   rejectPermissionViaGateway,
   saveToolResult,
   sanitizeToolName,
 } from "./plugin-gateway.mjs";
+import { createAutomationTaskQueue } from "./automation-task-queue.mjs";
 import { createPermissionRequest } from "./permission-store-adapter.mjs";
 
 test("sanitizeToolName produces a filesystem-safe name", () => {
@@ -83,4 +86,82 @@ test("gateway permission rejection updates pending request status", async () => 
   const rejected = await rejectPermissionViaGateway({ storeDir, requestId: request.requestId });
   assert.equal(rejected.ok, true);
   assert.equal(rejected.status, "rejected");
+});
+
+function automationTask(clientRequestId) {
+  return {
+    version: 1,
+    type: "provider.generate_image",
+    clientRequestId,
+    sessionId: `session-${clientRequestId}`,
+    provider: "grok",
+    workspaceRoot: "F:/project",
+    payload: {
+      prompt: "Generate an image",
+      targetDirectory: "F:/project/assets",
+      fileName: "image.png",
+    },
+  };
+}
+
+async function postJson(baseUrl, pathname, body) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { response, payload: await response.json() };
+}
+
+test("plugin gateway exposes the minimal typed automation task flow", async (t) => {
+  const taskQueue = createAutomationTaskQueue({ capacity: 4 });
+  const server = createPluginGatewayServer({ taskQueue });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    taskQueue.close();
+    server.close();
+    await once(server, "close");
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const submitted = await postJson(baseUrl, "/automation/tasks", automationTask("gateway-1"));
+  assert.equal(submitted.response.status, 202);
+  assert.match(submitted.payload.taskId, /\S+/);
+
+  const nextResponse = await fetch(`${baseUrl}/automation/next?waitMs=10`);
+  const next = await nextResponse.json();
+  assert.equal(next.task.taskId, submitted.payload.taskId);
+
+  const completed = await postJson(baseUrl, `/automation/tasks/${submitted.payload.taskId}/result`, {
+    ok: true,
+    filePath: "F:/project/assets/image.png",
+  });
+  assert.equal(completed.response.status, 200);
+
+  const status = await fetch(`${baseUrl}/automation/tasks/${submitted.payload.taskId}`).then((response) => response.json());
+  assert.equal(status.task.state, "done");
+  assert.equal(status.task.result.filePath, "F:/project/assets/image.png");
+});
+
+test("plugin gateway validates automation tasks and reports queue saturation", async (t) => {
+  const taskQueue = createAutomationTaskQueue({ capacity: 1 });
+  const server = createPluginGatewayServer({ taskQueue });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    taskQueue.close();
+    server.close();
+    await once(server, "close");
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const invalid = await postJson(baseUrl, "/automation/tasks", { version: 1 });
+  assert.equal(invalid.response.status, 400);
+  assert.equal(invalid.payload.error, "INVALID_AUTOMATION_TASK");
+
+  assert.equal((await postJson(baseUrl, "/automation/tasks", automationTask("capacity-1"))).response.status, 202);
+  const saturated = await postJson(baseUrl, "/automation/tasks", automationTask("capacity-2"));
+  assert.equal(saturated.response.status, 429);
+  assert.equal(saturated.payload.error, "AUTOMATION_QUEUE_FULL");
 });

@@ -7,6 +7,7 @@ import {
   rejectPermissionRequest,
 } from "./permission-store-adapter.mjs";
 import { buildGatewayConfig, evaluatePermission, getAllowedRoots } from "./config-gateway.mjs";
+import { createAutomationTaskQueue } from "./automation-task-queue.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,6 +105,33 @@ async function readJson(request) {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function requireAutomationString(value) {
+  return typeof value === "string" && Boolean(value.trim());
+}
+
+function validateAutomationTask(payload) {
+  const valid = payload
+    && typeof payload === "object"
+    && payload.version === 1
+    && payload.type === "provider.generate_image"
+    && requireAutomationString(payload.clientRequestId)
+    && requireAutomationString(payload.sessionId)
+    && requireAutomationString(payload.provider)
+    && requireAutomationString(payload.workspaceRoot)
+    && payload.payload
+    && typeof payload.payload === "object"
+    && requireAutomationString(payload.payload.prompt)
+    && requireAutomationString(payload.payload.targetDirectory)
+    && (payload.tabId === undefined || (Number.isInteger(payload.tabId) && payload.tabId > 0))
+    && (payload.payload.fileName === undefined || requireAutomationString(payload.payload.fileName));
+  if (!valid) {
+    const error = new Error("INVALID_AUTOMATION_TASK");
+    error.statusCode = 400;
+    throw error;
+  }
+  return payload;
 }
 
 async function saveImage(payload, runtime = createGatewayRuntime()) {
@@ -223,10 +251,13 @@ async function rejectPermissionViaGateway(payload, runtime = createGatewayRuntim
 
 export function createPluginGatewayServer(options = {}) {
   const runtime = createGatewayRuntime(options);
+  const taskQueue = options.taskQueue || createAutomationTaskQueue();
+  const ownsTaskQueue = !options.taskQueue;
   const server = http.createServer(async (request, response) => {
     try {
+      const url = new URL(request.url, "http://127.0.0.1");
       if (request.method === "OPTIONS") return sendJson(response, 204, {});
-      if (request.method === "GET" && request.url === "/health") {
+      if (request.method === "GET" && url.pathname === "/health") {
         return sendJson(response, 200, {
           ok: true,
           service: "web-agents-plugin-gateway",
@@ -236,16 +267,38 @@ export function createPluginGatewayServer(options = {}) {
           outputDir: runtime.outputDir,
           toolResultsDir: runtime.toolResultsDir,
           permissionStoreDir: runtime.permissionStoreDir,
-          features: { saveGptImage: true, saveToolResult: true, permissionApproval: true },
+          features: { saveGptImage: true, saveToolResult: true, permissionApproval: true, automationTasks: true },
+          automation: taskQueue.snapshot(),
         });
       }
-      if (request.method === "GET" && request.url === "/config") {
+      if (request.method === "GET" && url.pathname === "/config") {
         const config = await buildGatewayConfig({
           repoRoot: runtime.productRoot,
           configFile: runtime.configFile,
           gatewayUrl: `http://${request.headers.host || "127.0.0.1:3017"}`,
         });
         return sendJson(response, 200, config);
+      }
+      if (request.method === "POST" && url.pathname === "/automation/tasks") {
+        const task = taskQueue.submit(validateAutomationTask(await readJson(request)));
+        return sendJson(response, 202, { ok: true, taskId: task.taskId, task });
+      }
+      if (request.method === "GET" && url.pathname === "/automation/next") {
+        const waitMs = Math.max(0, Math.min(20_000, Number(url.searchParams.get("waitMs")) || 0));
+        const task = await taskQueue.take({ waitMs });
+        return sendJson(response, 200, { ok: true, task });
+      }
+      const automationResultMatch = url.pathname.match(/^\/automation\/tasks\/([^/]+)\/result$/);
+      if (request.method === "POST" && automationResultMatch) {
+        const task = taskQueue.complete(decodeURIComponent(automationResultMatch[1]), await readJson(request));
+        return sendJson(response, 200, { ok: true, task });
+      }
+      const automationStatusMatch = url.pathname.match(/^\/automation\/tasks\/([^/]+)$/);
+      if (request.method === "GET" && automationStatusMatch) {
+        const task = taskQueue.get(decodeURIComponent(automationStatusMatch[1]));
+        return task
+          ? sendJson(response, 200, { ok: true, task })
+          : sendJson(response, 404, { ok: false, error: "AUTOMATION_TASK_NOT_FOUND" });
       }
       if (request.method === "POST" && request.url === "/permission/evaluate") {
         const payload = await readJson(request);
@@ -279,11 +332,18 @@ export function createPluginGatewayServer(options = {}) {
       return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const statusCode = error?.statusCode || (message === "PAYLOAD_TOO_LARGE" ? 413 : 500);
+      const statusCode = error?.statusCode
+        || (error?.code === "AUTOMATION_QUEUE_FULL" ? 429 : null)
+        || (error?.code === "AUTOMATION_TASK_NOT_FOUND" ? 404 : null)
+        || (message === "PAYLOAD_TOO_LARGE" ? 413 : 500);
       return sendJson(response, statusCode, { ok: false, error: message });
     }
   });
   server.runtime = runtime;
+  server.taskQueue = taskQueue;
+  server.closeAllSessions = () => {
+    if (ownsTaskQueue) taskQueue.close();
+  };
   return server;
 }
 
