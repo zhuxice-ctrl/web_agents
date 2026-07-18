@@ -144,6 +144,26 @@ test("plugin gateway exposes the minimal typed automation task flow", async (t) 
   assert.equal(status.task.result.filePath, "F:/project/assets/image.png");
 });
 
+test("plugin gateway filters reverse tasks by provider and session", async (t) => {
+  const taskQueue = createAutomationTaskQueue({ capacity: 4 });
+  const server = createPluginGatewayServer({ taskQueue });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    taskQueue.close();
+    server.close();
+    await once(server, "close");
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const submitted = await postJson(baseUrl, "/automation/tasks", automationTask("grok-session-a"));
+  const mismatch = await fetch(`${baseUrl}/automation/next?provider=grok&sessionId=session-other&waitMs=5`).then((response) => response.json());
+  assert.equal(mismatch.task, null);
+
+  const match = await fetch(`${baseUrl}/automation/next?provider=grok&sessionId=session-grok-session-a&waitMs=5`).then((response) => response.json());
+  assert.equal(match.task.taskId, submitted.payload.taskId);
+});
+
 test("plugin gateway validates automation tasks and reports queue saturation", async (t) => {
   const taskQueue = createAutomationTaskQueue({ capacity: 1 });
   const server = createPluginGatewayServer({ taskQueue });

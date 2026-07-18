@@ -319,7 +319,9 @@ export function createPluginGatewayServer(options = {}) {
       }
       if (request.method === "GET" && url.pathname === "/automation/next") {
         const waitMs = Math.max(0, Math.min(20_000, Number(url.searchParams.get("waitMs")) || 0));
-        const task = await taskQueue.take({ waitMs });
+        const provider = String(url.searchParams.get("provider") || "").trim().toLowerCase();
+        const sessionId = String(url.searchParams.get("sessionId") || "").trim();
+        const task = await taskQueue.take({ provider, sessionId, waitMs });
         return sendJson(response, 200, { ok: true, task });
       }
       const automationResultMatch = url.pathname.match(/^\/automation\/tasks\/([^/]+)\/result$/);

@@ -30,7 +30,8 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index.iife.js",
+        "content/local-automation-bridge.js"
       ],
       "matches": [
         "*://*.grok.com/*"
@@ -39,7 +40,8 @@
     },
     {
       "js": [
-        "content/index.iife.js"
+        "content/index.iife.js",
+        "content/local-automation-bridge.js"
       ],
       "matches": [
         "*://*.x.com/*",
@@ -172,7 +174,9 @@
     "*://*.kimi.com/*",
     "*://*.bigmodel.cn/*",
     "*://*.chat.z.ai/*",
-    "*://*.chat.qwen.ai/*"
+    "*://*.chat.qwen.ai/*",
+    "http://127.0.0.1:3006/*",
+    "http://127.0.0.1:3017/*"
   ],
   "icons": {
     "128": "icon-128.png",
@@ -185,7 +189,7 @@
     "storage",
     "clipboardWrite"
   ],
-  "version": "0.6.0",
+  "version": "0.6.1",
   "web_accessible_resources": [
     {
       "matches": [

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { createAutomationTaskQueue } from "./automation-task-queue.mjs";
 
-function validTask(clientRequestId) {
-  return {
+function validTask(clientRequestId, overrides = {}) {
+  const base = {
     version: 1,
     type: "provider.generate_image",
     clientRequestId,
@@ -16,6 +16,11 @@ function validTask(clientRequestId) {
       targetDirectory: "F:/project/assets",
       fileName: "image.png",
     },
+  };
+  return {
+    ...base,
+    ...overrides,
+    payload: { ...base.payload, ...overrides.payload },
   };
 }
 
@@ -44,6 +49,31 @@ test("automation queue wakes a waiting consumer as soon as a task arrives", asyn
 
   assert.equal((await waiting).taskId, submitted.taskId);
   assert.equal(await queue.take({ waitMs: 5 }), null);
+});
+
+test("automation queue routes waiting consumers by provider and session", async (t) => {
+  const queue = createAutomationTaskQueue({ capacity: 4 });
+  t.after(() => queue.close());
+
+  const waitingChatGpt = queue.take({ provider: "chatgpt", sessionId: "chatgpt-a", waitMs: 1_000 });
+  const waitingGrok = queue.take({ provider: "grok", sessionId: "grok-a", waitMs: 1_000 });
+  const grokTask = queue.submit(validTask("grok-request", { sessionId: "grok-a" }));
+  const chatGptTask = queue.submit(validTask("chatgpt-request", {
+    provider: "chatgpt",
+    sessionId: "chatgpt-a",
+  }));
+
+  assert.equal((await waitingGrok).taskId, grokTask.taskId);
+  assert.equal((await waitingChatGpt).taskId, chatGptTask.taskId);
+});
+
+test("automation queue leaves non-matching tasks available", async (t) => {
+  const queue = createAutomationTaskQueue({ capacity: 4 });
+  t.after(() => queue.close());
+
+  const task = queue.submit(validTask("grok-b", { sessionId: "grok-b" }));
+  assert.equal(await queue.take({ provider: "grok", sessionId: "grok-a", waitMs: 5 }), null);
+  assert.equal((await queue.take({ provider: "grok", sessionId: "grok-b", waitMs: 5 })).taskId, task.taskId);
 });
 
 test("automation queue rejects saturation and removes expired tasks", () => {

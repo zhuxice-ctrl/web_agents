@@ -7,13 +7,15 @@ function queueError(code, message = code) {
 }
 
 export function createAutomationTaskQueue({
-  capacity = 128,
+  capacity = Number.POSITIVE_INFINITY,
   taskTimeoutMs = 5 * 60_000,
   retentionMs = 10 * 60_000,
   idFactory = () => randomUUID(),
   now = () => Date.now(),
 } = {}) {
-  if (!Number.isInteger(capacity) || capacity < 1) throw queueError("INVALID_QUEUE_CAPACITY");
+  if (capacity !== Number.POSITIVE_INFINITY && (!Number.isInteger(capacity) || capacity < 1)) {
+    throw queueError("INVALID_QUEUE_CAPACITY");
+  }
   const tasks = new Map();
   const tasksByClientRequestId = new Map();
   const pendingIds = [];
@@ -51,11 +53,24 @@ export function createAutomationTaskQueue({
     }
   }
 
-  function nextPendingTask() {
+  function matches(task, { provider, sessionId } = {}) {
+    return (!provider || task.provider === provider)
+      && (!sessionId || task.sessionId === sessionId);
+  }
+
+  function nextPendingTask(filters) {
     sweep();
-    while (pendingIds.length) {
-      const task = tasks.get(pendingIds.shift());
-      if (!task || task.state !== "pending" || dispatchedIds.has(task.taskId)) continue;
+    for (let index = 0; index < pendingIds.length;) {
+      const task = tasks.get(pendingIds[index]);
+      if (!task || task.state !== "pending" || dispatchedIds.has(task.taskId)) {
+        pendingIds.splice(index, 1);
+        continue;
+      }
+      if (!matches(task, filters)) {
+        index += 1;
+        continue;
+      }
+      pendingIds.splice(index, 1);
       dispatchedIds.add(task.taskId);
       return task;
     }
@@ -63,7 +78,7 @@ export function createAutomationTaskQueue({
   }
 
   function dispatchToWaiter(task) {
-    const waiter = waiters.values().next().value;
+    const waiter = [...waiters].find((candidate) => matches(task, candidate));
     if (!waiter) return false;
     waiters.delete(waiter);
     clearTimeout(waiter.timeout);
@@ -101,12 +116,16 @@ export function createAutomationTaskQueue({
       return task;
     },
 
-    take({ waitMs = 0 } = {}) {
+    take({ provider = "", sessionId = "", waitMs = 0 } = {}) {
       if (closed) return Promise.resolve(null);
-      const task = nextPendingTask();
+      const filters = {
+        provider: String(provider || "").trim().toLowerCase(),
+        sessionId: String(sessionId || "").trim(),
+      };
+      const task = nextPendingTask(filters);
       if (task || waitMs <= 0) return Promise.resolve(task);
       return new Promise((resolve) => {
-        const waiter = { resolve, timeout: null };
+        const waiter = { ...filters, resolve, timeout: null };
         waiter.timeout = setTimeout(() => {
           waiters.delete(waiter);
           resolve(null);

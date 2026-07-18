@@ -16,7 +16,7 @@ Use it when the store extension is unavailable, resets your local changes, or do
 extensions/mcp-superassistant-local-fixed
 ```
 
-6. Refresh Gemini / DeepSeek / Zhipu pages.
+6. Refresh Gemini / DeepSeek / Zhipu / Grok pages.
 7. In the extension settings, use:
 
 ```text
@@ -37,6 +37,15 @@ This build includes permissions for common web AI pages, including:
 - Qwen
 - Kimi
 - GitHub Copilot
+- Grok, including typed reverse image-generation tasks through the local gateway
+
+## Local Reverse Tasks
+
+The Grok content integration can claim `provider.generate_image` tasks from
+`http://127.0.0.1:3017`. Each task carries its own `sessionId` and
+`workspaceRoot`, so different browser conversations can save into independent
+project folders without a global webpage-task concurrency limit. DOM writes are
+serialized inside each page while separate pages continue independently.
 
 ## Notes
 
