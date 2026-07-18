@@ -14,6 +14,10 @@ function loadContentScriptExports(filePath) {
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const insertFallback = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-insert-fallback.js"));
+const activeInsertFallback = loadContentScriptExports(path.join(
+  testDir,
+  "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-insert-fallback.js",
+));
 
 test("isInsertButtonText recognizes exact insert labels with leading icon text", () => {
   assert.equal(insertFallback.isInsertButtonText("插入"), true);
@@ -58,5 +62,21 @@ test("extractToolResultText stops before nested stable result marker", () => {
   assert.equal(
     insertFallback.extractToolResultText(cardText),
     "Writable allowed directories:\n- F:\\web_agents",
+  );
+});
+
+test("active DeepSeek submit fallback requires an automatic function result", () => {
+  const result = [
+    '<function_result call_id="5">',
+    "Successfully wrote 22 bytes",
+    "</function_result>",
+  ].join("\n");
+
+  assert.equal(activeInsertFallback.shouldAutoSubmitText(result, { autoSubmit: true }), true);
+  assert.equal(activeInsertFallback.shouldAutoSubmitText(result, { autoSubmit: false }), false);
+  assert.equal(activeInsertFallback.shouldAutoSubmitText("ordinary user text", { autoSubmit: true }), false);
+  assert.equal(
+    activeInsertFallback.shouldAutoSubmitText(`${result}\nextra user text`, { autoSubmit: true }),
+    false,
   );
 });

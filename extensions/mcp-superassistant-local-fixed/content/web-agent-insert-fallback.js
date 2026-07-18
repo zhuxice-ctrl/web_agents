@@ -20,6 +20,10 @@
     "收起结果",
   ]);
   const stableResultMarker = "web_Agent 稳定结果";
+  const deepSeekHost = "chat.deepseek.com";
+  const autoSubmitFallbackDelay = 1800;
+  let pendingAutoSubmitTimer = null;
+  let pendingAutoSubmitText = "";
 
   const composerSelectors = [
     "#prompt-textarea",
@@ -129,6 +133,87 @@
       return element.value || "";
     }
     return element.innerText || element.textContent || "";
+  }
+
+  function getAutomationState() {
+    return typeof window !== "undefined" ? window.__mcpAutomationState : undefined;
+  }
+
+  function shouldAutoSubmitText(text, automationState = getAutomationState()) {
+    if (automationState?.autoSubmit !== true) {
+      return false;
+    }
+    const value = String(text || "").trim();
+    return /^<function_result\b[^>]*>[\s\S]*<\/function_result>$/u.test(value);
+  }
+
+  function findDeepSeekSubmitControl(composer) {
+    let scope = composer;
+    for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
+      const control = scope.querySelector?.(
+        '[role="button"].ds-button--primary.ds-button--circle, button[aria-label*="Send"], button[aria-label*="发送"], button[data-testid="send-button"], button[type="submit"]',
+      );
+      if (control) {
+        return control;
+      }
+    }
+    return null;
+  }
+
+  function isUsableSubmitControl(control) {
+    if (!control || control.isConnected === false || control.disabled) {
+      return false;
+    }
+    if (control.getAttribute?.("aria-disabled") === "true" || control.classList?.contains("disabled")) {
+      return false;
+    }
+    const rect = control.getBoundingClientRect?.();
+    return Boolean(rect && rect.width > 8 && rect.height > 8);
+  }
+
+  function clearPendingAutoSubmit() {
+    if (pendingAutoSubmitTimer !== null) {
+      window.clearTimeout(pendingAutoSubmitTimer);
+      pendingAutoSubmitTimer = null;
+    }
+    pendingAutoSubmitText = "";
+  }
+
+  function scheduleDeepSeekAutoSubmit(composer) {
+    if (window.location.hostname !== deepSeekHost) {
+      return;
+    }
+    const text = getElementText(composer).trim();
+    const automationState = getAutomationState();
+    if (!shouldAutoSubmitText(text, automationState)) {
+      clearPendingAutoSubmit();
+      return;
+    }
+    if (pendingAutoSubmitTimer !== null && pendingAutoSubmitText === text) {
+      return;
+    }
+
+    clearPendingAutoSubmit();
+    pendingAutoSubmitText = text;
+    const configuredDelay = Math.max(0, Number(automationState.autoSubmitDelay) || 0) * 1000;
+    pendingAutoSubmitTimer = window.setTimeout(() => {
+      pendingAutoSubmitTimer = null;
+      const currentComposer = findComposer();
+      const currentText = currentComposer ? getElementText(currentComposer).trim() : "";
+      if (
+        !currentComposer ||
+        currentText !== pendingAutoSubmitText ||
+        !shouldAutoSubmitText(currentText, getAutomationState())
+      ) {
+        pendingAutoSubmitText = "";
+        return;
+      }
+      const control = findDeepSeekSubmitControl(currentComposer);
+      pendingAutoSubmitText = "";
+      if (isUsableSubmitControl(control)) {
+        control.click();
+      }
+    }, configuredDelay + autoSubmitFallbackDelay);
   }
 
   function dispatchTextInputEvents(element, text) {
@@ -242,11 +327,22 @@
       event.stopImmediatePropagation();
       void handleInsertClick(button);
     }, true);
+    document.addEventListener("input", (event) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLInputElement ||
+        target?.getAttribute?.("contenteditable") === "true"
+      ) {
+        scheduleDeepSeekAutoSubmit(target);
+      }
+    }, true);
   }
 
   const api = {
     isInsertButtonText,
     extractToolResultText,
+    shouldAutoSubmitText,
   };
 
   if (typeof module !== "undefined" && module.exports) {
