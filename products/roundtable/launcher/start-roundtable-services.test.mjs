@@ -33,3 +33,34 @@ test("roundtable launcher source does not import the plugin product", async () =
   const source = await fs.readFile(new URL("./start-roundtable-services.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /products[\\/]plugin|plugin[\\/]services|filesystem-http-server|plugin-gateway/i);
 });
+
+test("roundtable service host starts Playwright MCP with append-only log files", async (t) => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-playwright-logs-"));
+  const productRoot = path.join(repoRoot, "roundtable-product");
+  const cliPath = path.join(repoRoot, "node_modules", "@playwright", "mcp", "cli.js");
+  await fs.mkdir(path.dirname(cliPath), { recursive: true });
+  await fs.writeFile(cliPath, [
+    "console.log('fake playwright mcp ready');",
+    "console.error('fake playwright mcp diagnostics');",
+    "setInterval(() => {}, 1000);",
+  ].join("\n"), "utf8");
+
+  const services = await startRoundtableServices({
+    repoRoot,
+    productRoot,
+    roundtablePort: 0,
+    playwrightMcpPort: 0,
+    requireWorkspaceSelection: false,
+  });
+  t.after(async () => {
+    await services.close();
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  assert.ok(services.playwrightProcess?.pid);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.match(
+    await fs.readFile(path.join(productRoot, "data", "logs", "playwright-mcp.out.log"), "utf8"),
+    /fake playwright mcp ready/,
+  );
+});

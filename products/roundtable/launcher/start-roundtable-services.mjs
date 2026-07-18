@@ -51,23 +51,26 @@ function spawnPlaywrightMcp({ repoRoot, host, port, cdpEndpoint, logDir, outputD
   const cli = path.join(repoRoot, "node_modules", "@playwright", "mcp", "cli.js");
   if (!fs.existsSync(cli)) throw new Error(`PLAYWRIGHT_MCP_NOT_INSTALLED:${cli}`);
   fs.mkdirSync(logDir, { recursive: true });
-  const stdout = fs.createWriteStream(path.join(logDir, "playwright-mcp.out.log"), { flags: "a" });
-  const stderr = fs.createWriteStream(path.join(logDir, "playwright-mcp.err.log"), { flags: "a" });
-  const child = spawn(process.execPath, [
-    cli,
-    "--host", host,
-    "--port", String(port),
-    "--cdp-endpoint", cdpEndpoint,
-    "--shared-browser-context",
-    "--output-mode", "file",
-    "--output-dir", outputDir,
-  ], {
-    cwd: repoRoot,
-    windowsHide: true,
-    stdio: ["ignore", stdout, stderr],
-  });
-  child.once("exit", () => { stdout.end(); stderr.end(); });
-  return child;
+  const stdoutFd = fs.openSync(path.join(logDir, "playwright-mcp.out.log"), "a");
+  const stderrFd = fs.openSync(path.join(logDir, "playwright-mcp.err.log"), "a");
+  try {
+    return spawn(process.execPath, [
+      cli,
+      "--host", host,
+      "--port", String(port),
+      "--cdp-endpoint", cdpEndpoint,
+      "--shared-browser-context",
+      "--output-mode", "file",
+      "--output-dir", outputDir,
+    ], {
+      cwd: repoRoot,
+      windowsHide: true,
+      stdio: ["ignore", stdoutFd, stderrFd],
+    });
+  } finally {
+    fs.closeSync(stdoutFd);
+    fs.closeSync(stderrFd);
+  }
 }
 
 export async function startRoundtableServices({
