@@ -5,7 +5,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const extensionDir = path.resolve(testDir, "../extension");
+const pluginDir = path.resolve(testDir, "..");
+const repoRoot = path.resolve(pluginDir, "../..");
+const rejectedExtensionDir = path.join(pluginDir, "extension");
+const extensionDir = path.join(repoRoot, "extensions/mcp-superassistant-local-fixed");
 
 async function sourceFiles(directory) {
   const output = [];
@@ -18,7 +21,26 @@ async function sourceFiles(directory) {
   return output;
 }
 
-test("source normal plugin contains no roundtable product code", async () => {
+test("rejected popup extension source has been removed", async () => {
+  await assert.rejects(fs.access(rejectedExtensionDir), { code: "ENOENT" });
+
+  const pluginPackage = JSON.parse(await fs.readFile(path.join(pluginDir, "package.json"), "utf8"));
+  assert.doesNotMatch(JSON.stringify(pluginPackage.scripts), /npm --prefix extension|extension\/dist/);
+});
+
+test("active unpacked extension contains the expected main entries", async () => {
+  const manifest = JSON.parse(await fs.readFile(path.join(extensionDir, "manifest.json"), "utf8"));
+  assert.equal(manifest.name, "web_Agent");
+  assert.match(manifest.version, /^0\.6\./);
+  await Promise.all([
+    fs.access(path.join(extensionDir, "background.js")),
+    fs.access(path.join(extensionDir, "content/index-main.iife.js")),
+    fs.access(path.join(extensionDir, "content/local-automation-bridge.js")),
+    fs.access(path.join(extensionDir, "content/grok-zh-localization.js"))
+  ]);
+});
+
+test("active normal plugin contains no roundtable product code", async () => {
   for (const file of await sourceFiles(extensionDir)) {
     const relative = path.relative(extensionDir, file).replaceAll("\\", "/");
     const source = await fs.readFile(file, "utf8");
