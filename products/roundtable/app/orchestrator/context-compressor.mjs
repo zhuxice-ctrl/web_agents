@@ -1,0 +1,230 @@
+import { randomUUID } from "node:crypto";
+
+import { DEFAULT_SETTINGS } from "../core/providers.mjs";
+import { estimatePromptTokens as defaultEstimatePromptTokens, estimateTextTokens } from "./context-token-estimator.mjs";
+
+const COMPRESSION_SCHEMA = "web-agents-roundtable-compression.v1";
+const BUCKETS = ["consensus", "disagreements", "evidence", "decisions", "unclassified"];
+const MARKERS = new Map([
+  ["共识", "consensus"],
+  ["分歧", "disagreements"],
+  ["证据", "evidence"],
+  ["决定", "decisions"],
+  ["决策", "decisions"],
+]);
+
+function compressionError(code) {
+  return Object.assign(new Error(code), { code });
+}
+
+function timestamp(value) {
+  return typeof value === "function" ? value() : value || new Date().toISOString();
+}
+
+function compactText(value, maximum = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maximum) return text;
+  return `${text.slice(0, maximum - 1)}…`;
+}
+
+function settingsFor(session) {
+  const settings = session?.settings || {};
+  const windowTokens = Number(settings.contextWindowTokens || DEFAULT_SETTINGS.contextWindowTokens);
+  const triggerPercent = Number(settings.compressionTriggerPercent || DEFAULT_SETTINGS.compressionTriggerPercent);
+  const targetPercent = Number(settings.compressionTargetPercent || DEFAULT_SETTINGS.compressionTargetPercent);
+  return {
+    windowTokens,
+    triggerPercent,
+    targetPercent,
+    triggerTokens: Math.floor((windowTokens * triggerPercent) / 100),
+    targetTokens: Math.floor((windowTokens * targetPercent) / 100),
+    recentRawTokenBudget: Number(settings.recentRawTokenBudget || DEFAULT_SETTINGS.recentRawTokenBudget),
+  };
+}
+
+function recentRawStartIndex(events, tokenBudget, estimateEventTokens) {
+  let total = 0;
+  let start = events.length;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const eventTokens = Math.max(1, Number(estimateEventTokens(events[index])) || 1);
+    if (start < events.length && total + eventTokens > tokenBudget) break;
+    total += eventTokens;
+    start = index;
+  }
+  return start;
+}
+
+function markerEntry(event, eventIndex) {
+  const match = String(event?.content || "").match(/^\s*(共识|分歧|证据|决定|决策)\s*[：:]\s*(.+?)\s*$/s);
+  if (!match) return null;
+  const bucket = MARKERS.get(match[1]);
+  const text = compactText(match[2], 320);
+  if (!bucket || !text) return null;
+  return {
+    bucket,
+    entry: {
+      id: `${bucket}:${event.id || eventIndex}`,
+      text,
+      sourceEventIds: [String(event.id)],
+    },
+  };
+}
+
+function emptyBuckets() {
+  return Object.fromEntries(BUCKETS.map((bucket) => [bucket, []]));
+}
+
+function cloneBuckets(revision) {
+  return Object.fromEntries(BUCKETS.map((bucket) => [bucket, structuredClone(revision?.[bucket] || [])]));
+}
+
+function appendCoveredEvents(buckets, events, fromIndex, throughIndex) {
+  for (let index = fromIndex; index <= throughIndex; index += 1) {
+    const event = events[index];
+    if (!event?.id) continue;
+    const marked = markerEntry(event, index);
+    if (marked) {
+      buckets[marked.bucket].push(marked.entry);
+      continue;
+    }
+    buckets.unclassified.push({
+      id: `unclassified:${event.id}`,
+      text: compactText(event.content),
+      sourceEventIds: [String(event.id)],
+    });
+  }
+}
+
+function stateWithRevision(previousState, revision) {
+  const revisions = [...(previousState?.revisions || []), structuredClone(revision)];
+  return {
+    schema: COMPRESSION_SCHEMA,
+    activeRevision: revision.revision,
+    active: structuredClone(revision),
+    revisions,
+    lastError: null,
+  };
+}
+
+function rebuildEstimate(session, state, buildPrompt, estimatePromptTokens, targetTokens) {
+  session.context.compression = state;
+  const afterTokens = estimatePromptTokens(buildPrompt(session));
+  state.active.estimate.afterTokens = afterTokens;
+  state.active.estimate.targetMet = afterTokens <= targetTokens;
+  state.revisions[state.revisions.length - 1] = structuredClone(state.active);
+  return afterTokens;
+}
+
+export function getActiveCompression(session) {
+  return session?.context?.compression?.active || null;
+}
+
+export function compressSessionContext(session, options = {}) {
+  const events = Array.isArray(session?.events) ? session.events : [];
+  const estimatePrompt = options.estimatePromptTokens || defaultEstimatePromptTokens;
+  const estimateEvent = options.estimateEventTokens || ((event) => estimateTextTokens(event?.content || ""));
+  const prompt = String(options.prompt || "");
+  const budget = settingsFor(session);
+  const beforeTokens = estimatePrompt(prompt);
+  const active = getActiveCompression(session);
+
+  if (beforeTokens < budget.triggerTokens) {
+    return { changed: false, reason: "below_trigger", compression: active, estimate: { beforeTokens, ...budget } };
+  }
+
+  const recentStart = recentRawStartIndex(events, budget.recentRawTokenBudget, estimateEvent);
+  const coveredThroughEventIndex = recentStart - 1;
+  if (coveredThroughEventIndex < 0) {
+    return { changed: false, reason: "insufficient_history", compression: active, estimate: { beforeTokens, ...budget } };
+  }
+  if (active && active.coveredThroughEventIndex >= coveredThroughEventIndex) {
+    return { changed: false, reason: "boundary_unchanged", compression: active, estimate: { beforeTokens, ...budget } };
+  }
+
+  session.context = session.context && typeof session.context === "object" ? session.context : {};
+  const previousState = session.context.compression || null;
+  const buckets = active ? cloneBuckets(active) : emptyBuckets();
+  const coveredFromEventIndex = active ? active.coveredFromEventIndex : 0;
+  const appendFromIndex = active ? active.coveredThroughEventIndex + 1 : 0;
+  appendCoveredEvents(buckets, events, appendFromIndex, coveredThroughEventIndex);
+
+  const revisionNumber = Number(active?.revision || 0) + 1;
+  const revision = {
+    id: (options.idFactory || randomUUID)(),
+    revision: revisionNumber,
+    createdAt: timestamp(options.now),
+    reason: "automatic",
+    coveredFromEventIndex,
+    coveredThroughEventIndex,
+    sourceEventIds: events
+      .slice(coveredFromEventIndex, coveredThroughEventIndex + 1)
+      .map((event) => String(event.id))
+      .filter(Boolean),
+    ...buckets,
+    estimate: {
+      beforeTokens,
+      afterTokens: null,
+      windowTokens: budget.windowTokens,
+      triggerTokens: budget.triggerTokens,
+      targetTokens: budget.targetTokens,
+      targetMet: false,
+    },
+  };
+  const state = stateWithRevision(previousState, revision);
+  const buildPrompt = options.buildPrompt || (() => JSON.stringify(state.active));
+  let afterTokens = rebuildEstimate(session, state, buildPrompt, estimatePrompt, budget.targetTokens);
+  while (afterTokens > budget.targetTokens && state.active.unclassified.length > 0) {
+    state.active.unclassified.pop();
+    afterTokens = rebuildEstimate(session, state, buildPrompt, estimatePrompt, budget.targetTokens);
+  }
+
+  return { changed: true, reason: "compressed", compression: state.active, state };
+}
+
+function normalizedEntries(values, bucket, knownEventIds, entryIds) {
+  if (!Array.isArray(values)) throw compressionError("INVALID_COMPRESSION_BUCKET");
+  return values.map((value, index) => {
+    const id = String(value?.id || `${bucket}:user:${index}`).trim();
+    const text = String(value?.text || "").trim();
+    const sourceEventIds = Array.isArray(value?.sourceEventIds)
+      ? [...new Set(value.sourceEventIds.map((eventId) => String(eventId).trim()).filter(Boolean))]
+      : [];
+    if (!id || !text || sourceEventIds.length === 0) throw compressionError("INVALID_COMPRESSION_ENTRY");
+    if (entryIds.has(id)) throw compressionError("DUPLICATE_COMPRESSION_ENTRY");
+    entryIds.add(id);
+    for (const sourceEventId of sourceEventIds) {
+      if (!knownEventIds.has(sourceEventId)) throw compressionError("UNKNOWN_COMPRESSION_SOURCE_EVENT");
+    }
+    return { id, text, sourceEventIds };
+  });
+}
+
+export function reviseSessionCompression(session, payload = {}, options = {}) {
+  const active = getActiveCompression(session);
+  if (!active) throw compressionError("COMPRESSION_NOT_FOUND");
+  if (Number(payload.baseRevision) !== Number(active.revision)) {
+    throw compressionError("STALE_COMPRESSION_REVISION");
+  }
+
+  const knownEventIds = new Set((session.events || []).map((event) => String(event.id)));
+  const entryIds = new Set();
+  const buckets = {};
+  for (const bucket of BUCKETS) {
+    buckets[bucket] = normalizedEntries(payload[bucket] ?? active[bucket] ?? [], bucket, knownEventIds, entryIds);
+  }
+
+  const revision = {
+    ...structuredClone(active),
+    id: (options.idFactory || randomUUID)(),
+    revision: Number(active.revision) + 1,
+    createdAt: timestamp(options.now),
+    reason: "user_revision",
+    ...buckets,
+  };
+  const state = stateWithRevision(session.context.compression, revision);
+  session.context.compression = state;
+  return state.active;
+}
+
+export const COMPRESSION_BUCKETS = Object.freeze([...BUCKETS]);
+export const CONTEXT_COMPRESSION_SCHEMA = COMPRESSION_SCHEMA;
