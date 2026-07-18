@@ -71,4 +71,15 @@ describe("provider catalog", () => {
       expect.objectContaining({ provider: "google-ai-studio", label: "Google AI Studio", enabled: false })
     );
   });
+
+  it("declares Grok image generation as a provider-specific capability", () => {
+    const grok = getProviderById("grok");
+
+    expect(grok).toBeDefined();
+    expect(grok?.automationCapabilities).toContain("generate_image");
+    expect(grok?.imageGeneration?.defaultUrl).toBe("https://grok.com/imagine");
+    expect(grok?.imageGeneration?.submitSelectors.length).toBeGreaterThan(0);
+    expect(grok?.imageGeneration?.imageSelectors.length).toBeGreaterThan(0);
+    expect(grok?.responseSelectors?.length).toBeGreaterThan(0);
+  });
 });

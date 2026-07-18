@@ -84,6 +84,13 @@ export async function runProviderAuthProbe(provider: ProviderId): Promise<Provid
       return result(authenticated, authenticated ? "authenticated" : "login_required");
     }
 
+    if (provider === "grok") {
+      const composer = document.querySelector(
+        "textarea[aria-label*='Ask Grok'], textarea[placeholder*='Ask'], [data-testid='composer-input'], [contenteditable='true'][role='textbox']"
+      );
+      return result(Boolean(composer), composer ? "authenticated" : "login_required");
+    }
+
     return result(false, "unsupported_provider");
   } catch {
     return result(false, "probe_failed");

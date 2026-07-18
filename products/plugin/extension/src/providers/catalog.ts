@@ -3,6 +3,12 @@ import type { ModelParticipant, ProviderId } from "../shared/types";
 export type KnownProviderId = Exclude<ProviderId, "unknown">;
 export type ProviderVerificationState = "known_working" | "needs_manual_verification" | "blocked";
 export type ProviderCapability = "insert_text" | "capture_latest_response" | "open_tab";
+export type ProviderAutomationCapability = "generate_image";
+export type ProviderImageGeneration = {
+  defaultUrl: string;
+  submitSelectors: string[];
+  imageSelectors: string[];
+};
 
 export type ProviderCatalogEntry = {
   id: KnownProviderId;
@@ -14,6 +20,8 @@ export type ProviderCatalogEntry = {
   fallbackInputSelectors?: string[];
   responseSelectors?: string[];
   capabilities: ProviderCapability[];
+  automationCapabilities?: ProviderAutomationCapability[];
+  imageGeneration?: ProviderImageGeneration;
   verification: ProviderVerificationState;
 };
 
@@ -143,8 +151,36 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     hostnames: ["grok.com", "x.com", "twitter.com"],
     defaultUrl: "https://grok.com/",
     contentMatches: ["*://grok.com/*", "*://x.com/*", "*://twitter.com/*"],
-    inputSelectors: ["textarea", "[contenteditable='true']", "[role='textbox']"],
+    inputSelectors: [
+      "textarea[aria-label*='Ask Grok']",
+      "textarea[placeholder*='Ask']",
+      "[data-testid='composer-input']",
+      "[contenteditable='true'][role='textbox']",
+      "textarea"
+    ],
+    responseSelectors: [
+      "[data-testid='conversation-turn-assistant']",
+      "[data-message-author-role='assistant']",
+      "main article [class*='response']",
+      "main article"
+    ],
     capabilities: ["insert_text", "capture_latest_response", "open_tab"],
+    automationCapabilities: ["generate_image"],
+    imageGeneration: {
+      defaultUrl: "https://grok.com/imagine",
+      submitSelectors: [
+        "button[aria-label='Submit']",
+        "button[aria-label*='Send']",
+        "button[data-testid*='send']",
+        "form button[type='submit']"
+      ],
+      imageSelectors: [
+        "[data-testid*='generated-image'] img",
+        "main article img[src]",
+        "main img[src^='blob:']",
+        "main img[src^='data:image/']"
+      ]
+    },
     verification: "needs_manual_verification"
   },
   {

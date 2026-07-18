@@ -11,6 +11,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 afterEach(() => {
   localStorage.clear();
+  document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
 
@@ -88,6 +89,21 @@ describe("provider authentication probes", () => {
       provider: "chatgpt",
       authenticated: false,
       reason: "probe_failed"
+    });
+  });
+
+  it("recognizes a usable Grok composer without exposing page data", async () => {
+    document.body.innerHTML = `
+      <main>
+        <textarea aria-label="Ask Grok anything"></textarea>
+        <button type="button" aria-label="Submit">Send</button>
+      </main>
+    `;
+
+    await expect(runProviderAuthProbe("grok")).resolves.toEqual({
+      provider: "grok",
+      authenticated: true,
+      reason: "authenticated"
     });
   });
 });
