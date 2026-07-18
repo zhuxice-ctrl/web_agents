@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createRoundtableServer, createSession as createStoredSession } from "./server.mjs";
 import { RoundtableScheduler } from "./orchestrator/scheduler.mjs";
 import { LocalWorkspaceStore } from "./storage/local-workspace-store.mjs";
+import { compressSessionContext } from "./orchestrator/context-compressor.mjs";
 
 async function startServer(t, options = {}) {
   const repoRoot = options.repoRoot || await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-server-runtime-"));
@@ -907,4 +908,63 @@ test("server startup restores a persisted recovery run without replaying its int
   assert.equal(completedPlan.turns.find((candidate) => candidate.id === turn.id).status, "skipped");
   const continuedTurn = completedPlan.turns.find((candidate) => candidate.providerId === "deepseek" && candidate.countsTowardRounds);
   assert.deepEqual(calls, [continuedTurn.id, completedPlan.closureTurnId]);
+});
+
+test("compression API is session-scoped and reports missing active state explicitly", async (t) => {
+  const { baseUrl } = await startServer(t);
+  const session = await createSession(baseUrl, { mode: "mock", defaultRounds: 1 });
+  const compressionUrl = `${baseUrl}/api/sessions/${encodeURIComponent(session.id)}/context/compression`;
+
+  const read = await jsonRequest(compressionUrl);
+  assert.equal(read.response.status, 404);
+  assert.equal(read.payload.error, "COMPRESSION_NOT_FOUND");
+
+  const revise = await jsonRequest(`${compressionUrl}/revise`, {
+    method: "POST",
+    body: JSON.stringify({ baseRevision: 1 }),
+  });
+  assert.equal(revise.response.status, 404);
+  assert.equal(revise.payload.error, "COMPRESSION_NOT_FOUND");
+});
+
+test("compression revision API preserves the ledger and records an audit event", async (t) => {
+  const { baseUrl, server } = await startServer(t);
+  const session = await createSession(baseUrl, { mode: "mock", defaultRounds: 1 });
+  const store = server.runtime.store;
+  await store.appendEvents(session.id, [
+    { id: "compression-source-1", type: "reply", providerId: "deepseek", content: "共识：账本只追加" },
+    { id: "compression-source-2", type: "reply", providerId: "deepseek", content: "普通观点" },
+  ]);
+  await store.updateSession(session.id, (current) => {
+    compressSessionContext(current, {
+      prompt: "x".repeat(110000),
+      estimatePromptTokens: () => 110000,
+      estimateEventTokens: () => 10000,
+      buildPrompt: () => "x".repeat(15000),
+      idFactory: () => "compression-api-1",
+      now: () => "2026-07-18T09:00:00.000Z",
+    });
+    return current;
+  });
+  const compressionUrl = `${baseUrl}/api/sessions/${encodeURIComponent(session.id)}/context/compression`;
+  const ledgerPath = store.getSessionPaths(session.id).ledger;
+  const ledgerBefore = await fs.readFile(ledgerPath, "utf8");
+
+  const read = await jsonRequest(compressionUrl);
+  assert.equal(read.response.status, 200);
+  assert.equal(read.payload.active.revision, 1);
+
+  const revised = await jsonRequest(`${compressionUrl}/revise`, {
+    method: "POST",
+    body: JSON.stringify({
+      baseRevision: 1,
+      consensus: [{ id: "consensus-corrected", text: "账本只追加且可审计", sourceEventIds: ["compression-source-1"] }],
+    }),
+  });
+  assert.equal(revised.response.status, 200);
+  assert.equal(revised.payload.active.revision, 2);
+  assert.equal(revised.payload.active.reason, "user_revision");
+  assert.equal((await fs.readFile(ledgerPath, "utf8")), ledgerBefore);
+  const audit = await store.listAudit({ sessionId: session.id });
+  assert.equal(audit.some((event) => event.kind === "compression_revision" && event.revision === 2), true);
 });

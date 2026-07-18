@@ -24,6 +24,7 @@ import { ArtifactWriter } from "./orchestrator/artifact-writer.mjs";
 import { HandoffManager } from "./orchestrator/handoff-manager.mjs";
 import { parseRoundtableCommand } from "./orchestrator/command-parser.mjs";
 import { buildPrompt } from "./orchestrator/context-builder.mjs";
+import { getActiveCompression, reviseSessionCompression } from "./orchestrator/context-compressor.mjs";
 import { EventBus } from "./orchestrator/event-bus.mjs";
 import { RunRegistry } from "./orchestrator/run-registry.mjs";
 import { RoundtableScheduler, createTurnPlan } from "./orchestrator/scheduler.mjs";
@@ -157,6 +158,7 @@ function errorStatus(error) {
     "TURN_NOT_FOUND",
     "THREAD_NOT_FOUND",
     "PROVIDER_NOT_FOUND",
+    "COMPRESSION_NOT_FOUND",
   ].includes(code)) return 404;
   if ([
     "MANUAL_BROWSER_NAVIGATION_DISABLED",
@@ -174,6 +176,7 @@ function errorStatus(error) {
     "ARTIFACT_EXTERNAL_WRITE_REQUIRES_TOOL_LOOP",
     "REPARSE_PATH_WRITE_DENIED",
     "TRANSACTION_SESSION_MISMATCH",
+    "STALE_COMPRESSION_REVISION",
   ].includes(code)) return 409;
   if ([
     "INVALID_PROVIDER_URL",
@@ -187,6 +190,10 @@ function errorStatus(error) {
     "WORKSPACE_NOT_DIRECTORY",
     "REQUEST_NOT_FOUND",
     "INVALID_PERMISSION_DECISION",
+    "UNKNOWN_COMPRESSION_SOURCE_EVENT",
+    "INVALID_COMPRESSION_BUCKET",
+    "INVALID_COMPRESSION_ENTRY",
+    "DUPLICATE_COMPRESSION_ENTRY",
   ].includes(code)) return 400;
   if (code === "ENOENT") return 404;
   if (message.includes("ALREADY_EXISTS") || message.includes("ACTIVE") || message.includes("TARGET_CHANGED")) return 409;
@@ -1150,6 +1157,35 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       const handoff = await handoffManager.preview(sessionId, String(payload.providerId || ""));
       return sendJson(response, 201, { ok: true, handoff });
     }
+  }
+  if (action === "context" && parts.length === 5 && parts[4] === "compression" && request.method === "GET") {
+    const session = await store.readSession(sessionId);
+    const active = getActiveCompression(session);
+    if (!active) throw Object.assign(new Error("COMPRESSION_NOT_FOUND"), { code: "COMPRESSION_NOT_FOUND" });
+    return sendJson(response, 200, {
+      ok: true,
+      compression: session.context.compression,
+      active,
+      estimate: active.estimate || null,
+    });
+  }
+  if (action === "context" && parts.length === 6 && parts[4] === "compression" && parts[5] === "revise" && request.method === "POST") {
+    const payload = await readJson(request);
+    let revised;
+    const session = await store.updateSession(sessionId, (current) => {
+      revised = reviseSessionCompression(current, payload);
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    await store.appendAudit({
+      kind: "compression_revision",
+      sessionId,
+      revision: revised.revision,
+      reason: revised.reason,
+      coveredThroughEventIndex: revised.coveredThroughEventIndex,
+    });
+    runtime.eventBus.emit({ type: "session.compression_revised", sessionId, revision: revised.revision });
+    return sendJson(response, 200, { ok: true, compression: session.context.compression, active: revised, session });
   }
   if (action === "runs" && parts.length === 6) {
     return handleRunAction(request, response, runtime, services, sessionId, parts[4], parts[5]);
