@@ -200,6 +200,8 @@ export type ModelParticipant = {
 
 export type TaskSession = {
   id: string;
+  mcpSessionId: string;
+  workspaceRoot: string;
   title: string;
   prompt: string;
   createdAt: string;

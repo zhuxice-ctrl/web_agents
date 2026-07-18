@@ -185,3 +185,110 @@ test("HTTP MCP preserves allowed writes from the legacy browser extension withou
   assert.equal(payload.result.isError, undefined);
   assert.equal(await fs.readFile(targetFile, "utf8"), "allowed extension write");
 });
+
+test("streamable HTTP resolves filesystem tools from session workspace headers", async (t) => {
+  const calls = [];
+  const sessionTools = {
+    definitions: [],
+    async call() {
+      return { content: [{ type: "text", text: "session-a tools" }] };
+    },
+  };
+  const sessionRegistry = {
+    async get(input) {
+      calls.push(input);
+      return sessionTools;
+    },
+    clear() {},
+  };
+  const defaultTools = {
+    definitions: [],
+    async call() {
+      return { content: [{ type: "text", text: "default tools" }] };
+    },
+  };
+  const server = createFilesystemHttpServer({ filesystemTools: defaultTools, sessionRegistry, port: 0 });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    server.closeAllSessions();
+    server.close();
+    await once(server, "close");
+  });
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Web-Agents-Session": "session-a",
+      "X-Web-Agents-Workspace": "F:/project-a",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+      params: { name: "read_text_file", arguments: { path: "note.md" } },
+    }),
+  });
+  const payload = await response.json();
+
+  assert.deepEqual(calls, [{ sessionId: "session-a", workspaceRoot: "F:/project-a" }]);
+  assert.equal(payload.result.content[0].text, "session-a tools");
+});
+
+test("SSE retains the session filesystem tools selected when the stream opens", async (t) => {
+  const sessionTools = {
+    definitions: [],
+    async call() {
+      return { content: [{ type: "text", text: "sse session tools" }] };
+    },
+  };
+  const sessionRegistry = {
+    async get() {
+      return sessionTools;
+    },
+    clear() {},
+  };
+  const defaultTools = {
+    definitions: [],
+    async call() {
+      return { content: [{ type: "text", text: "default tools" }] };
+    },
+  };
+  const server = createFilesystemHttpServer({ filesystemTools: defaultTools, sessionRegistry, port: 0 });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(async () => {
+    server.closeAllSessions();
+    server.close();
+    await once(server, "close");
+  });
+
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const streamResponse = await fetch(`${baseUrl}/sse`, {
+    headers: {
+      "X-Web-Agents-Session": "session-sse",
+      "X-Web-Agents-Workspace": "F:/project-sse",
+    },
+  });
+  const reader = streamResponse.body.getReader();
+  const decoder = new TextDecoder();
+  const firstChunk = decoder.decode((await reader.read()).value);
+  const endpoint = firstChunk.match(/data: (\/message\?sessionId=[^\n]+)/)?.[1];
+  assert.ok(endpoint);
+
+  const posted = await fetch(`${baseUrl}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: { name: "read_text_file", arguments: { path: "note.md" } },
+    }),
+  });
+  assert.equal(posted.status, 202);
+  const messageChunk = decoder.decode((await reader.read()).value);
+  assert.match(messageChunk, /sse session tools/);
+  await reader.cancel();
+});

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createFilesystemTools } from "@web-agents/local-core/filesystem-tools";
 import { defaultPermissionStoreDir } from "./permission-store-adapter.mjs";
+import { createSessionFilesystemRegistry } from "./session-filesystem-registry.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,7 +107,7 @@ function authorizeLocalRequest(request, response, url) {
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader(
     "Access-Control-Allow-Headers",
-    "content-type,accept,mcp-session-id,last-event-id"
+    "content-type,accept,mcp-session-id,last-event-id,x-web-agents-session,x-web-agents-workspace"
   );
   response.setHeader("X-Content-Type-Options", "nosniff");
   return true;
@@ -152,6 +153,7 @@ export function createFilesystemHttpServer({
   permissionStoreDir = path.join(dataDir, "permissions"),
   auditFile = path.join(dataDir, "audit", "writes.jsonl"),
   filesystemTools = null,
+  sessionRegistry = null,
 } = {}) {
   const tools = filesystemTools || createFilesystemTools({
     repoRoot,
@@ -159,7 +161,26 @@ export function createFilesystemHttpServer({
     permissionStoreDir: permissionStoreDir || defaultPermissionStoreDir,
     auditFile: auditFile || defaultAuditFile,
   });
+  const registry = sessionRegistry || createSessionFilesystemRegistry({
+    repoRoot,
+    configFile: configFile || defaultConfigFile,
+    permissionStoreDir: permissionStoreDir || defaultPermissionStoreDir,
+    auditFile: auditFile || defaultAuditFile,
+  });
   const sessions = new Map();
+
+  async function toolsForRequest(request) {
+    const sessionId = String(request.headers["x-web-agents-session"] || "").trim();
+    const workspaceRoot = String(request.headers["x-web-agents-workspace"] || "").trim();
+    if (!sessionId && !workspaceRoot) return tools;
+    if (!sessionId || !workspaceRoot) {
+      const error = new Error("SESSION_CONTEXT_INCOMPLETE");
+      error.code = "SESSION_CONTEXT_INCOMPLETE";
+      throw error;
+    }
+    return registry.get({ sessionId, workspaceRoot });
+  }
+
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, `http://${host}:${port}`);
@@ -177,13 +198,14 @@ export function createFilesystemHttpServer({
         });
       }
       if (request.method === "GET" && url.pathname === "/sse") {
+        const sessionTools = await toolsForRequest(request);
         const sessionId = randomUUID();
         response.writeHead(200, {
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
         });
-        sessions.set(sessionId, response);
+        sessions.set(sessionId, { response, filesystemTools: sessionTools });
         response.write(`event: endpoint\ndata: /message?sessionId=${encodeURIComponent(sessionId)}\n\n`);
         const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15000);
         heartbeat.unref?.();
@@ -195,30 +217,37 @@ export function createFilesystemHttpServer({
       }
       if (request.method === "POST" && url.pathname === "/message") {
         const sessionId = url.searchParams.get("sessionId");
-        const stream = sessions.get(sessionId);
-        if (!stream) return sendJson(response, 404, { ok: false, error: "MCP_SESSION_NOT_FOUND" });
+        const session = sessions.get(sessionId);
+        if (!session) return sendJson(response, 404, { ok: false, error: "MCP_SESSION_NOT_FOUND" });
         const message = await readJson(request);
-        const result = await handleRpc(message, { filesystemTools: tools });
+        const result = await handleRpc(message, { filesystemTools: session.filesystemTools });
         sendJson(response, 202, { ok: true });
-        if (result) stream.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
+        if (result) session.response.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
         return;
       }
       if (request.method === "POST" && url.pathname === "/mcp") {
         const message = await readJson(request);
-        const result = await handleRpc(message, { filesystemTools: tools });
+        const result = await handleRpc(message, { filesystemTools: await toolsForRequest(request) });
         if (!result) return sendJson(response, 202, { ok: true });
         return sendJson(response, 200, result);
       }
       return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
     } catch (error) {
-      const status = error?.message === "REQUEST_BODY_TOO_LARGE" ? 413 : 500;
+      const status = error?.message === "REQUEST_BODY_TOO_LARGE"
+        ? 413
+        : error?.code === "WORKSPACE_NOT_ALLOWED"
+          ? 403
+          : error?.code === "SESSION_CONTEXT_INCOMPLETE"
+            ? 400
+            : 500;
       return sendJson(response, status, { ok: false, error: error?.message || String(error) });
     }
   });
   server.serviceId = "web-agents-filesystem-mcp";
   server.closeAllSessions = () => {
-    for (const stream of sessions.values()) stream.end();
+    for (const session of sessions.values()) session.response.end();
     sessions.clear();
+    registry.clear?.();
   };
   return server;
 }

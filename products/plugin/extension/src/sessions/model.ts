@@ -1,9 +1,15 @@
 import { DEFAULT_PARTICIPANTS } from "../shared/defaults";
 import type { TaskSession } from "../shared/types";
 
-export function createTaskSession(prompt = ""): TaskSession {
+let sessionSequence = 0;
+
+export function createTaskSession(prompt = "", workspaceRoot = ""): TaskSession {
+  sessionSequence += 1;
+  const id = `task-${Date.now()}-${sessionSequence}`;
   return {
-    id: `task-${Date.now()}`,
+    id,
+    mcpSessionId: `mcp-${id}`,
+    workspaceRoot,
     title: prompt.trim().slice(0, 36) || "未命名任务",
     prompt,
     createdAt: new Date().toISOString(),
