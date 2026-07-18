@@ -1,5 +1,5 @@
 import type { ExtensionConfig, LocalContextAttachment, PreparedTask } from "../shared/types";
-import { callMcpTool, type McpToolCallResult } from "./client";
+import { callMcpTool, type McpSessionContext, type McpToolCallResult } from "./client";
 
 const MAX_CONTEXT_CHARS = 12000;
 const MAX_LOCAL_PATHS = 3;
@@ -65,12 +65,16 @@ function isFileInfo(content: string): boolean {
   return /isFile:\s*true/i.test(content);
 }
 
-async function readPathContext(config: ExtensionConfig, path: string): Promise<LocalContextAttachment> {
-  const infoResult = await callMcpTool(config, "get_file_info", { path });
+async function readPathContext(
+  config: ExtensionConfig,
+  path: string,
+  context: McpSessionContext
+): Promise<LocalContextAttachment> {
+  const infoResult = await callMcpTool(config, "get_file_info", { path }, context);
   const infoText = toolText(infoResult);
 
   if (isDirectoryInfo(infoText)) {
-    const listResult = await callMcpTool(config, "list_directory", { path });
+    const listResult = await callMcpTool(config, "list_directory", { path }, context);
     return {
       path,
       kind: "directory",
@@ -80,7 +84,7 @@ async function readPathContext(config: ExtensionConfig, path: string): Promise<L
   }
 
   if (isFileInfo(infoText)) {
-    const readResult = await callMcpTool(config, "read_text_file", { path, head: 220 });
+    const readResult = await callMcpTool(config, "read_text_file", { path, head: 220 }, context);
     return {
       path,
       kind: "file",
@@ -119,7 +123,11 @@ export function buildPromptWithLocalContext(originalText: string, attachments: L
   ].join("\n");
 }
 
-export async function prepareTaskWithLocalContext(config: ExtensionConfig, text: string): Promise<PreparedTask> {
+export async function prepareTaskWithLocalContext(
+  config: ExtensionConfig,
+  text: string,
+  context: McpSessionContext = {}
+): Promise<PreparedTask> {
   const paths = extractLocalPaths(text);
 
   if (!paths.length) {
@@ -135,7 +143,7 @@ export async function prepareTaskWithLocalContext(config: ExtensionConfig, text:
   const attachments: LocalContextAttachment[] = [];
 
   for (const path of paths) {
-    attachments.push(await readPathContext(config, path));
+    attachments.push(await readPathContext(config, path, context));
   }
 
   return {

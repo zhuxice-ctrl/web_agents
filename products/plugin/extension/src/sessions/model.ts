@@ -16,3 +16,7 @@ export function createTaskSession(prompt = "", workspaceRoot = ""): TaskSession 
     participants: DEFAULT_PARTICIPANTS.map((participant) => ({ ...participant }))
   };
 }
+
+export function updateTaskSessionWorkspace(session: TaskSession, workspaceRoot: string): TaskSession {
+  return { ...session, workspaceRoot: workspaceRoot.trim() };
+}

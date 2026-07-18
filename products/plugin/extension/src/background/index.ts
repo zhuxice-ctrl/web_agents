@@ -15,7 +15,7 @@ import { checkMcpStatus } from "../mcp/client";
 import { prepareTaskWithLocalContext } from "../mcp/local-context";
 import { buildWebAgentInstructionTemplate } from "../mcp/instruction-template";
 import { executeWebAgentToolCall } from "../mcp/tool-call-executor";
-import { requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
+import { checkGatewayConnection, requestPermissionDecision, syncConfigFromGateway } from "../permissions/gateway";
 import { createAutomationClient } from "../automation/client";
 import { createSessionRunner } from "../automation/session-runner";
 import type { ProviderAutomationResult, ProviderAutomationTask } from "../shared/types";
@@ -369,8 +369,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           return;
         }
         case "mcp:get-status": {
-          const status = await checkMcpStatus(config);
-          sendResponse({ ok: true, type: message.type, data: status });
+          const context = message.sessionId && message.workspaceRoot
+            ? { sessionId: message.sessionId, workspaceRoot: message.workspaceRoot }
+            : {};
+          const [status, gateway] = await Promise.all([
+            checkMcpStatus(config, context),
+            checkGatewayConnection(config)
+          ]);
+          sendResponse({ ok: true, type: message.type, data: { ...status, gateway } });
           return;
         }
         case "mcp:get-instruction-template": {
@@ -400,7 +406,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           return;
         }
         case "task:prepare-local-context": {
-          const preparedTask = await prepareTaskWithLocalContext(config, message.text);
+          const context = message.sessionId && message.workspaceRoot
+            ? { sessionId: message.sessionId, workspaceRoot: message.workspaceRoot }
+            : {};
+          const preparedTask = await prepareTaskWithLocalContext(config, message.text, context);
           sendResponse({ ok: true, type: message.type, data: preparedTask });
           return;
         }

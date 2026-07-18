@@ -129,6 +129,32 @@ button {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
+.workspace-field {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: #617080;
+  font-size: 12px;
+}
+
+.workspace-field input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #d9dee5;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #17202a;
+  background: #fbfcfd;
+  font: 12px/1.4 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
+.workspace-field input:focus {
+  border-color: #2563eb;
+  outline: 3px solid rgba(37, 99, 235, 0.12);
+}
+
 .task-actions {
   display: flex;
   align-items: center;

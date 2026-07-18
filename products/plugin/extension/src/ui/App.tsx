@@ -13,7 +13,7 @@ import type {
   TaskSession
 } from "../shared/types";
 import type { ExtensionRequest, ExtensionResponse } from "../shared/messages";
-import { createTaskSession } from "../sessions/model";
+import { createTaskSession, updateTaskSessionWorkspace } from "../sessions/model";
 import { CurrentPagePanel } from "./panels/CurrentPagePanel";
 import { McpPanel } from "./panels/McpPanel";
 import { MultiModelBoard } from "./panels/MultiModelBoard";
@@ -66,18 +66,25 @@ export function App() {
   }, []);
 
   const refreshMcp = useCallback(async () => {
-    const response = await sendMessage<"mcp:get-status">({ type: "mcp:get-status" });
+    setMcpStatus((current) => ({ ...current, state: "checking" }));
+    const response = await sendMessage<"mcp:get-status">({
+      type: "mcp:get-status",
+      sessionId: taskSession.mcpSessionId,
+      workspaceRoot: taskSession.workspaceRoot || undefined
+    });
     if (response.ok) {
       setMcpStatus(response.data);
     } else {
       setMcpStatus((current) => ({ ...current, state: "error", message: response.error }));
     }
-  }, []);
+  }, [taskSession.mcpSessionId, taskSession.workspaceRoot]);
 
   const prepareTaskForInsert = useCallback(async (): Promise<PreparedTask | null> => {
     const response = await sendMessage<"task:prepare-local-context">({
       type: "task:prepare-local-context",
-      text: taskText
+      text: taskText,
+      sessionId: taskSession.mcpSessionId,
+      workspaceRoot: taskSession.workspaceRoot || undefined
     });
 
     if (response.ok) {
@@ -87,7 +94,7 @@ export function App() {
 
     setFeedback(response.error);
     return null;
-  }, [taskText]);
+  }, [taskSession.mcpSessionId, taskSession.workspaceRoot, taskText]);
 
   const insertCurrentPage = useCallback(async () => {
     if (!taskText.trim()) {
@@ -295,7 +302,7 @@ export function App() {
     void refreshConfig();
     void detectCurrentPage();
     void refreshMcp();
-  }, [detectCurrentPage, refreshConfig, refreshMcp]);
+  }, [detectCurrentPage, refreshConfig]);
 
   return (
     <main className="app-shell">
@@ -318,9 +325,13 @@ export function App() {
         feedback={feedback}
         isBusy={isBusy}
         taskText={taskText}
+        workspaceRoot={taskSession.workspaceRoot}
         t={t}
         onInsert={insertCurrentPage}
         onTaskTextChange={setTaskText}
+        onWorkspaceRootChange={(workspaceRoot) => {
+          setTaskSession((current) => updateTaskSessionWorkspace(current, workspaceRoot));
+        }}
       />
 
       <div className="panel-grid">

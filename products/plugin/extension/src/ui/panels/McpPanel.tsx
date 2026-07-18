@@ -24,7 +24,7 @@ export function McpPanel({ status, t, onRefresh }: McpPanelProps) {
       title={t("mcp.title")}
       action={
         <button className="ghost-button" onClick={onRefresh}>
-          {t("mcp.refresh")}
+          {t(status.state === "connected" ? "mcp.refresh" : "mcp.connect")}
         </button>
       }
     >
@@ -33,6 +33,13 @@ export function McpPanel({ status, t, onRefresh }: McpPanelProps) {
         <StatusBadge tone={toneByState[status.state]}>{t(`mcp.state.${status.state}`)}</StatusBadge>
       </div>
       <div className="server-uri">{status.serverUri}</div>
+      <div className="fact-row">
+        <span>{t("mcp.gateway")}</span>
+        <StatusBadge tone={status.gateway?.state === "connected" ? "success" : "warning"}>
+          {t(status.gateway?.state === "connected" ? "mcp.state.connected" : "mcp.state.disconnected")}
+        </StatusBadge>
+      </div>
+      {status.gateway?.url ? <div className="server-uri">{status.gateway.url}</div> : null}
       <div className="fact-row">
         <span>{t("mcp.tools")}</span>
         <strong>{status.tools.length}</strong>

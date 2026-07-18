@@ -7,6 +7,11 @@ type GatewayConfigResponse = {
   permissions?: Partial<PermissionSnapshot>;
 };
 
+export type GatewayConnection = {
+  state: "connected" | "disconnected";
+  url: string;
+};
+
 const REQUEST_TIMEOUT_MS = 1600;
 
 function joinGatewayPath(baseUrl: string, path: string): string {
@@ -35,6 +40,25 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+export async function checkGatewayConnection(
+  config: ExtensionConfig,
+  { fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
+): Promise<GatewayConnection> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(joinGatewayPath(config.gateway.baseUrl, "/health"), {
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    return { state: response.ok ? "connected" : "disconnected", url: config.gateway.baseUrl };
+  } catch {
+    return { state: "disconnected", url: config.gateway.baseUrl };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

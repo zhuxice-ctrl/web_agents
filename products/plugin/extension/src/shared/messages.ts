@@ -22,10 +22,10 @@ import type {
 export type ExtensionRequest =
   | { type: "config:get" }
   | { type: "config:set-locale"; locale: ExtensionConfig["locale"] }
-  | { type: "mcp:get-status" }
+  | { type: "mcp:get-status"; sessionId?: string; workspaceRoot?: string }
   | { type: "mcp:get-instruction-template"; provider?: ProviderId }
   | { type: "mcp:execute-tool-call"; call: WebAgentToolCall }
-  | { type: "task:prepare-local-context"; text: string }
+  | { type: "task:prepare-local-context"; text: string; sessionId?: string; workspaceRoot?: string }
   | { type: "permission:evaluate"; toolName: string; path?: string }
   | { type: "tabs:open-provider"; provider: ProviderId }
   | { type: "tabs:discover-providers"; providers?: ProviderId[] }

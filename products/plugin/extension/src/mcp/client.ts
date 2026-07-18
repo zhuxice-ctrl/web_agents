@@ -170,7 +170,7 @@ export function createMcpSessionPool<TSession extends ClosableSession, TOptions 
   };
 }
 
-type McpSessionContext = {
+export type McpSessionContext = {
   sessionId?: string;
   workspaceRoot?: string;
 };
@@ -336,7 +336,7 @@ export async function callMcpTool(
   }
 }
 
-export async function checkMcpStatus(config: ExtensionConfig): Promise<McpStatus> {
+export async function checkMcpStatus(config: ExtensionConfig, context: McpSessionContext = {}): Promise<McpStatus> {
   const checkedAt = new Date().toISOString();
 
   if (config.mcp.transport !== "sse") {
@@ -351,7 +351,7 @@ export async function checkMcpStatus(config: ExtensionConfig): Promise<McpStatus
   }
 
   try {
-    const tools = await listToolsFromSse(config.mcp.serverUri);
+    const tools = await listToolsFromSse(config.mcp.serverUri, context);
 
     return {
       state: "connected",

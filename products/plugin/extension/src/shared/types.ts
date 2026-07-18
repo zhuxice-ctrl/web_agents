@@ -105,6 +105,10 @@ export type McpStatus = {
   tools: McpToolSummary[];
   message?: string;
   checkedAt?: string;
+  gateway?: {
+    state: "connected" | "disconnected";
+    url: string;
+  };
 };
 
 export type LocalContextAttachment = {
