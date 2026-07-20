@@ -270,3 +270,82 @@ Verify nonblank rendering, actual workspace width change after collapse, persist
 
 Run: `git diff --check` and `git status --short`  
 Expected: no whitespace errors; unrelated pre-existing changes remain untouched and are called out separately.
+
+### Task 8: Draggable Roundtable/Conversation Divider
+
+**Files:**
+- Create: `products/roundtable/app/public/workspace-split-controller.mjs`
+- Create: `products/roundtable/app/public/workspace-split-controller.test.mjs`
+- Modify: `products/roundtable/app/public/index.html`
+- Modify: `products/roundtable/app/public/styles.css`
+- Modify: `products/roundtable/app/public/app.js`
+- Modify: `products/roundtable/app/public/ui-contract.test.mjs`
+
+- [ ] **Step 1: Write failing percentage and controller tests**
+
+Test pixel boundary clamping, saved percentage restoration, pointer drag, keyboard steps, persistence and ARIA values:
+
+```js
+assert.equal(clampConversationPercent(80, { width: 1000 }), 63.2);
+assert.equal(clampConversationPercent(10, { width: 1000 }), 34);
+controller.initialize();
+assert.equal(workspace.style.getPropertyValue("--conversation-width"), "45%");
+separator.dispatch("keydown", { key: "ArrowLeft", preventDefault() {} });
+assert.equal(storage.getItem(WORKSPACE_SPLIT_STORAGE_KEY), "47");
+```
+
+- [ ] **Step 2: Run tests and verify failure**
+
+Run: `node --test products/roundtable/app/public/workspace-split-controller.test.mjs products/roundtable/app/public/ui-contract.test.mjs`
+Expected: FAIL because the controller and separator do not exist.
+
+- [ ] **Step 3: Implement the split controller and grid track**
+
+Export `WORKSPACE_SPLIT_STORAGE_KEY`, `clampConversationPercent`, and `createWorkspaceSplitController`. The controller writes `--conversation-width`, updates `aria-valuemin/max/now`, persists only valid percentages, captures the pointer while dragging, and handles `ArrowLeft`, `ArrowRight`, `Home`, and `End`.
+
+Insert this separator between the stage and conversation:
+
+```html
+<div id="workspaceDivider" class="workspace-divider" role="separator"
+  aria-label="调整圆桌与会话宽度" aria-orientation="vertical"
+  aria-valuemin="0" aria-valuemax="100" aria-valuenow="39" tabindex="0"></div>
+```
+
+Change the desktop workspace to three columns: stage, `8px` divider, conversation. At `900px` and below, hide the divider and retain the existing one-column stacked layout.
+
+- [ ] **Step 4: Run focused tests**
+
+Run: `node --test products/roundtable/app/public/workspace-split-controller.test.mjs products/roundtable/app/public/ui-contract.test.mjs`
+Expected: PASS.
+
+### Task 9: Full-Width Message Body
+
+**Files:**
+- Modify: `products/roundtable/app/public/styles.css`
+- Modify: `products/roundtable/app/public/ui-contract.test.mjs`
+
+- [ ] **Step 1: Add a failing layout contract**
+
+Require `.chat-event` to use a block layout, `.event-meta` to use a compact horizontal flex row, and `.event-content` to occupy the full width below it. Explicitly reject the old `92px minmax(0, 1fr)` message grid.
+
+- [ ] **Step 2: Run the contract and verify failure**
+
+Run: `node --test products/roundtable/app/public/ui-contract.test.mjs`
+Expected: FAIL while the old metadata column remains.
+
+- [ ] **Step 3: Implement the compact metadata row**
+
+Use:
+
+```css
+.chat-event { display: block; }
+.event-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.event-content { width: 100%; margin-top: 5px; }
+```
+
+Keep provider, time, round and stage metadata unchanged. Remove the mobile override that recreates a fixed metadata column.
+
+- [ ] **Step 4: Run public tests and Playwright layout checks**
+
+Run: `node --test products/roundtable/app/public/*.test.mjs`
+Expected: PASS. Then verify at `1440x900` that dragging changes both track widths and survives reload; verify at `390x844` that the divider is hidden and body width equals viewport width without horizontal overflow.
