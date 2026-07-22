@@ -6,6 +6,7 @@ import {
 } from "./composer-model.mjs";
 import { findSnappedHost, HOST_POINT, stepRoundtablePhysics } from "./roundtable-physics.mjs";
 import { createDetailSidebarController } from "./detail-sidebar-controller.mjs";
+import { resolveDiscussionView } from "./discussion-view-model.mjs";
 import { hardenRenderedLinks, markdownForEvent, renderSafeMarkdown } from "./conversation-renderer.mjs";
 import { bindProgressDisclosure, captureProgressView, restoreProgressView } from "./progress-disclosure-controller.mjs";
 import { resolveRoundtableCommand } from "./roundtable-command-model.mjs";
@@ -27,7 +28,8 @@ const state = {
   executionIndex: [],
   pendingExecutions: [],
   tokens: [{ id: "all", label: "全体", kind: "all" }],
-  rounds: 3,
+  rounds: 5,
+  roleOverrides: {},
   conversationMode: "discussion",
   suggestions: { range: null, suggestions: [], activeIndex: 0 },
   composing: false,
@@ -112,6 +114,14 @@ function activeRunId() {
   return state.activeRun?.runId || state.session?.runtime?.activeRunId || null;
 }
 
+function activeDiscussionPlan() {
+  return [...(state.session?.plans || [])].reverse().find((plan) =>
+    plan.conversationMode === "discussion"
+      && ["planned", "running", "waiting_recovery", "awaiting_continuation"].includes(plan.status)
+      && !plan.closureTurnId
+  ) || null;
+}
+
 function sessionStatus() {
   const status = state.activeRun?.status || state.session?.runtime?.status || "idle";
   const labels = {
@@ -120,6 +130,7 @@ function sessionStatus() {
     queued: "排队等待",
     paused: "已暂停",
     waiting_recovery: "等待恢复",
+    awaiting_continuation: "等待继续周期",
     waiting_login: "等待登录",
     completed: "已完成",
     failed: "执行异常",
@@ -175,15 +186,17 @@ function renderParticipants() {
     const status = resolveThreadStatus(thread, state.health?.browser?.bindings);
     const capacity = capacityFor(thread);
     const cursor = state.session.context?.seatCursors?.[participant.id] ?? thread?.lastDeliveredEventIndex ?? -1;
+    const role = state.session.participantRoles?.[participant.id] || "";
     const total = state.session.events?.length || 0;
     const synced = Math.min(total, Math.max(0, cursor + 1));
     return `
       <div class="participant-row" data-provider-id="${escapeHtml(participant.id)}" title="${escapeHtml(status.detail || "")}">
         <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}<i class="${status.className}"></i></span>
-        <span class="participant-info"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(status.label)} · 同步 ${synced}/${total}</small><span class="participant-progress"><i style="width:${capacity.percent}%"></i></span></span>
+        <span class="participant-info"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(status.label)} · 同步 ${synced}/${total}${role ? ` · ${escapeHtml(role)}` : ""}</small><span class="participant-progress"><i style="width:${capacity.percent}%"></i></span></span>
         <button class="participant-menu" type="button" aria-label="${escapeHtml(participant.label)} 席位菜单">•••</button>
         <span class="participant-actions">
           <button type="button" data-action="reconnect">重新登录/刷新</button>
+          <button type="button" data-action="role">设置角色</button>
           <button type="button" data-action="handoff">交接包</button>
           <button type="button" data-action="remove">离席</button>
         </span>
@@ -226,17 +239,22 @@ function renderRoundtable() {
   const commandText = resolveRoundtableCommand(state.session);
   $("#roundtableObjective").textContent = commandText;
   $("#roundtableObjective").title = commandText;
-  const activePlan = [...(state.session.plans || [])].reverse().find((plan) => ["running", "waiting_recovery", "completed"].includes(plan.status));
-  const completedRounds = Math.max(0, ...(activePlan?.turns || []).filter((turn) => turn.status === "completed" && turn.role !== "closure").map((turn) => Number(turn.round || 0)));
-  $("#roundProgress").textContent = activePlan ? `${completedRounds} / ${activePlan.rounds}${activePlan.status === "completed" ? " · 已收束" : ""}` : "0 / 0";
+  const discussionView = resolveDiscussionView(state.session);
+  const activePlan = discussionView.plan;
+  const progress = discussionView.progress;
+  $("#roundProgress").textContent = activePlan
+    ? `周期 ${progress.current} / 最多 ${progress.maximum} · ${progress.spoken} 位发言 · ${progress.passed} 位旁听${activePlan.status === "completed" ? " · 已收束" : ""}`
+    : "0 / 0";
   initializeLayoutNodes();
   root.innerHTML = state.session.participants.map((participant) => {
     const thread = state.session.threads?.[participant.id];
     const status = resolveThreadStatus(thread, state.health?.browser?.bindings);
     const capacity = capacityFor(thread);
-    return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" title="拖动席位；东家仅在上方吸附点生效">
+    const discussionSeat = discussionView.seats[participant.id] || { state: "waiting", role: "" };
+    const discussionLabel = discussionSeat.state === "listening" ? "本周期旁听" : discussionSeat.state === "speaking" ? "正在发言" : discussionSeat.state === "responded" ? "本周期已发言" : discussionSeat.state === "absent" ? "本周期缺席" : "等待周期";
+    return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}${discussionSeat.state === "listening" ? " is-listening" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" title="拖动席位；双击设置角色；东家仅在上方吸附点生效">
       <span class="capacity-ring" style="--capacity:${capacity.percent}%"><b>${capacity.percent}%</b></span>
-      <span class="seat-copy"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(status.label)} · ${escapeHtml(capacity.recommendation)}</small></span>
+      <span class="seat-copy"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(discussionLabel)}${discussionSeat.role ? ` · ${escapeHtml(discussionSeat.role)}` : ""}</small></span>
     </button>`;
   }).join("");
   applyNodePositions();
@@ -304,6 +322,8 @@ function renderConversation() {
     const node = existing.get(item.key) || document.createElement("article");
     retained.add(item.key);
     node.dataset.conversationKey = item.key;
+    if (item.kind === "event" && item.event.id) node.dataset.eventId = item.event.id;
+    else delete node.dataset.eventId;
     const signature = item.kind === "event"
       ? JSON.stringify([item.event.content, item.event.metadata, item.event.createdAt])
       : JSON.stringify([item.progress.executionId, item.progress.partialText, item.progress.status, item.progress.updatedAt]);
@@ -330,12 +350,16 @@ function renderConversation() {
 function renderConversationEvent(event) {
     const qualityFlags = event.metadata?.qualityFlags || [];
     const qualityLabels = qualityFlags.map((flag) => typeof flag === "string" ? flag : flag?.label || flag?.code).filter(Boolean);
+    const replyRelations = event.metadata?.replyRelations || [];
+    const replyLinks = replyRelations.length
+      ? `<div class="reply-relations" aria-label="回复关系">${replyRelations.map((relation) => `<button type="button" data-reply-event-id="${escapeHtml(relation.eventId)}">回应 ${escapeHtml(providerById(relation.providerId).label)}</button>`).join("")}</div>`
+      : "";
     const time = event.createdAt ? new Date(event.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
     return {
       className: `chat-event${event.type === "command" ? " is-command" : ""}${event.type === "closure" || event.metadata?.closure ? " is-closure" : ""}`,
       html: `
       <div class="event-meta"><strong>${escapeHtml(eventSpeaker(event))}</strong><time>${escapeHtml(time)}${event.round ? ` · R${event.round}` : ""}</time></div>
-      <div class="event-content">${renderReplyContent(event)}${qualityLabels.length ? `<div class="quality-flags">${qualityLabels.map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>` : ""}</div>
+      <div class="event-content">${replyLinks}${renderReplyContent(event)}${qualityLabels.length ? `<div class="quality-flags">${qualityLabels.map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>` : ""}</div>
     `,
     };
 }
@@ -489,6 +513,29 @@ function renderComposerTokens() {
   root.innerHTML = state.tokens.map((token) => `<span class="mention-token" data-token-id="${escapeHtml(token.id)}">@${escapeHtml(token.label)}<button type="button" aria-label="移除 ${escapeHtml(token.label)}">×</button></span>`).join("");
 }
 
+function renderInterventionQueue() {
+  const root = $("#pendingInterventionQueue");
+  const plan = activeDiscussionPlan();
+  const pending = resolveDiscussionView(state.session).pendingInterventions;
+  if (!plan && !pending.length) {
+    root.hidden = true;
+    root.innerHTML = "";
+    return;
+  }
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="intervention-queue-head">
+      <div><strong>下一周期插话</strong><small>${pending.length ? `${pending.length} 条等待写入公共会话` : "输入内容后会在下一周期加入讨论"}</small></div>
+      ${plan?.status === "awaiting_continuation" ? `<button class="secondary-button" type="button" data-intervention-action="continue">继续一周期</button>` : ""}
+    </div>
+    <div class="intervention-items">${pending.map((item) => `
+      <div class="intervention-item" data-intervention-id="${escapeHtml(item.id)}">
+        <input type="text" maxlength="4000" value="${escapeHtml(item.content)}" aria-label="编辑插话" readonly />
+        <button type="button" data-intervention-action="edit">编辑</button>
+        <button type="button" data-intervention-action="remove">撤回</button>
+      </div>`).join("")}</div>`;
+}
+
 function composerPreview() {
   return buildSendPreview({
     tokens: state.tokens,
@@ -502,15 +549,17 @@ function composerPreview() {
 
 function renderSendPreview() {
   const preview = composerPreview();
+  const interventionPlan = activeDiscussionPlan();
   $("#sendPreview").innerHTML = [
-    `本轮发言：${preview.targetLabels.join("、") || "未选择"}`,
+    interventionPlan ? "发送方式：加入下一周期插话" : `本轮发言：${preview.targetLabels.join("、") || "未选择"}`,
     `模式：${preview.mode}`,
-    `轮数：${preview.rounds}`,
+    `最多周期：${preview.rounds}`,
     `文本提及：${preview.referenceLabels.join("、") || "无"}`,
   ].map((item) => `<span>${escapeHtml(item)}</span>`).join("");
-  $("#sendButton").disabled = !preview.valid || Boolean(activeRunId());
+  $("#sendButton").disabled = interventionPlan ? !$("#commandInput").value.trim() : !preview.valid;
+  $("#sendButton span").textContent = interventionPlan ? "排入下一周期" : "发送";
   $("#roundValue").textContent = state.conversationMode === "relay" ? "1" : String(state.rounds);
-  $$(".round-stepper button").forEach((button) => { button.disabled = state.conversationMode === "relay"; });
+  $$(".round-stepper button").forEach((button) => { button.disabled = state.conversationMode === "relay" || Boolean(interventionPlan); });
 }
 
 function renderSuggestions() {
@@ -547,6 +596,7 @@ function renderAll() {
   renderFiles();
   renderAudit();
   renderContext();
+  renderInterventionQueue();
   renderComposerTokens();
   renderSendPreview();
   renderRuntimeDetails();
@@ -576,7 +626,7 @@ async function loadSession(sessionId, { reconnect = true } = {}) {
   try { localStorage.setItem(LAST_SESSION_STORAGE_KEY, state.session.id); } catch { }
   state.audit = auditResult.audit || [];
   const settings = state.session.settings || {};
-  state.rounds = Number(settings.defaultRounds || state.rounds || 3);
+  state.rounds = Math.max(2, Math.min(10, Number(settings.defaultRounds || state.rounds || 5)));
   state.conversationMode = settings.conversationMode === "relay" ? "relay" : "discussion";
   const modeInput = $(`input[name="conversationMode"][value="${state.conversationMode}"]`);
   if (modeInput) modeInput.checked = true;
@@ -584,6 +634,7 @@ async function loadSession(sessionId, { reconnect = true } = {}) {
   state.activeRun = state.health?.activeRuns?.find((run) => run.sessionId === state.session.id) || null;
   if (previousSessionId !== state.session.id) {
     state.tokens = [{ id: "all", label: "全体", kind: "all" }];
+    state.roleOverrides = {};
   }
   if (reconnect) connectEvents(sessionId);
   renderAll();
@@ -634,7 +685,7 @@ function connectEvents(sessionId) {
   if (!sessionId) return;
   const source = new EventSource(`/api/events?sessionId=${encodeURIComponent(sessionId)}`);
   source.onmessage = () => scheduleRefresh();
-  for (const eventName of ["turn.started", "turn.progress", "turn.completed", "turn.failed", "turn.absent"]) {
+  for (const eventName of ["turn.started", "turn.progress", "turn.completed", "turn.failed", "turn.absent", "turn.passed"]) {
     source.addEventListener(eventName, (message) => {
       let event;
       try { event = JSON.parse(message.data); } catch { return; }
@@ -645,6 +696,10 @@ function connectEvents(sessionId) {
       } else if (eventName === "turn.progress") {
         turnProgressStore.handleProgress(event);
         renderConversation();
+      } else if (eventName === "turn.passed") {
+        turnProgressStore.handlePassed(event);
+        renderConversation();
+        scheduleRefresh(0);
       } else {
         turnProgressStore.handleTerminal(event);
         renderConversation();
@@ -652,7 +707,7 @@ function connectEvents(sessionId) {
       }
     });
   }
-  for (const eventName of ["plan.started", "round.completed", "plan.completed", "plan.failed", "handoff.completed", "permission.requested", "transaction.completed"]) {
+  for (const eventName of ["plan.started", "round.completed", "cycle.started", "cycle.completed", "plan.awaiting_continuation", "plan.completed", "plan.failed", "participant.role_updated", "intervention.queued", "intervention.updated", "intervention.removed", "intervention.committed", "handoff.completed", "permission.requested", "transaction.completed"]) {
     source.addEventListener(eventName, () => scheduleRefresh());
   }
   source.onerror = () => { source.close(); setTimeout(() => state.session?.id === sessionId && connectEvents(sessionId), 2500); };
@@ -679,6 +734,16 @@ function renderParticipantChoices() {
   const options = state.providers.filter((provider) => provider.automation === "mvp" && !seated.has(provider.id));
   $("#participantProvider").innerHTML = options.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("");
   return options.length;
+}
+
+function openRoleDialog(providerId) {
+  if (!state.session) return;
+  const provider = providerById(providerId);
+  $("#roleProviderId").value = providerId;
+  $("#roleDialogTitle").textContent = `${provider.label} 的讨论角色`;
+  $("#defaultRoleInput").value = state.session.participantRoles?.[providerId] || "";
+  $("#temporaryRoleInput").value = state.roleOverrides[providerId] || "";
+  $("#roleDialog").showModal();
 }
 
 function updateSuggestions() {
@@ -926,6 +991,7 @@ $("#participantList").addEventListener("click", async (event) => {
       showToast(`${label} 页面已打开/刷新，请在专用 Chrome 中完成登录后再次点击此按钮`);
     } catch (error) { showToast(`重新连接失败：${error.message}`, { error: true }); }
   }
+  if (action === "role") openRoleDialog(providerId);
   if (action === "handoff") {
     try {
       const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/handoffs`, { method: "POST", body: JSON.stringify({ providerId }) });
@@ -933,6 +999,28 @@ $("#participantList").addEventListener("click", async (event) => {
       $("#handoffPreview").textContent = JSON.stringify(result.handoff.packet, null, 2);
       $("#handoffDialog").showModal();
     } catch (error) { showToast(`交接预览失败：${error.message}`, { error: true }); }
+  }
+});
+
+$("#roleForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.session) return;
+  const providerId = $("#roleProviderId").value;
+  const role = $("#defaultRoleInput").value.trim();
+  const temporaryRole = $("#temporaryRoleInput").value.trim();
+  try {
+    const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/participant-role`, {
+      method: "POST",
+      body: JSON.stringify({ providerId, role }),
+    });
+    state.session = result.session;
+    if (temporaryRole) state.roleOverrides[providerId] = temporaryRole;
+    else delete state.roleOverrides[providerId];
+    $("#roleDialog").close();
+    renderAll();
+    showToast("席位角色已保存");
+  } catch (error) {
+    showToast(`角色保存失败：${error.message}`, { error: true });
   }
 });
 
@@ -990,9 +1078,67 @@ $("#mentionTokens").addEventListener("click", (event) => {
   renderSendPreview();
 });
 
+$("#pendingInterventionQueue").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-intervention-action]");
+  if (!button || !state.session) return;
+  const action = button.dataset.interventionAction;
+  const plan = activeDiscussionPlan();
+  if (action === "continue") {
+    if (!plan) return;
+    try {
+      const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/plans/${encodeURIComponent(plan.id)}/continue`, { method: "POST", body: "{}" });
+      state.session = result.session;
+      state.activeRun = result.run;
+      renderAll();
+      showToast("已增加一个讨论周期");
+    } catch (error) { showToast(`继续讨论失败：${error.message}`, { error: true }); }
+    return;
+  }
+  const item = button.closest("[data-intervention-id]");
+  if (!item) return;
+  const interventionId = item.dataset.interventionId;
+  if (action === "remove") {
+    try {
+      const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/interventions/${encodeURIComponent(interventionId)}`, { method: "DELETE" });
+      state.session = result.session;
+      renderAll();
+      showToast("插话已撤回");
+    } catch (error) { showToast(`撤回失败：${error.message}`, { error: true }); }
+    return;
+  }
+  const input = item.querySelector("input");
+  if (input.readOnly) {
+    input.readOnly = false;
+    input.focus();
+    input.select();
+    button.textContent = "保存";
+    return;
+  }
+  try {
+    const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/interventions/${encodeURIComponent(interventionId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: input.value.trim() }),
+    });
+    state.session = result.session;
+    renderAll();
+    showToast("插话已更新");
+  } catch (error) { showToast(`更新失败：${error.message}`, { error: true }); }
+});
+
+$("#chatStream").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-reply-event-id]");
+  if (!button) return;
+  const target = $(`[data-event-id="${CSS.escape(button.dataset.replyEventId)}"]`);
+  if (!target) return showToast("被回应的原消息暂不在当前视图中");
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+  target.classList.add("is-reply-target");
+  setTimeout(() => target.classList.remove("is-reply-target"), 1800);
+});
+
 $("#commandInput").addEventListener("compositionstart", () => { state.composing = true; });
 $("#commandInput").addEventListener("compositionend", () => { state.composing = false; updateSuggestions(); });
-$("#commandInput").addEventListener("input", updateSuggestions);
+$("#commandInput").addEventListener("input", () => { updateSuggestions(); renderSendPreview(); });
 $("#commandInput").addEventListener("click", updateSuggestions);
 $("#commandInput").addEventListener("keydown", (event) => {
   const count = state.suggestions.suggestions.length;
@@ -1032,9 +1178,26 @@ $("#mentionSuggestions").addEventListener("click", (event) => {
 $("#commandForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.session) return $("#newSessionButton").click();
-  if (activeRunId()) return showToast("当前圆桌仍在执行，可切换到其他圆桌继续工作", { error: true });
   const input = $("#commandInput");
   const text = input.value.trim();
+  const interventionPlan = activeDiscussionPlan();
+  if (interventionPlan) {
+    if (!text) return showToast("请输入要在下一周期补充的内容", { error: true });
+    try {
+      const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/interventions`, {
+        method: "POST",
+        body: JSON.stringify({ planId: interventionPlan.id, content: text }),
+      });
+      state.session = result.session;
+      input.value = "";
+      state.suggestions = { range: null, suggestions: [], activeIndex: 0 };
+      renderAll();
+      return showToast("已排入下一周期，进入周期边界后会自动写入公共会话");
+    } catch (error) {
+      return showToast(`插话排队失败：${error.message}`, { error: true });
+    }
+  }
+  if (activeRunId()) return showToast("当前圆桌仍在执行，可切换到其他圆桌继续工作", { error: true });
   const preview = composerPreview();
   if (!preview.valid) return showToast("请输入指令并确认至少一个发言标签", { error: true });
   try {
@@ -1047,12 +1210,14 @@ $("#commandForm").addEventListener("submit", async (event) => {
         references: preview.references,
         conversationMode: state.conversationMode,
         rounds: preview.rounds,
+        roleOverrides: Object.fromEntries(Object.entries(state.roleOverrides).filter(([providerId]) => preview.targets.includes(providerId))),
         settings: currentSettings(),
       }),
     });
     state.session = result.session;
     state.activeRun = result.run || null;
     input.value = "";
+    state.roleOverrides = {};
     state.suggestions = { range: null, suggestions: [], activeIndex: 0 };
     renderAll();
     showToast(result.run ? "指令已进入后台执行" : "本轮已完成");
@@ -1067,7 +1232,7 @@ for (const input of $$('input[name="conversationMode"]')) {
     renderSendPreview();
   });
 }
-$("#roundDown").addEventListener("click", () => { state.rounds = Math.max(1, state.rounds - 1); renderSendPreview(); });
+$("#roundDown").addEventListener("click", () => { state.rounds = Math.max(2, state.rounds - 1); renderSendPreview(); });
 $("#roundUp").addEventListener("click", () => { state.rounds = Math.min(10, state.rounds + 1); renderSendPreview(); });
 
 $("#pauseButton").addEventListener("click", async () => {
@@ -1120,6 +1285,11 @@ $("#roundtableSeats").addEventListener("pointerdown", (event) => {
   state.dragging = { id, pointerId: event.pointerId };
   nodeElement.setPointerCapture?.(event.pointerId);
   event.preventDefault();
+});
+
+$("#roundtableSeats").addEventListener("dblclick", (event) => {
+  const nodeElement = event.target.closest(".seat-node");
+  if (nodeElement) openRoleDialog(nodeElement.dataset.providerId);
 });
 
 window.addEventListener("pointermove", (event) => {

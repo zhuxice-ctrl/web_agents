@@ -77,6 +77,16 @@ export class TurnProgressStore {
     return next;
   }
 
+  handlePassed(event = {}) {
+    const sessionId = String(event.sessionId || "");
+    const turnId = eventTurnId(event);
+    if (!sessionId || !turnId || sessionId !== this.activeSessionId) return null;
+    const key = itemKey(sessionId, turnId);
+    const current = this.items.get(key) || null;
+    this.items.delete(key);
+    return current;
+  }
+
   syncSession(session) {
     if (!session?.id) {
       this.setActiveSession(null);

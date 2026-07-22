@@ -18,6 +18,9 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(html, /id="settingsDialog" class="settings-drawer"/);
   assert.match(html, /id="permissionDialog"/);
   assert.match(html, /id="recoveryDialog"/);
+  assert.match(html, /id="pendingInterventionQueue"/);
+  assert.match(html, /id="roleDialog"/);
+  assert.match(html, /最多周期/);
   assert.match(html, /id="handoffDialog"/);
   assert.match(html, /data-tab="context"/);
   assert.match(html, /id="contextUsage"/);
@@ -66,6 +69,12 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(css, /\.progress-stream \{[^}]*max-height: 220px[^}]*overflow: auto/s);
   assert.match(app, /progress-disclosure/);
   assert.match(app, /captureProgressView/);
+  assert.match(app, /data-reply-event-id/);
+  assert.match(app, /turn\.passed/);
+  assert.match(app, /cycle\.started/);
+  assert.match(app, /cycle\.completed/);
+  assert.match(app, /intervention\.queued/);
+  assert.match(app, /本周期旁听/);
   assert.match(commandModel, /resolveRoundtableCommand/);
   assert.match(disclosureController, /captureProgressView/);
   assert.match(disclosureController, /restoreProgressView/);

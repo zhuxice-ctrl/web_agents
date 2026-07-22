@@ -118,3 +118,18 @@ test("switching sessions clears transient entries from the prior session", () =>
   assert.deepEqual(store.list("session-1"), []);
   assert.deepEqual(store.list("session-2"), []);
 });
+
+test("a private pass removes transient streaming output immediately", () => {
+  const store = new TurnProgressStore();
+  store.setActiveSession("session-1");
+  store.handleStarted(startedEvent());
+  store.handleProgress({
+    sessionId: "session-1",
+    turnId: "turn-1",
+    executionId: "turn-1:chatgpt:1",
+    text: "PASS",
+    at: "2026-07-20T01:00:01.000Z",
+  });
+  store.handlePassed({ sessionId: "session-1", turn: { id: "turn-1" } });
+  assert.deepEqual(store.list("session-1"), []);
+});

@@ -86,6 +86,7 @@
           </section>
 
           <section class="composer-pane" aria-label="唯一会话输入区">
+            <section id="pendingInterventionQueue" class="intervention-queue" aria-label="下一周期插话队列" hidden></section>
             <div id="mentionTokens" class="mention-tokens" aria-label="本轮发言模型"></div>
             <form id="commandForm" class="command-form">
               <div class="composer-input-wrap">
@@ -98,7 +99,7 @@
                   <label><input type="radio" name="conversationMode" value="discussion" checked /><span>讨论</span></label>
                   <label><input type="radio" name="conversationMode" value="relay" /><span>传递</span></label>
                 </div>
-                <label class="round-stepper"><span>轮数</span><button id="roundDown" type="button" aria-label="减少轮数">−</button><output id="roundValue">3</output><button id="roundUp" type="button" aria-label="增加轮数">＋</button></label>
+                <label class="round-stepper"><span>最多周期</span><button id="roundDown" type="button" aria-label="减少最多周期">−</button><output id="roundValue">5</output><button id="roundUp" type="button" aria-label="增加最多周期">＋</button></label>
                 <button id="settingsButton" class="icon-button" type="button" title="高级设置" aria-label="高级设置">⚙</button>
                 <button id="pauseButton" class="icon-button" type="button" title="暂停当前圆桌" aria-label="暂停当前圆桌">Ⅱ</button>
                 <button id="stopButton" class="icon-button is-danger" type="button" title="终止当前圆桌" aria-label="终止当前圆桌">■</button>
@@ -173,6 +174,17 @@
         <label><span>模型</span><select id="participantProvider"></select></label>
         <fieldset><legend>上下文策略</legend><label><input type="radio" name="joinPolicy" value="sync_all" checked />同步圆桌公共上下文</label><label><input type="radio" name="joinPolicy" value="from_now" />从加入后开始记录</label></fieldset>
         <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">加入下一轮</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="roleDialog" class="modal compact-modal">
+      <form id="roleForm" method="dialog">
+        <div class="modal-heading"><div><small>DISCUSSION ROLE</small><h2 id="roleDialogTitle">席位角色</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <input id="roleProviderId" type="hidden" />
+        <label><span>默认角色</span><input id="defaultRoleInput" type="text" maxlength="160" placeholder="例如：学习科学研究者" /></label>
+        <label><span>仅下一场讨论使用</span><input id="temporaryRoleInput" type="text" maxlength="160" placeholder="留空则使用默认角色" /></label>
+        <p class="form-hint">默认角色保存在当前圆桌；临时角色只随下一条新命令发送。</p>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">保存角色</button></div>
       </form>
     </dialog>
 
