@@ -285,3 +285,125 @@ test("active extension auto-run requires the automatic execution preference", ()
   toolCard.querySelector = (selector) => selector === ".function-reexecute-button" ? {} : null;
   assert.equal(activeEnhancer.shouldAutoClickRunButton(toolButton, { autoExecute: true }), false);
 });
+
+test("active extension queues tool cards and selects only the next runnable card", () => {
+  function createRunnableCard(toolName, callId) {
+    const nameNode = { textContent: toolName };
+    const callIdNode = { textContent: callId };
+    const card = {
+      innerText: [toolName, callId, "显示原始信息", "运行"].join("\n"),
+      dataset: {},
+      classList: { contains: (name) => name === "function-complete" },
+      matches: (selector) => selector === ".function-block",
+      querySelector(selector) {
+        if (selector === ".function-name-text") return nameNode;
+        if (selector === ".call-id") return callIdNode;
+        if (selector === ".function-reexecute-button") return null;
+        return null;
+      },
+    };
+    const button = {
+      textContent: "运行",
+      disabled: false,
+      classList: { contains: (name) => name === "execute-button" },
+      closest(selector) {
+        if (selector === ".web-agent-stable-output") return null;
+        if (selector === ".function-block") return card;
+        return null;
+      },
+    };
+    return { card, button };
+  }
+
+  const first = createRunnableCard("read_text_file", "1");
+  const second = createRunnableCard("read_text_file", "2");
+  const state = { autoExecute: true };
+
+  assert.equal(
+    activeEnhancer.selectNextAutoRunButton([first.button, second.button], state, false),
+    first.button,
+  );
+  assert.equal(
+    activeEnhancer.selectNextAutoRunButton([first.button, second.button], state, true),
+    null,
+  );
+
+  first.card.dataset.webAgentStableResultHash = "finished";
+  assert.equal(
+    activeEnhancer.selectNextAutoRunButton([first.button, second.button], state, false),
+    second.button,
+  );
+});
+
+test("placeholder function cards from instruction examples are ignored", () => {
+  const placeholderCard = {
+    querySelector(selector) {
+      if (selector === ".function-name-text") return { textContent: "function_name" };
+      return null;
+    },
+  };
+  const realCard = {
+    querySelector(selector) {
+      if (selector === ".function-name-text") return { textContent: "write_file" };
+      return null;
+    },
+  };
+
+  assert.equal(activeEnhancer.isPlaceholderToolCard(placeholderCard), true);
+  assert.equal(activeEnhancer.isPlaceholderToolCard(realCard), false);
+});
+
+test("the retired Doubao write example is removed only on Doubao", () => {
+  const exampleCard = {
+    innerText: [
+      "write_file",
+      "path",
+      "F:\\web_agents\\hello.md",
+      "content",
+      "你好，来自 web_Agent",
+    ].join("\n"),
+    querySelector(selector) {
+      if (selector === ".function-name-text") return { textContent: "write_file" };
+      return null;
+    },
+  };
+
+  assert.equal(activeEnhancer.isPlaceholderToolCard(exampleCard, "www.doubao.com"), true);
+  assert.equal(activeEnhancer.isPlaceholderToolCard(exampleCard, "chatgpt.com"), false);
+});
+
+test("Grok nested JSONL events are normalized to the extension protocol", () => {
+  const grokJsonl = [
+    JSON.stringify({ start: { name: "write_file", call_id: "3" } }),
+    JSON.stringify({ description: { text: "None" } }),
+    JSON.stringify({ parameter: { key: "path", value: "F:\\Feishu\\hello.txt" } }),
+    JSON.stringify({ parameter: { key: "content", value: "网页grok到此一游" } }),
+    JSON.stringify({ end: { call_id: "3" } }),
+  ].join("\n");
+
+  assert.equal(
+    activeEnhancer.normalizeGrokJsonlText(grokJsonl),
+    [
+      JSON.stringify({ type: "function_call_start", name: "write_file", call_id: "3" }),
+      JSON.stringify({ type: "description", text: "None" }),
+      JSON.stringify({ type: "parameter", key: "path", value: "F:\\Feishu\\hello.txt" }),
+      JSON.stringify({ type: "parameter", key: "content", value: "网页grok到此一游" }),
+      JSON.stringify({ type: "function_call_end", call_id: "3" }),
+    ].join("\n"),
+  );
+});
+
+test("canonical JSONL and unrelated JSON remain unchanged", () => {
+  const canonical = JSON.stringify({ type: "function_call_start", name: "write_file", call_id: "1" });
+  const unrelated = JSON.stringify({ start: { arbitrary: true } });
+
+  assert.equal(activeEnhancer.normalizeGrokJsonlText(canonical), canonical);
+  assert.equal(activeEnhancer.normalizeGrokJsonlText(unrelated), unrelated);
+});
+
+test("Kimi permission fallback is isolated from every other provider", () => {
+  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("kimi.com"), true);
+  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("www.kimi.com"), true);
+  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("chatgpt.com"), false);
+  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("grok.com"), false);
+});

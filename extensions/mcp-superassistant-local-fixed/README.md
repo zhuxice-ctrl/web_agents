@@ -7,7 +7,7 @@
 在 Chrome 或 Edge 打开 `chrome://extensions` / `edge://extensions`，启用开发者模式，选择“加载已解压的扩展程序”：
 
 ```text
-F:\web_agents-plugin-extension\extensions\mcp-superassistant-local-fixed
+F:\web_agent\extensions\mcp-superassistant-local-fixed
 ```
 
 不要加载 `products/plugin/extension/dist`；那个目录是另一套源码构建产物。
@@ -35,11 +35,17 @@ Server URI: http://127.0.0.1:3006/sse
 - BigModel / Zhipu / GLM、Chat Z、Mistral、OpenRouter
 - GitHub Copilot、Perplexity、Grok / X
 
-非 Grok 页面加载从 GitHub `main` 提取的 `content/index-main.iife.js` 中文 bundle；Grok / X 页面继续加载保留 Grok 适配的 `content/index.iife.js`，并叠加 `local-automation-bridge.js`。两个入口不会在同一页面重复加载。
+所有已适配站点统一加载从 GitHub `main` 提取的 `content/index-main.iife.js` 中文 bundle。Grok / X 使用已经合入主 bundle 的 `GrokAdapter`，并额外加载 `local-automation-bridge.js` 保留反向任务能力；不再加载旧的英文 `content/index.iife.js`。
 
 Grok / X 还会加载 `grok-zh-localization.js`，仅翻译插件自己的 MCP 按钮、弹层、侧栏、状态提示和结果卡操作，不改动 Grok 网页正文或对话内容。
 
 `web-agent-result-enhancer.js` 和 `web-agent-insert-fallback.js` 负责跨网页的中文结果卡、稳定结果保存和“插入失败时复制”兜底；它们不替换原有 MCP 输入框 bundle。
+
+## 连续任务
+
+需要连续读取多个文件或按顺序执行多个工具时，同时启用“自动插入”“自动发送”“自动执行”。web_Agent 每轮只运行一个工具，把结果送回模型后继续待办队列；上一项结束后才释放下一项，全部步骤完成后由模型统一汇报。
+
+关闭其中任一自动化选项时，队列会停在对应的人工操作环节，等待手动插入结果、发送消息或运行工具。
 
 ## Grok 反向任务
 
@@ -53,10 +59,10 @@ products/plugin/config/allowed-directories.local.txt
 
 ## 运行
 
-从 `F:\web_agents-plugin-extension` 启动：
+从 `F:\web_agent` 启动：
 
 ```powershell
-node products/plugin/services/start-plugin-services.mjs
+products\plugin\start-plugin.bat
 ```
 
 启动后刷新模型网页。不要同时启用商店版和此本地版扩展。

@@ -6,6 +6,8 @@
     "#mcp-popover-portal",
     "#mcp-sidebar-container",
     "#mcp-sidebar-root",
+    "#mcp-sidebar-shadow-host",
+    "#sidebar-container",
     "#web-agent-permission-dock",
     ".mcp-popover-container",
     ".mcp-popover",
@@ -19,7 +21,18 @@
   ].join(",");
 
   const exactText = new Map([
+    ["MCP SuperAssistant", "web_Agent"],
     ["MCP Settings", "MCP 设置"],
+    ["Available Tools", "可用工具"],
+    ["Push Content Mode", "推送内容模式"],
+    ["Enable All", "全部启用"],
+    ["Disable All", "全部禁用"],
+    ["Individual Tools", "单个工具"],
+    ["Search tools...", "搜索工具..."],
+    ["No tools available", "暂无可用工具"],
+    ["Check your server connection or refresh", "请检查服务器连接或刷新页面"],
+    ["Server Error", "服务器错误"],
+    ["Server connection error. Check your configuration and try again.", "服务器连接错误，请检查配置后重试。"],
     ["Settings", "设置"],
     ["Instructions", "使用说明"],
     ["Custom Instructions", "自定义说明"],
@@ -89,7 +102,18 @@
   }
 
   function isOwned(element) {
-    return element instanceof Element && (element.matches(ownedSelector) || Boolean(element.closest(ownedSelector)));
+    if (!(element instanceof Element)) return false;
+    if (element.matches(ownedSelector) || Boolean(element.closest(ownedSelector))) return true;
+
+    let root = element.getRootNode?.();
+    while (root?.host) {
+      const host = root.host;
+      if (host.matches?.(ownedSelector) || host.id === "mcp-sidebar-shadow-host" || host.dataset?.shadowHost === "true") {
+        return true;
+      }
+      root = host.getRootNode?.();
+    }
+    return false;
   }
 
   function translate(value) {
@@ -125,13 +149,50 @@
       translateTextNode(root);
       return;
     }
-    if (!(root instanceof Element || root instanceof Document)) return;
+    if (!(root instanceof Element || root instanceof Document || root instanceof ShadowRoot)) return;
     if (root instanceof Element) translateAttributes(root);
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    const walker = (root.ownerDocument || document).createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       if (node instanceof Text) translateTextNode(node);
       else translateAttributes(node);
     }
+  }
+
+  function observeShadowRoots(root) {
+    if (!root?.querySelectorAll) return;
+    const elements = root.querySelectorAll("*");
+    for (const element of elements) {
+      if (element.shadowRoot) observeRoot(element.shadowRoot);
+    }
+  }
+
+  const observedRoots = new WeakSet();
+  function handleMutations(mutations) {
+    for (const mutation of mutations) {
+      if (mutation.type === "characterData" || mutation.type === "attributes") localize(mutation.target);
+      if (mutation.type === "childList") {
+        mutation.addedNodes.forEach((node) => {
+          localize(node);
+          observeShadowRoots(node);
+          if (node.shadowRoot) observeRoot(node.shadowRoot);
+        });
+      }
+    }
+  }
+
+  function observeRoot(root) {
+    if (!root || observedRoots.has(root)) return;
+    observedRoots.add(root);
+    localize(root);
+    observeShadowRoots(root);
+    const observer = new MutationObserver(handleMutations);
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["title", "aria-label", "placeholder"],
+    });
   }
 
   function injectStyles() {
@@ -158,21 +219,5 @@
 
   if (!isGrokPage()) return;
   injectStyles();
-  localize(document);
-
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "characterData") localize(mutation.target);
-      if (mutation.type === "attributes") localize(mutation.target);
-      mutation.addedNodes.forEach(localize);
-    }
-  });
-  observer.observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ["title", "aria-label", "placeholder"],
-  });
-  window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
+  observeRoot(document);
 })();

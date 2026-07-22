@@ -15388,6 +15388,156 @@ Nu().then(() => {
 });
 x.debug("Background script loaded");
 x.debug("Edit 'chrome-extension/src/background/index.ts' and save to reload.");
+const WEB_AGENT_PERMISSION_APPROVE_ENDPOINT = "http://127.0.0.1:3017/permissions/approve";
+const WEB_AGENT_PERMISSION_REJECT_ENDPOINT = "http://127.0.0.1:3017/permissions/reject";
+const WEB_AGENT_PERMISSION_PENDING_CALLS_KEY = "webAgentPermissionPendingCalls";
+const WEB_AGENT_PERMISSION_MARKER_START = "WEB_AGENT_PERMISSION_REQUEST";
+const WEB_AGENT_PERMISSION_MARKER_END = "END_WEB_AGENT_PERMISSION_REQUEST";
+function parseWebAgentPermissionMarker(e) {
+  const t = String(e || ""), r = t.indexOf(WEB_AGENT_PERMISSION_MARKER_START);
+  if (r < 0)
+    return null;
+  const n = t.indexOf(WEB_AGENT_PERMISSION_MARKER_END, r + WEB_AGENT_PERMISSION_MARKER_START.length);
+  if (n < 0)
+    return null;
+  try {
+    const o = JSON.parse(t.slice(r + WEB_AGENT_PERMISSION_MARKER_START.length, n).trim());
+    return o && o.kind === "web_agent_permission_request" && o.requestId && o.argsHash ? o : null;
+  } catch {
+    return null;
+  }
+}
+function findWebAgentPermissionMarker(e, t = 0) {
+  if (!e || t > 8)
+    return null;
+  if (typeof e == "string")
+    return parseWebAgentPermissionMarker(e);
+  if (Array.isArray(e)) {
+    for (const r of e) {
+      const n = findWebAgentPermissionMarker(r, t + 1);
+      if (n)
+        return n;
+    }
+    return null;
+  }
+  if (typeof e == "object") {
+    if (typeof e.text == "string") {
+      const r = parseWebAgentPermissionMarker(e.text);
+      if (r)
+        return r;
+    }
+    for (const r of Object.values(e)) {
+      const n = findWebAgentPermissionMarker(r, t + 1);
+      if (n)
+        return n;
+    }
+  }
+  return null;
+}
+function cloneWebAgentValue(e) {
+  try {
+    return JSON.parse(JSON.stringify(e || {}));
+  } catch {
+    return e && typeof e == "object" ? { ...e } : {};
+  }
+}
+async function getWebAgentPermissionPendingCalls() {
+  const e = await chrome.storage.local.get([WEB_AGENT_PERMISSION_PENDING_CALLS_KEY]), t = e[WEB_AGENT_PERMISSION_PENDING_CALLS_KEY];
+  return t && typeof t == "object" && !Array.isArray(t) ? t : {};
+}
+async function setWebAgentPermissionPendingCalls(e) {
+  await chrome.storage.local.set({ [WEB_AGENT_PERMISSION_PENDING_CALLS_KEY]: e });
+}
+async function rememberWebAgentPermissionCall(e, t) {
+  if (!e || !e.requestId || !t || !t.toolName)
+    return;
+  const r = await getWebAgentPermissionPendingCalls(), n = Date.now();
+  r[e.requestId] = {
+    storedAt: n,
+    marker: cloneWebAgentValue(e),
+    toolName: t.toolName,
+    adapterName: t.adapterName,
+    args: cloneWebAgentValue(t.args || {})
+  };
+  const o = Object.fromEntries(
+    Object.entries(r).filter(([, s]) => s && n - Number(s.storedAt || 0) < 10 * 60 * 1e3).slice(-50)
+  );
+  await setWebAgentPermissionPendingCalls(o);
+}
+async function forgetWebAgentPermissionCall(e) {
+  if (!e)
+    return;
+  const t = await getWebAgentPermissionPendingCalls();
+  delete t[e], await setWebAgentPermissionPendingCalls(t);
+}
+async function getWebAgentPermissionCall(e) {
+  const t = await getWebAgentPermissionPendingCalls();
+  return t[String(e || "")] || null;
+}
+async function getLatestWebAgentPermissionMarker() {
+  const e = await getWebAgentPermissionPendingCalls(), t = Date.now();
+  const r = Object.values(e).filter((n) => {
+    const o = n && n.marker;
+    return o && o.kind === "web_agent_permission_request" && t - Number(n.storedAt || 0) < 10 * 60 * 1e3 && Date.parse(o.expiresAt || 0) > t;
+  }).sort((n, o) => Number(o.storedAt || 0) - Number(n.storedAt || 0));
+  return r.length ? cloneWebAgentValue(r[0].marker) : null;
+}
+async function postWebAgentPermission(e, t) {
+  const r = await fetch(e, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(t || {})
+  }), n = await r.json().catch(() => ({}));
+  if (!r.ok || !n.ok)
+    throw new Error(n.error || `HTTP ${r.status}`);
+  return n;
+}
+function getWebAgentPermissionMarkerFromMessage(e) {
+  const t = e && e.payload ? e.payload : {};
+  if (!t || t.kind !== "web_agent_permission_request" || !t.requestId || !t.argsHash)
+    throw new Error("INVALID_PERMISSION_REQUEST");
+  return t;
+}
+async function approveAndRetryWebAgentPermission(e) {
+  const t = getWebAgentPermissionMarkerFromMessage(e), r = await getWebAgentPermissionCall(t.requestId);
+  if (!r)
+    throw new Error("PERMISSION_ORIGINAL_CALL_NOT_FOUND");
+  const n = await postWebAgentPermission(WEB_AGENT_PERMISSION_APPROVE_ENDPOINT, {
+    requestId: t.requestId,
+    argsHash: t.argsHash,
+    mode: "once"
+  }), o = cloneWebAgentValue(r.args || {});
+  delete o._webAgentPermission, delete o.__webAgentPermission, o._webAgentPermission = { requestId: t.requestId, token: n.token };
+  try {
+    const s = await Uy(Pt(), r.toolName, o, r.adapterName);
+    return { ok: !0, requestId: t.requestId, approval: n, retry: s };
+  } finally {
+    await forgetWebAgentPermissionCall(t.requestId);
+  }
+}
+async function rejectWebAgentPermission(e) {
+  const t = getWebAgentPermissionMarkerFromMessage(e), r = await postWebAgentPermission(WEB_AGENT_PERMISSION_REJECT_ENDPOINT, {
+    requestId: t.requestId
+  });
+  return await forgetWebAgentPermissionCall(t.requestId), { ok: !0, requestId: t.requestId, rejection: r };
+}
+async function manualWebAgentToolCall(e) {
+  const t = e && e.payload ? e.payload : {}, r = t.toolName, n = t.args || {}, o = t.adapterName;
+  if (r !== "write_file")
+    throw new Error("MANUAL_TOOL_NOT_ALLOWED");
+  if (!n || typeof n.path != "string" || typeof n.content != "string")
+    throw new Error("INVALID_MANUAL_WRITE_FILE_ARGS");
+  const s = await Uy(Pt(), r, n, o), i = findWebAgentPermissionMarker(s);
+  return i && await rememberWebAgentPermissionCall(i, { toolName: r, args: n || {}, adapterName: o }), { ok: !0, toolName: r, result: s };
+}
+function isKimiPermissionSender(e) {
+  try {
+    const t = new URL(e && (e.url || e.tab && e.tab.url) || "").hostname.toLowerCase();
+    return t === "kimi.com" || t.endsWith(".kimi.com");
+  } catch {
+    return !1;
+  }
+}
 chrome.runtime.onMessage.addListener((e, t, r) => {
   if (x.debug("[Background] Received message:", {
     type: e.type || e.command,
@@ -15399,6 +15549,50 @@ chrome.runtime.onMessage.addListener((e, t, r) => {
     x.debug("[Background] Received connection status change from MCP client:", e.payload);
     const { isConnected: n, error: o } = e.payload;
     return gt(n), ct(n, o), !1;
+  }
+  if (e.command === "webAgentManualToolCall") {
+    manualWebAgentToolCall(e).then((n) => {
+      r({ success: !0, result: n });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to run manual web_Agent tool call:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
+  }
+  if (e.command === "webAgentPermissionGetLatest") {
+    if (!isKimiPermissionSender(t)) {
+      r({ success: !1, error: "KIMI_PERMISSION_LOOKUP_DENIED" });
+      return !1;
+    }
+    getLatestWebAgentPermissionMarker().then((n) => {
+      r({ success: !0, result: { marker: n } });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to read latest web_Agent permission request:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
+  }
+  if (e.command === "webAgentPermissionApprove") {
+    approveAndRetryWebAgentPermission(e).then((n) => {
+      r({ success: !0, result: n });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to approve and retry web_Agent permission request:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
+  }
+  if (e.command === "webAgentPermissionReject") {
+    rejectWebAgentPermission(e).then((n) => {
+      r({ success: !0, result: n });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to reject web_Agent permission request:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
   }
   return e.command === "trackAnalyticsEvent" ? e.eventName && e.eventParams ? (Ge(e.eventName, e.eventParams).then(() => r({ success: !0 })).catch((n) => {
     x.error("[Background] Error tracking analytics event from message:", n), r({ success: !1, error: n instanceof Error ? n.message : String(n) });
@@ -15414,7 +15608,9 @@ async function Gy(e, t, r) {
         const { toolName: c, args: l, adapterName: d } = i;
         if (!c)
           throw new Error("Tool name is required");
-        x.debug(`Calling tool: ${c} from adapter: ${d || "unknown"}`), s = await Uy(Pt(), c, l || {}, d), x.debug(`Tool call completed: ${c}`);
+        x.debug(`Calling tool: ${c} from adapter: ${d || "unknown"}`), s = await Uy(Pt(), c, l || {}, d);
+        const m = findWebAgentPermissionMarker(s);
+        m && await rememberWebAgentPermissionCall(m, { toolName: c, args: l || {}, adapterName: d }), x.debug(`Tool call completed: ${c}`);
         break;
       }
       case "mcp:get-connection-status": {

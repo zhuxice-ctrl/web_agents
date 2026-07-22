@@ -10,6 +10,10 @@
   const observedAutoRunCards = new WeakSet();
   const pendingAutoRunCards = new WeakSet();
   let autoRunArmed = false;
+  let activeAutoRunCard = null;
+  let autoRunInFlight = false;
+  let kimiPermissionLookupPromise = null;
+  let lastKimiPermissionLookupAt = 0;
   const actionLabels = new Set([
     "显示原始信息",
     "运行",
@@ -42,6 +46,108 @@
       result.pop();
     }
     return result;
+  }
+
+  function isKimiPermissionBridgeHost(hostname) {
+    const host = String(hostname || "").toLowerCase();
+    return host === "kimi.com" || host.endsWith(".kimi.com");
+  }
+
+  function normalizeGrokJsonlText(text) {
+    const source = String(text || "");
+    const lines = source.replace(/\r\n/g, "\n").split("\n");
+    const converted = [];
+    const startedCalls = new Map();
+    const endedCalls = new Map();
+    let eventCount = 0;
+
+    function countCall(calls, callId) {
+      const key = String(callId);
+      calls.set(key, (calls.get(key) || 0) + 1);
+    }
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        converted.push(line);
+        continue;
+      }
+
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        return source;
+      }
+
+      if (!event || Array.isArray(event) || typeof event !== "object") {
+        return source;
+      }
+      const keys = Object.keys(event);
+      if (keys.length !== 1 || !["start", "description", "parameter", "end"].includes(keys[0])) {
+        return source;
+      }
+
+      const kind = keys[0];
+      const payload = event[kind];
+      if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+        return source;
+      }
+
+      let type;
+      if (kind === "start") {
+        if (typeof payload.name !== "string" || !payload.name.trim() || payload.call_id == null) {
+          return source;
+        }
+        type = "function_call_start";
+        countCall(startedCalls, payload.call_id);
+      } else if (kind === "description") {
+        if (typeof payload.text !== "string") {
+          return source;
+        }
+        type = "description";
+      } else if (kind === "parameter") {
+        if (typeof payload.key !== "string" || !payload.key.trim() || !("value" in payload)) {
+          return source;
+        }
+        type = "parameter";
+      } else {
+        if (payload.call_id == null) {
+          return source;
+        }
+        type = "function_call_end";
+        countCall(endedCalls, payload.call_id);
+      }
+
+      eventCount += 1;
+      converted.push(JSON.stringify({ type, ...payload }));
+    }
+
+    if (!eventCount || !startedCalls.size || startedCalls.size !== endedCalls.size) {
+      return source;
+    }
+    for (const [callId, count] of startedCalls) {
+      if (endedCalls.get(callId) !== count) {
+        return source;
+      }
+    }
+    return converted.join("\n");
+  }
+
+  function normalizeGrokJsonlBlocks() {
+    if (typeof document === "undefined" || typeof location === "undefined") {
+      return;
+    }
+    if (location.hostname !== "grok.com" && !location.hostname.endsWith(".grok.com")) {
+      return;
+    }
+
+    for (const code of document.querySelectorAll("pre code, code")) {
+      const source = code.textContent || "";
+      const normalized = normalizeGrokJsonlText(source);
+      if (normalized !== source) {
+        code.textContent = normalized;
+      }
+    }
   }
 
   function extractToolResultText(cardText) {
@@ -810,11 +916,39 @@
     }
   }
 
+  function syncKimiPermissionFromBackground() {
+    if (
+      typeof location === "undefined" ||
+      !isKimiPermissionBridgeHost(location.hostname) ||
+      kimiPermissionLookupPromise ||
+      Date.now() - lastKimiPermissionLookupAt < 1000
+    ) {
+      return kimiPermissionLookupPromise;
+    }
+    lastKimiPermissionLookupAt = Date.now();
+    kimiPermissionLookupPromise = sendPermissionMessage("webAgentPermissionGetLatest", {})
+      .then((response) => {
+        const marker = response && response.result ? response.result.marker : null;
+        if (marker) {
+          syncPermissionMenuButton(marker);
+          ensurePermissionDock(marker);
+        }
+        return marker;
+      })
+      .catch(() => null)
+      .finally(() => {
+        kimiPermissionLookupPromise = null;
+      });
+    return kimiPermissionLookupPromise;
+  }
+
   function enhancePermissionRequests() {
     const marker = findLatestPagePermissionMarker();
     syncPermissionMenuButton(marker);
     if (marker) {
       ensurePermissionDock(marker);
+    } else {
+      void syncKimiPermissionFromBackground();
     }
   }
 
@@ -849,6 +983,30 @@
 
   function getAutomationState() {
     return typeof window !== "undefined" ? window.__mcpAutomationState : undefined;
+  }
+
+  function isPlaceholderToolCard(card, hostname = typeof location !== "undefined" ? location.hostname : "") {
+    const name = normalizeLine(card?.querySelector?.(".function-name-text")?.textContent).toLowerCase();
+    if (new Set(["function_name", "function name", "tool_name", "tool name"]).has(name)) {
+      return true;
+    }
+    const host = String(hostname || "").toLowerCase();
+    if (name !== "write_file" || (host !== "doubao.com" && !host.endsWith(".doubao.com"))) {
+      return false;
+    }
+    const text = card?.innerText || card?.textContent || "";
+    return /F:\\+web_agents\\+hello\.md/i.test(text) && text.includes("你好，来自 web_Agent");
+  }
+
+  function removePlaceholderToolCards() {
+    if (typeof document === "undefined") {
+      return;
+    }
+    for (const card of document.querySelectorAll(".function-block")) {
+      if (isPlaceholderToolCard(card)) {
+        card.remove();
+      }
+    }
   }
 
   function shouldAutoClickRunButton(button, automationState = getAutomationState()) {
@@ -890,36 +1048,83 @@
     }
   }
 
+  function selectNextAutoRunButton(buttons, automationState = getAutomationState(), isBusy = autoRunInFlight) {
+    if (isBusy || automationState?.autoExecute !== true) {
+      return null;
+    }
+    for (const button of buttons) {
+      const card = findToolCard(button);
+      if (
+        card &&
+        !observedAutoRunCards.has(card) &&
+        !pendingAutoRunCards.has(card) &&
+        shouldAutoClickRunButton(button, automationState)
+      ) {
+        return button;
+      }
+    }
+    return null;
+  }
+
+  function releaseCompletedAutoRun() {
+    if (!autoRunInFlight) {
+      return;
+    }
+    const card = activeAutoRunCard;
+    const completed = !card || card.isConnected === false || Boolean(
+      card.dataset?.webAgentStableResultHash ||
+      card.querySelector?.(".function-reexecute-button") ||
+      extractToolResultText(getCardTextWithoutStableOutput(card))
+    );
+    if (completed) {
+      activeAutoRunCard = null;
+      autoRunInFlight = false;
+    }
+  }
+
   function autoClickRunButtons() {
     if (!autoRunArmed) {
       rememberVisibleAutoRunCards();
       return;
     }
 
+    releaseCompletedAutoRun();
     const automationState = getAutomationState();
-    for (const button of document.querySelectorAll("button.execute-button")) {
-      const card = findToolCard(button);
-      if (!card || observedAutoRunCards.has(card) || pendingAutoRunCards.has(card)) {
-        continue;
-      }
-      if (automationState?.autoExecute === false) {
-        observedAutoRunCards.add(card);
-        continue;
-      }
-      if (!shouldAutoClickRunButton(button, automationState)) {
-        continue;
-      }
-
-      pendingAutoRunCards.add(card);
-      window.setTimeout(() => {
-        pendingAutoRunCards.delete(card);
-        const currentButton = card.querySelector?.("button.execute-button");
-        observedAutoRunCards.add(card);
-        if (shouldAutoClickRunButton(currentButton, getAutomationState())) {
-          currentButton.click();
+    const buttons = Array.from(document.querySelectorAll("button.execute-button"));
+    if (automationState?.autoExecute === false) {
+      for (const button of buttons) {
+        const card = findToolCard(button);
+        if (card) {
+          observedAutoRunCards.add(card);
         }
-      }, autoRunFallbackDelay);
+      }
+      return;
     }
+
+    const button = selectNextAutoRunButton(buttons, automationState);
+    if (!button) {
+      return;
+    }
+    const card = findToolCard(button);
+    if (!card) {
+      return;
+    }
+
+    pendingAutoRunCards.add(card);
+    activeAutoRunCard = card;
+    autoRunInFlight = true;
+    window.setTimeout(() => {
+      pendingAutoRunCards.delete(card);
+      const currentButton = card.querySelector?.("button.execute-button");
+      observedAutoRunCards.add(card);
+      if (shouldAutoClickRunButton(currentButton, getAutomationState())) {
+        currentButton.click();
+        return;
+      }
+      activeAutoRunCard = null;
+      autoRunInFlight = false;
+      autoClickRunButtons();
+    }, autoRunFallbackDelay);
   }
 
   function enhanceCard(card) {
@@ -1007,6 +1212,8 @@
 
   function enhanceAll() {
     injectStyles();
+    normalizeGrokJsonlBlocks();
+    removePlaceholderToolCards();
     autoClickRunButtons();
     enhanceAllCards();
     enhanceManualWriteRequests();
@@ -1041,6 +1248,10 @@
     toolResultToText,
     formatPermissionMarkerSummary,
     shouldAutoClickRunButton,
+    selectNextAutoRunButton,
+    isPlaceholderToolCard,
+    normalizeGrokJsonlText,
+    isKimiPermissionBridgeHost,
   };
 
   if (typeof module !== "undefined" && module.exports) {

@@ -15,14 +15,14 @@ async function sha256(filePath) {
 test("local fixed MCP extension loads the Grok automation sidecar after its input integration", async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(extensionRoot, "manifest.json"), "utf8"));
   const grokScripts = manifest.content_scripts.filter((entry) =>
-    entry.js.includes("content/index.iife.js")
+    entry.js.includes("content/index-main.iife.js")
       && entry.matches.some((match) => /grok\.com|x\.com|twitter\.com/.test(match))
   );
 
   assert.ok(grokScripts.length >= 2);
   for (const entry of grokScripts) {
     assert.deepEqual(entry.js, [
-      "content/index.iife.js",
+      "content/index-main.iife.js",
       "content/local-automation-bridge.js",
       "content/grok-zh-localization.js",
     ]);
@@ -88,4 +88,12 @@ test("main model entry preserves the readable GitHub prompt injection", async ()
   assert.doesNotMatch(source, /浣跨敤璇存槑|鏆傛棤鍙敤宸ュ叿|宸ュ叿璋冪敤/);
   assert.match(source, /DeepSeekAdapter/);
   assert.match(source, /web_Agent/);
+});
+
+test("main model instructions keep multi-step tool work queued until one final report", async () => {
+  const mainEntry = await fs.readFile(path.join(extensionRoot, "content/index-main.iife.js"), "utf8");
+
+  assert.match(mainEntry, /多步骤任务必须维护待办队列/);
+  assert.match(mainEntry, /全部步骤完成后再统一汇报/);
+  assert.match(mainEntry, /收到每个工具结果后继续执行队列中的下一项/);
 });

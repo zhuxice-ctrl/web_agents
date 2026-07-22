@@ -5,9 +5,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const backgroundSource = fs.readFileSync(path.join(testDir, "../legacy-extension/background.js"), "utf8");
+const backgroundSource = fs.readFileSync(
+  path.join(testDir, "../../../extensions/mcp-superassistant-local-fixed/background.js"),
+  "utf8",
+);
 
-test("legacy background keeps permission request payloads for approve-and-retry", () => {
+test("active background keeps permission request payloads for approve-and-retry", () => {
   assert.ok(backgroundSource.includes("WEB_AGENT_PERMISSION_PENDING_CALLS_KEY"));
   assert.ok(backgroundSource.includes("chrome.storage.local.set({ [WEB_AGENT_PERMISSION_PENDING_CALLS_KEY]: e })"));
   assert.ok(backgroundSource.includes("findWebAgentPermissionMarker(s)"));
@@ -19,4 +22,6 @@ test("legacy background keeps permission request payloads for approve-and-retry"
   assert.ok(backgroundSource.includes("rememberWebAgentPermissionCall(i, { toolName: r, args: n || {}, adapterName: o })"));
   assert.ok(backgroundSource.includes('e.command === "webAgentPermissionApprove"'));
   assert.ok(backgroundSource.includes('e.command === "webAgentPermissionReject"'));
+  assert.ok(backgroundSource.includes('e.command === "webAgentPermissionGetLatest"'));
+  assert.ok(backgroundSource.includes('t === "kimi.com" || t.endsWith(".kimi.com")'));
 });

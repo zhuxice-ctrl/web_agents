@@ -30,7 +30,7 @@
     },
     {
       "js": [
-        "content/index.iife.js",
+        "content/index-main.iife.js",
         "content/local-automation-bridge.js",
         "content/grok-zh-localization.js"
       ],
@@ -41,7 +41,7 @@
     },
     {
       "js": [
-        "content/index.iife.js",
+        "content/index-main.iife.js",
         "content/local-automation-bridge.js",
         "content/grok-zh-localization.js"
       ],
