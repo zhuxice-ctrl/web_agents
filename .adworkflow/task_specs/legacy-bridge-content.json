@@ -1,0 +1,24 @@
+{
+  "task_id": "legacy-bridge-content",
+  "goal": "Implement the strict localhost protocol, page bridge, and provider content sidecar while delegating all insertion and submission to the existing legacy adapter.",
+  "scope": [
+    "extensions/mcp-superassistant-local-fixed/content/roundtable-protocol.js",
+    "extensions/mcp-superassistant-local-fixed/content/roundtable-page-bridge.js",
+    "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js",
+    "scripts/web-agent-roundtable-protocol.test.mjs",
+    "scripts/web-agent-roundtable-page-bridge.test.mjs",
+    "scripts/web-agent-roundtable-content-bridge.test.mjs"
+  ],
+  "non_goals": ["No manifest, background, server, UI, MCP parser, tool execution, or generated-bundle edits."],
+  "do_not_touch": ["extensions/mcp-superassistant-local-fixed/content/index.iife.js", "user browser tabs"],
+  "acceptance_criteria": [
+    "Only fixed port-3020 localhost origins and allowlisted request schemas cross the page bridge.",
+    "Secrets and URL query/hash data are recursively removed from bridge responses.",
+    "Auto-send protects user drafts and calls only the active legacy adapter.",
+    "Only provider-specific assistant nodes are captured; JSONL user content is never executed."
+  ],
+  "risk_level": "high",
+  "execution_mode": "worker_with_main_review",
+  "allowed_actions": ["read", "edit_scoped_files", "run_focused_tests"],
+  "required_outputs": ["patch", "focused_test_result", "changed_file_list"]
+}

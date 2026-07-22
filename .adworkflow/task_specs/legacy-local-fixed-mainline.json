@@ -1,0 +1,28 @@
+{
+  "task_id": "legacy-local-fixed-mainline",
+  "goal": "Switch the current implementation mainline back to the existing local-fixed MCP SuperAssistant extension and only enhance that plugin for current usable features.",
+  "non_goals": [
+    "Do not continue implementing extensions/web-agents-extension in the current mainline.",
+    "Do not replace the legacy MCP SuperAssistant user experience with a popup-only prototype.",
+    "Do not rewrite the bundled extension unless a focused adapter fix is required."
+  ],
+  "acceptance_criteria": [
+    "Root README identifies extensions/mcp-superassistant-local-fixed as the current usable plugin.",
+    "PRD/ARCH/TODO identify the legacy plugin as the current mainline and the new extension as an experimental rewrite only.",
+    "Legacy plugin README includes Doubao in supported providers and describes Doubao smoke testing.",
+    "ADworkflo active task spec targets legacy-local-fixed-mainline.",
+    "Next implementation steps only touch the legacy plugin or local MCP/gateway execution layer unless explicitly redirected by the user."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json",
+    "review_findings.json"
+  ]
+}

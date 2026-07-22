@@ -97,6 +97,18 @@ test("roundtable HTTP API creates session and returns prompts", async () => {
     assert.equal(created.ok, true);
     assert.equal(created.session.participants.length, 2);
 
+    const health = await fetch(`${baseUrl}/api/health`).then((response) => response.json());
+    assert.ok(["dual_write", "json_fallback"].includes(health.controlStore.mode));
+    assert.equal(health.controlStore.schemaVersion, 2);
+    assert.equal(
+      health.controlStore.migrationStatus,
+      health.controlStore.available ? "current" : health.controlStore.enabled ? "failed" : "disabled",
+    );
+    assert.equal(typeof health.controlStore.conflictCount, "number");
+    const executions = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(created.session.id)}/executions`).then((response) => response.json());
+    assert.equal(executions.source, health.controlStore.available ? "sqlite_primary" : "json");
+    assert.deepEqual(executions.executions, []);
+
     const prompt = await fetch(
       `${baseUrl}/api/sessions/${encodeURIComponent(created.session.id)}/prompt?provider=deepseek`
     ).then((response) => response.json());
@@ -105,6 +117,65 @@ test("roundtable HTTP API creates session and returns prompts", async () => {
   } finally {
     server.close();
   }
+});
+
+test("execution API reads SQLite first and falls back to JSON when disabled", async (t) => {
+  const sqliteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-primary-"));
+  const sqliteServer = createRoundtableServer({ repoRoot: sqliteRoot, sqliteControlEnabled: true });
+  sqliteServer.listen(0, "127.0.0.1");
+  await once(sqliteServer, "listening");
+  t.after(() => sqliteServer.close());
+  const sqliteBase = `http://127.0.0.1:${sqliteServer.address().port}`;
+  const created = await fetch(`${sqliteBase}/api/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "SQLite primary", objective: "", participants: ["chatgpt"] }),
+  }).then((response) => response.json());
+  const stale = {
+    executionId: "exec-primary",
+    attemptId: "attempt-primary",
+    idempotencyKey: "logical-primary",
+    sessionId: created.session.id,
+    planId: "plan",
+    turnId: "turn",
+    providerId: "chatgpt",
+    status: "running",
+    executionPhase: "capturing",
+    sendState: "SENT",
+    createdAt: "2026-07-21T00:00:00.000Z",
+    updatedAt: "2026-07-21T00:00:01.000Z",
+  };
+  await sqliteServer.runtime.store.updateSession(created.session.id, (session) => {
+    session.executionIndex = [stale];
+    return session;
+  });
+  sqliteServer.runtime.controlStore.upsertExecution({
+    ...stale,
+    status: "completed",
+    executionPhase: "committed",
+    sendState: "COMMITTED",
+    updatedAt: "2026-07-21T00:00:02.000Z",
+  });
+  const primary = await fetch(`${sqliteBase}/api/sessions/${encodeURIComponent(created.session.id)}/executions`)
+    .then((response) => response.json());
+  assert.equal(primary.source, "sqlite_primary");
+  assert.equal(primary.executions[0].sendState, "COMMITTED");
+
+  const jsonRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-json-"));
+  const jsonServer = createRoundtableServer({ repoRoot: jsonRoot, sqliteControlEnabled: false });
+  jsonServer.listen(0, "127.0.0.1");
+  await once(jsonServer, "listening");
+  t.after(() => jsonServer.close());
+  const jsonBase = `http://127.0.0.1:${jsonServer.address().port}`;
+  const jsonCreated = await fetch(`${jsonBase}/api/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "JSON fallback", objective: "", participants: ["chatgpt"] }),
+  }).then((response) => response.json());
+  const fallback = await fetch(`${jsonBase}/api/sessions/${encodeURIComponent(jsonCreated.session.id)}/executions`)
+    .then((response) => response.json());
+  assert.equal(fallback.source, "json");
+  assert.equal(jsonServer.runtime.controlStore.describe().migrationStatus, "disabled");
 });
 
 test("roundtable command parser resolves all, single target, and pair discussion", async () => {

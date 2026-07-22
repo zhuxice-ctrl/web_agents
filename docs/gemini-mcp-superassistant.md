@@ -5,7 +5,7 @@ Gemini、DeepSeek 等网页端可以通过 MCP SuperAssistant 浏览器扩展连
 如果商店版扩展不稳定，或者需要本地修改过的站点权限，可以使用仓库里的本地解包版：
 
 ```text
-extensions/mcp-superassistant-local-fixed
+products/plugin/extension
 ```
 
 安装方式见：[本地魔改版 MCP SuperAssistant 扩展](local-fixed-extension.md)。

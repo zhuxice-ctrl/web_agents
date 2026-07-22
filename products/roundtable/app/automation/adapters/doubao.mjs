@@ -7,9 +7,14 @@ export class DoubaoAdapter extends BaseProviderAdapter {
       label: "豆包",
       url,
       inputSelectors: [
-        "textarea",
-        ".semi-input-textarea[contenteditable='true']",
+        'textarea[data-testid*="chat"]',
+        'textarea[placeholder*="发消息"]',
+        'textarea[placeholder*="发送"]',
+        '[data-placeholder*="发消息"][contenteditable="true"]',
+        '[aria-label*="发消息"][contenteditable="true"]',
         "div[contenteditable='true'][role='textbox']",
+        ".semi-input-textarea[contenteditable='true']",
+        "textarea:not([readonly]):not([disabled])",
         "div[contenteditable='true']",
       ],
       submitSelectors: [

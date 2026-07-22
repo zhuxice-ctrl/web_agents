@@ -1,0 +1,54 @@
+{
+  "task_id": "legacy-permission-loop-minimal",
+  "goal": "Implement the smallest usable permission approval loop for the legacy web_Agent plugin so an out-of-whitelist write can produce a structured permission marker, be approved locally, and be retried without manual PowerShell copy/paste.",
+  "scope": [
+    "scripts/web-agent-filesystem-server.mjs",
+    "scripts/web-agent-permission-store.mjs",
+    "scripts/web-agent-image-save-gateway.mjs",
+    "extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js",
+    "extensions/mcp-superassistant-local-fixed/background.js",
+    "extensions/mcp-superassistant-local-fixed/manifest.json",
+    "scripts/*permission*.test.mjs",
+    "scripts/web-agent-filesystem-server.test.mjs",
+    "scripts/web-agent-image-save-gateway.test.mjs",
+    "scripts/web-agent-result-enhancer.test.mjs"
+  ],
+  "non_goals": [
+    "Do not implement or fix the rewrite plugin roundtable workflow in F:\\web_agents-new-plugin-rewrite.",
+    "Do not add highest-permission mode.",
+    "Do not approve whole drives, home directories, or arbitrary roots by default.",
+    "Do not rewrite the bundled legacy plugin into React or TypeScript.",
+    "Do not make browser UI the final permission authority.",
+    "Do not edit content/index.iife.js unless the small helper script approach is proven insufficient."
+  ],
+  "acceptance_criteria": [
+    "Out-of-whitelist write tools return a human-readable message plus a machine-readable web_Agent permission marker.",
+    "The marker includes requestId, operation/toolName, targetPaths, directoriesToApprove, argsHash, expiresAt, and suggestedApprovalRoot.",
+    "A local permission store can create pending requests, approve/reject them, issue a one-time approval token, and consume the token only once for matching operation, target paths, and argsHash.",
+    "The 3017 gateway exposes permission approve/reject routes without breaking /save-gpt-image and /save-tool-result.",
+    "The content result enhancer can parse a permission marker from tool output and expose approval UI metadata for browser rendering.",
+    "The legacy background script stores original mcp:call-tool payloads for permission requests and can approve then retry the original call once.",
+    "Automated tests cover the marker, store, gateway API behavior, and result enhancer parsing.",
+    "Static verification passes for modified scripts and extension files."
+  ],
+  "risk_level": "high",
+  "execution_mode": "solo_with_review",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    ".adworkflow/context_manifest.json",
+    ".adworkflow/worker_state.json",
+    ".adworkflow/verification_result.json",
+    ".adworkflow/review_findings.json",
+    "progress.md",
+    "task_plan.md"
+  ],
+  "notes": [
+    "User requested goal mode plus ADworkflo management and a report after completing this phase.",
+    "Claude qwen3.7-max technical review said implementation can start only for the old plugin permission-loop minimal slice.",
+    "TDD is required: write failing tests before production changes."
+  ]
+}

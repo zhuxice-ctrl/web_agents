@@ -1,0 +1,28 @@
+{
+  "task_id": "permission-config-sync",
+  "goal": "Define and implement the plugin-facing permission/config synchronization contract for standard mode and high-privilege state.",
+  "non_goals": [
+    "Do not claim true enforcement unless a local gateway actually enforces it.",
+    "Do not make high-privilege mode default.",
+    "Do not permit silent path-outside writes."
+  ],
+  "acceptance_criteria": [
+    "UI displays standard mode as the default permission mode.",
+    "UI displays allowed roots and high-privilege state from local config or gateway response.",
+    "The contract distinguishes read/list/search from write/delete/move/rename/create operations.",
+    "Path-outside mutation operations require a confirmation flow in the contract.",
+    "If the local gateway is not implemented yet, UI labels enforcement status honestly."
+  ],
+  "risk_level": "high",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json",
+    "review_findings.json"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "task_id": "verification-release-prep",
+  "goal": "Prepare MVP verification, documentation, and release readiness for the new extension.",
+  "non_goals": [
+    "Do not publish to Chrome Web Store in this task.",
+    "Do not remove the current local-fixed extension.",
+    "Do not claim browser compatibility beyond tested browsers."
+  ],
+  "acceptance_criteria": [
+    "Build/typecheck commands pass or skipped commands are recorded with reasons.",
+    "Manual Chrome unpacked-extension smoke checklist is completed.",
+    "README or docs explain how to load the new extension.",
+    "Known limitations and high-risk permission notes are documented.",
+    "review_findings.json is updated for medium/high risk surfaces."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json",
+    "review_findings.json"
+  ]
+}

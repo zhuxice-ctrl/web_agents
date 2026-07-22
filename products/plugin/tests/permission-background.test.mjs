@@ -5,9 +5,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const backgroundSource = fs.readFileSync(path.join(testDir, "../legacy-extension/background.js"), "utf8");
+const backgroundSource = fs.readFileSync(path.join(testDir, "../extension/background.js"), "utf8");
 
-test("legacy background keeps permission request payloads for approve-and-retry", () => {
+test("extension background keeps permission request payloads for approve-and-retry", () => {
   assert.ok(backgroundSource.includes("WEB_AGENT_PERMISSION_PENDING_CALLS_KEY"));
   assert.ok(backgroundSource.includes("chrome.storage.local.set({ [WEB_AGENT_PERMISSION_PENDING_CALLS_KEY]: e })"));
   assert.ok(backgroundSource.includes("findWebAgentPermissionMarker(s)"));

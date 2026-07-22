@@ -40,3 +40,12 @@ test("technical failure classification covers empty, capture failure, and comple
   );
   assert.equal(technicalFailureForResult({ text: "完整回答", capture: { truncated: false } }), null);
 });
+
+test("missing derived structure does not lower natural reply quality", () => {
+  const analysis = analyzeReplyQuality("这是一段正常的自由讨论。", { structureStatus: "invalid" });
+
+  assert.equal(analysis.structureStatus, "invalid");
+  assert.equal(analysis.confidence, "candidate");
+  assert.equal(analysis.sideEffectsAllowed, true);
+  assert.doesNotMatch(analysis.flagCodes.join(","), /invalid_structure|recovered_structure/);
+});

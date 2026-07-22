@@ -1,0 +1,56 @@
+{
+  "schema": "ADworkflo.context_manifest.v1",
+  "task_id": "roundtable-expansion-automation",
+  "context_level": "L1-index",
+  "read_first": [
+    "extensions/web-agents-extension/src/background/roundtable-orchestrator.test.ts",
+    "extensions/web-agents-extension/src/sessions/roundtable.test.ts",
+    "extensions/mcp-superassistant-local-fixed/content/roundtable-page-bridge.js",
+    "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js",
+    "extensions/mcp-superassistant-local-fixed/roundtable-background.js",
+    "extensions/web-agents-extension/src/background/provider-tabs.test.ts",
+    "extensions/web-agents-extension/src/background/roundtable-orchestrator.ts",
+    "extensions/web-agents-extension/src/sessions/roundtable.ts",
+    "docs/superpowers/specs/2026-07-17-roundtable-expansion-design.md",
+    "docs/superpowers/plans/2026-07-17-roundtable-expansion-implementation.md",
+    "findings.md",
+    ".codex/AGENT_HEADER.md",
+    ".adworkflow/permissions.md",
+    ".adworkflow/verification_commands.md"
+  ],
+  "relevant_symbols": [
+    "chooseProviderTab (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:45)",
+    "runProviderAuthProbe (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:79)",
+    "pauseWithProviderError (extensions/web-agents-extension/src/background/roundtable-orchestrator.ts:43)",
+    "getNextRoundtableProvider (extensions/web-agents-extension/src/sessions/roundtable.ts:128)",
+    "providerIdForUrl (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:23)",
+    "sanitizeProviderUrl (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:35)",
+    "isVisiblePageControl (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:146)",
+    "hasVisibleControl (extensions/mcp-superassistant-local-fixed/roundtable/background-core.js:166)",
+    "requireProvider (extensions/mcp-superassistant-local-fixed/roundtable-background.js:76)",
+    "boundProviderForTab (extensions/mcp-superassistant-local-fixed/roundtable-background.js:248)",
+    "queryProviderTabs (extensions/mcp-superassistant-local-fixed/roundtable-background.js:430)",
+    "discoverProviders (extensions/mcp-superassistant-local-fixed/roundtable-background.js:439)"
+  ],
+  "entrypoints": [
+    "apps/roundtable-web/server.mjs",
+    "apps/roundtable-web/orchestrator/scheduler.mjs",
+    "apps/roundtable-web/storage/local-workspace-store.mjs",
+    "apps/roundtable-web/automation/browser-manager.mjs",
+    "apps/roundtable-web/public/app.js",
+    "scripts/start-web-agents-roundtable.ps1",
+    "start-web-agents.bat"
+  ],
+  "likely_tests": [
+    "extensions/web-agents-extension/src/background/provider-tabs.test.ts",
+    "extensions/web-agents-extension/src/background/roundtable-orchestrator.test.ts",
+    "extensions/web-agents-extension/src/sessions/roundtable.test.ts",
+    "extensions/web-agents-extension/src/ui/panels/RoundtableSessionPanel.test.tsx"
+  ],
+  "do_not_touch": [
+    "extensions/mcp-superassistant-local-fixed/content/index.iife.js",
+    "browser profile credentials and user-owned conversations",
+    "unrelated dirty-worktree files"
+  ],
+  "open_questions": []
+}

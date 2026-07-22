@@ -3,10 +3,10 @@
 本仓库当前可实机使用的浏览器插件在：
 
 ```text
-extensions/mcp-superassistant-local-fixed
+products/plugin/extension
 ```
 
-这条线只做旧插件小步增强：站点适配、说明优化、默认配置、权限提示和小范围 UI 文案。新插件重构不放在这里。
+这是当前唯一保留的正式插件版本。后续站点适配、说明优化、默认配置、权限提示和 UI 调整都直接在此目录维护。
 
 ## 1. 启动本地 MCP 后端
 
@@ -34,7 +34,7 @@ http://127.0.0.1:3006/sse
 5. 选择：
 
 ```text
-F:\web_agents\extensions\mcp-superassistant-local-fixed
+F:\web_agents\products\plugin\extension
 ```
 
 6. 加载后打开或刷新 DeepSeek、豆包、Gemini、Qwen 等网页。
@@ -96,7 +96,7 @@ https://www.doubao.com/chat/
 4. 预期输入框附近出现 `MCP` 按钮。
 5. 打开右侧面板，确认能看到文件系统工具，例如 `write_file`、`read_text_file`、`list_directory`。
 
-如果按钮没有出现，只优先修旧插件里的 Doubao adapter 选择器，不改新插件重构工程。
+如果按钮没有出现，优先修当前插件里的 Doubao adapter 选择器。
 
 ## 6. 本地后端直接验证
 
@@ -128,14 +128,14 @@ F:\web_agents
 - `read_text_file`、`write_file`、`edit_file` 适合处理 `.txt`、`.md`、`.json`、代码文件等文本内容。
 - `list_directory`、`create_directory`、`move_file` 适合目录浏览、创建和移动。
 - 图片、音频、视频、压缩包、Office 文档等不要用文本读写工具直接处理，否则可能得到乱码或损坏文件。
-- 后端工具列表里如果出现 `read_media_file`，可以把允许目录内的图片读成 base64/MIME；在 ChatGPT 页面，旧插件会把支持的图片结果转换成浏览器 `File`，再通过已有 GPT 上传入口附加到输入框。
+- 后端工具列表里如果出现 `read_media_file`，可以把允许目录内的图片读成 base64/MIME；在 ChatGPT 页面，插件会把支持的图片结果转换成浏览器 `File`，再通过已有 GPT 上传入口附加到输入框。
 - 当前 GPT 图片试验功能支持 `png`、`jpg/jpeg`、`webp`、`gif`，插件只负责附加图片，不自动发送。
 - 如果图片在同一个文件夹里，先用 `list_directory` 或 `search_files` 找出图片；结果卡片识别到图片路径后会显示 `附加最多20张图片到 GPT`，超过 20 张只取前 20 张。
 - 启动 `scripts/start-gemini-backend.local.ps1` 后会同时启动 `http://127.0.0.1:3017` 图片保存服务。ChatGPT 新生成的 assistant 图片会尝试自动保存到 `F:\web_agents\generated\gpt-images\`。
 - 如果最近一条用户消息里包含 `F:\web_agents\...` 路径，生成图会优先保存到这个路径所在目录，例如 `F:\web_agents\test\demo.png` 会让生成图保存到 `F:\web_agents\test\`。自动保存只允许写入 `F:\web_agents` 目录内。
 - 自动保存会跳过头像、用户上传预览、历史旧图和小图标；如果页面提示“本地图片保存服务未连接”，重新运行本地启动脚本后再生成新图片。
 - ChatGPT 不能只靠一段 Windows 路径读取原图。要转换本地图片时，先通过 `read_media_file` 读取图片并点击 `附加到 GPT`，确认输入框出现图片预览后再发送生成请求。
-- 当前旧插件不提供稳定的图片编辑、音频理解、视频处理、Office/PDF 解析或多模态文件写入流程。
+- 当前插件不提供稳定的图片编辑、音频理解、视频处理、Office/PDF 解析或多模态文件写入流程。
 
 简单说：现在先把“本地文本文件 + 目录操作”当成可靠能力；GPT 本地图片上传分析可以按试验流程使用，GPT 新生成图片会尽量自动保存到本地工程目录。
 

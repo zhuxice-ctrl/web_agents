@@ -1,96 +1,161 @@
-# Web Agents Extension
+# web_Agent 本地插件
 
-新的可维护浏览器插件源码工程。
+这是当前可实机使用的 web_Agent 浏览器插件本地解压版，目录为：
 
-## 当前阶段：Provider Adapter Foundation
+```text
+products/plugin/extension
+```
 
-第一阶段先统一网页 AI 站点适配底座。Provider 信息集中在 `src/providers/catalog.ts`，background、content script、多模型看板和默认参与模型都从这里读取。
+当前本地版本：`0.6.7`。
 
-当前 provider 范围：
+这是当前唯一保留的正式插件版本。后续修改直接在本目录进行，不再维护另一套重构版或构建目录。
+
+本插件只提供正常网页增强、MCP 和权限功能，不包含圆桌桥、圆桌调度或圆桌页面权限。圆桌作为独立产品开发和运行。
+
+## 快速开始
+
+1. 启动本地 MCP 后端：
+
+```powershell
+cd F:\web_agents
+.\scripts\start-gemini-backend.local.ps1
+```
+
+2. 打开 Chrome：
+
+```text
+chrome://extensions
+```
+
+3. 开启 `开发者模式`。
+4. 点击 `加载已解压的扩展程序`。
+5. 选择：
+
+```text
+F:\web_agents\products\plugin\extension
+```
+
+6. 在插件连接设置里使用：
+
+```text
+Connection Type: Server-Sent Events (SSE)
+Server URI: http://127.0.0.1:3006/sse
+```
+
+7. 刷新 DeepSeek、豆包、Gemini、Qwen 等网页。
+
+## 使用方式
+
+网页模型本身不会直接拥有本地文件权限。web_Agent 的流程是：先把工具说明插入网页模型上下文，让模型输出 `jsonl` 工具调用，再由插件调用本地 MCP 后端执行。
+
+建议第一次使用时：
+
+1. 打开右侧 web_Agent 面板。
+2. 确认 `Server Connected`。
+3. 切到 `使用说明`。
+4. 插入说明并发送。
+5. 再请求模型进行文件操作。
+
+示例请求：
+
+```text
+请使用 web_Agent 的 write_file 工具，在 F:\web_agents\hello.md 写入：你好。只输出 jsonl 工具调用。
+```
+
+## 已包含站点权限
 
 - ChatGPT
 - Gemini
-- DeepSeek
-- Kimi
-- GLM / Zhipu
-- Qwen
-- 豆包
-- Grok
 - Google AI Studio
+- DeepSeek
+- BigModel / Zhipu / GLM
+- Qwen
+- Kimi
+- Doubao
+- GitHub Copilot
 
-默认行为仍是 insert-only：插件只把任务写入网页原生输入框，不自动发送。
+## 排障
 
-验证命令：
+- `SSE error: Failed to fetch`：本地 MCP 后端未启动，或地址不是 `http://127.0.0.1:3006/sse`。
+- 工具列表为空：刷新网页，确认后端运行，并避免商店版和本地版插件同时启用。
+- 模型说不能访问本地文件：先插入 `使用说明`，并要求它只输出 `jsonl` 工具调用。
+- 没有 `Run` 按钮：模型输出格式不符合插件解析规则。
+- 写入跨目录失败：工具结果会返回授权命令；运行后不需要重启，回到工具卡片点击“重新运行 / Run again”。
 
-```powershell
-npm test
-npm run typecheck
-npm run build
-```
+## 权限与路径
 
-## 技术栈
+当前插件走标准本地 MCP 文件系统权限：浏览器插件负责把工具调用转给本地后端，真正的文件权限由后端控制。默认是“标准模式”：浏览/读取可以跨目录；写入、覆盖、编辑、创建目录、移动文件必须在 writable allowed directories 白名单内。
 
-- Chrome Manifest V3
-- React
-- TypeScript
-- Vite
-
-## 开发命令
-
-```powershell
-npm install
-npm run typecheck
-npm run build
-```
-
-构建后在 Chrome 中加载：
-
-```text
-products/plugin/extension/dist
-```
-
-## 当前范围
-
-- 默认中文 UI，支持 English。
-- 当前网页 AI 页面检测。
-- 将任务插入当前网页原生输入框。
-- MCP SSE 连接状态检查和 `tools/list` 展示。
-- 工具风险分级和 schema 可解析状态展示。
-- 权限模式、允许路径和高风险状态展示。
-- 可选读取 `http://127.0.0.1:3007/config` 本地权限网关。
-- 多模型任务看板，默认只启用当前页面；其他模型必须手动勾选并打开子页面。
-- 支持向已打开的参与模型插入任务，并捕获最新回复快照。
-
-## 本地服务
-
-在仓库根目录启动：
+如果写入目标不在白名单内，工具会返回中文授权提示，例如：
 
 ```powershell
-.\scripts\start-gemini-backend.local.ps1
-.\scripts\start-web-agents-gateway.local.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\add-allowed-directory.local.ps1 "C:\Users\Lenovo\Desktop"
 ```
 
-默认端点：
+运行授权命令后，该目录会永久写入 `config\allowed-directories.local.txt`。新白名单会被后端动态读取，不需要重启；回到网页工具卡片点击“重新运行 / Run again”即可继续本次执行。
 
-```text
-MCP SSE: http://127.0.0.1:3006/sse
-权限网关: http://127.0.0.1:3007/config
+直接验证命令：
+
+```powershell
+cd F:\web_agents
+.\scripts\mcp-call.local.ps1 tools
+.\scripts\mcp-call.local.ps1 call list_allowed_directories '{}'
+.\scripts\mcp-call.local.ps1 call write_file '{"path":"F:\\web_agents\\hello-from-mcp.md","content":"MCP 写入测试"}'
 ```
 
-权限网关会读取仓库根目录下的 `config.local.json`，并从 `allowedRoots`、`permissions.allowedRoots` 或 filesystem MCP 参数里推导允许路径。
+如果这些命令能写入，但网页模型拒绝，优先检查是否已经插入 `使用说明`，以及模型是否输出了 `jsonl` 工具调用。
 
-## 暂不包含
+## 工具结果输出
 
-- 默认自动发送。
-- 默认打开所有模型页面。
-- 完整网页聊天历史同步。
-- 真实工具执行拦截仍应由本地 MCP/网关在执行前再次校验，插件 UI 不能作为唯一安全边界。
+工具执行成功后，优先看结果卡片里的 `web_Agent 稳定结果`。这块结果由插件自己渲染，会保留换行、目录列表和授权命令，不依赖网页原生输入框。
 
-## 手动验证清单
+- `复制结果`：直接复制完整工具结果。
+- `保存到本地`：保存到 `F:\web_agents\generated\tool-results\`。
+- 长结果会自动尝试保存到本地，并在卡片中显示保存路径。
+- `插入` 仍然保留，用于手动把结果写回网页输入框；如果当前网页输入框定位失败，会自动复制结果并提示手动粘贴，不影响卡片结果和本地保存。
 
-- 在 Chrome `chrome://extensions` 加载 `dist`。
-- 打开 ChatGPT / Gemini / DeepSeek 任一页面，确认“当前页面”显示可插入。
-- 输入任务，点击“插入当前页面”，确认文本进入网页原生输入框且没有自动发送。
-- 启动 MCP 后端后点击“检查连接”，确认工具数量和风险标签显示。
-- 启动权限网关后刷新插件，确认权限摘要显示“本地网关”和允许路径。
-- 在多模型看板中手动勾选其他 provider，点击打开，再等待页面加载后插入。
+## 文本与多模态能力边界
+
+当前插件的稳定能力以文本文件和目录操作为主。`read_text_file`、`write_file`、`edit_file` 适合文本、Markdown、JSON、代码等内容；图片、音频、视频、压缩包和 Office 文档不要直接用文本工具读写。
+
+如果后端暴露了 `read_media_file`，它更接近“读取媒体文件为 base64/MIME 供传输”。当前插件先支持 GPT 图片上传分析，其他多模态能力仍需要单独做页面适配、工具设计和实机验证。
+
+### GPT 图片读取试验功能
+
+当 MCP 工具返回 `read_media_file` 的图片结果时，结果卡片会显示 `附加到 GPT`。
+
+使用方式：
+
+1. 确认图片在允许目录内，例如 `F:\web_agents\images\demo.png`。
+2. 在 ChatGPT 页面插入 web_Agent 使用说明。
+3. 让 ChatGPT 调用 `read_media_file` 读取图片。
+4. 工具执行成功后点击结果卡片里的 `附加到 GPT`。
+5. 等 ChatGPT 输入框出现图片预览后，再手动发送。
+
+第一版只支持 `png`、`jpg/jpeg`、`webp`、`gif`。音频、视频、Office、PDF 和图片编辑暂不作为稳定能力。
+
+如果图片在同一个文件夹里，先让模型调用 `list_directory` 或 `search_files` 找出图片。结果卡片会在识别到图片路径后显示 `附加最多20张图片到 GPT`，点击后插件会逐张读取并附加，超过 20 张时只取前 20 张。看到 ChatGPT 输入框里的图片预览后，再手动发送。
+
+### GPT 生成图片自动保存
+
+启动 `scripts/start-gemini-backend.local.ps1` 后，会同时启动本地图片保存服务：
+
+- MCP 地址：`http://127.0.0.1:3006/sse`
+- 图片保存服务：`http://127.0.0.1:3017`
+- 默认保存目录：`F:\web_agents\generated\gpt-images\`
+
+在 ChatGPT 页面生成新图片时，插件会尝试自动保存 assistant 新生成的图片结果。插件会跳过头像、用户上传预览、历史旧图和小图标。保存成功后页面会显示中文提示和本地绝对路径。
+
+默认保存到 `F:\web_agents\generated\gpt-images\`。如果最近一条用户消息里包含 `F:\web_agents\...` 路径，插件会优先保存到这个路径所在目录。例如消息里写了 `F:\web_agents\test\demo.png`，生成图会保存到 `F:\web_agents\test\`。出于安全边界，自动保存只允许写入 `F:\web_agents` 目录内。
+
+注意：ChatGPT 网页端不能只靠一段 Windows 文件路径看见原图。如果你要“把本地图片转换成卡通版”，先让 MCP 调用 `read_media_file` 并点击结果卡片里的 `附加到 GPT`，等输入框出现原图预览后再发送生成请求。只把 `F:\...png` 当文字发给 GPT，模型通常会猜图，结果会不准。
+
+如果提示“本地图片保存服务未连接”，请重新运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-gemini-backend.local.ps1
+```
+
+## Upstream
+
+MCP SuperAssistant 是上游开源项目。本目录是为了本地桥接和二创准备的可运行固定版，已重命名为 web_Agent。

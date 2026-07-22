@@ -1,0 +1,38 @@
+{
+  "task_id": "roundtable-manual-browser-binding",
+  "goal": "Replace production Playwright browser launching and login navigation with user-owned manual Chrome startup plus verified existing-tab URL binding over loopback CDP.",
+  "scope": [
+    "apps/roundtable-web/**",
+    "scripts/start-web-agents-browser.ps1",
+    "start-web-agents-browser.bat",
+    "scripts/start-web-agents-roundtable.ps1",
+    "package.json",
+    ".adworkflow/**",
+    "docs/superpowers/plans/2026-07-16-manual-browser-url-binding.md"
+  ],
+  "non_goals": [
+    "Do not copy or inspect credentials, cookies, passwords, local storage, or the user's normal Chrome profile.",
+    "Do not bypass CAPTCHA, human verification, provider anti-bot checks, or browser security controls.",
+    "Do not treat a pasted URL as authentication without finding and validating the same existing tab in the connected manual browser.",
+    "Do not replace fake-provider launch-mode E2E tests or add official model APIs in this task."
+  ],
+  "acceptance_criteria": [
+    "Production runtime never launches Chrome or navigates provider/login pages automatically.",
+    "A user-started dedicated Chrome exposes a loopback-only CDP endpoint and keeps login and verification entirely manual.",
+    "Provider URL binding validates the allowlisted origin, strips query/hash from returned or persisted data, finds an existing matching tab, rejects login/verification states, and requires a usable composer.",
+    "Bound provider turns reuse the exact page without creating or navigating tabs.",
+    "Login or verification loss pauses the provider and requires explicit URL revalidation before retry.",
+    "The control page exposes per-provider URL fields and clear unbound, verified, and blocked states on desktop and mobile.",
+    "Launch-mode fake-provider E2E, server API tests, manual browser launcher tests, and the full local runtime suite pass."
+  ],
+  "risk_level": "high",
+  "execution_mode": "solo_with_claude_review",
+  "allowed_actions": ["read", "edit", "test", "start_local_services", "control_browser", "run_read_only_review"],
+  "required_outputs": [
+    ".adworkflow/artifacts/manual-browser-url-binding/requirements.md",
+    ".adworkflow/context_manifest.json",
+    ".adworkflow/worker_state.json",
+    ".adworkflow/verification_result.json",
+    ".adworkflow/review_findings.json"
+  ]
+}

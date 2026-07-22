@@ -1,0 +1,55 @@
+{
+  "project_size": "large",
+  "context_strategy": "architecture-first-l2-codegraph-after-code-exists",
+  "source_file_count": 5,
+  "source_line_count": 20770,
+  "languages": [
+    "javascript"
+  ],
+  "include_dirs": [
+    "."
+  ],
+  "supported_queries": [
+    "find_definition",
+    "find_importers",
+    "tests_for",
+    "summarize_file"
+  ],
+  "classification_source": "product_docs",
+  "execution_mode": "orchestrator-with-workers-and-reviewers",
+  "expected_complexity_score": 28,
+  "planned_modules": [
+    "agent_orchestrator",
+    "auth_permissions",
+    "backend",
+    "database",
+    "deployment",
+    "frontend",
+    "memory_system",
+    "multi_platform_clients",
+    "observability",
+    "rag_pipeline",
+    "risk_control",
+    "state_machine",
+    "testing",
+    "third_party_integrations",
+    "tool_runtime"
+  ],
+  "risk_areas": [
+    "external dependency failure",
+    "hallucination",
+    "irreversible action",
+    "memory pollution",
+    "permission boundary",
+    "runtime observability gap",
+    "safety boundary",
+    "state drift",
+    "tool misuse"
+  ],
+  "agent_features": [
+    "long_term_memory",
+    "rag",
+    "stateful_orchestration",
+    "tool_calling"
+  ]
+}

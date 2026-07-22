@@ -13,7 +13,7 @@ function loadContentScriptExports(filePath) {
 }
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const enhancer = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-result-enhancer.js"));
+const enhancer = loadContentScriptExports(path.join(testDir, "../extension/content/web-agent-result-enhancer.js"));
 
 test("extractToolResultText returns text between Run and execution history", () => {
   const cardText = [

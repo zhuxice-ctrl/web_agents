@@ -35,6 +35,16 @@ test("run registry resolves retry, skip, and manual recovery actions", async () 
   assert.deepEqual(await manualWait, { action: "manual", content: "人工粘贴的真实回复" });
 });
 
+test("duplicate recovery decisions with the same key are idempotent", async () => {
+  const registry = new RunRegistry();
+  registry.create({ runId: "run-idempotent", sessionId: "session", planId: "plan" });
+  const waiting = registry.waitForRecovery("run-idempotent", { id: "turn-1" }, new Error("SEND_UNKNOWN"));
+  const first = registry.retry("run-idempotent", "turn-1", { decisionKey: "decision-1" });
+  const duplicate = registry.retry("run-idempotent", "turn-1", { decisionKey: "decision-1" });
+  assert.equal(first.status, duplicate.status);
+  await waiting;
+});
+
 test("pausing a run waiting for recovery is an idempotent no-op", async () => {
   const registry = new RunRegistry();
   registry.create({ runId: "run-waiting", sessionId: "session", planId: "plan", controller: new AbortController() });

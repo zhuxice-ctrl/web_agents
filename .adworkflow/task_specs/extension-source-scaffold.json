@@ -1,0 +1,29 @@
+{
+  "task_id": "extension-source-scaffold",
+  "goal": "Create the maintainable Chrome MV3 extension source project under extensions/web-agents-extension.",
+  "non_goals": [
+    "Do not implement all provider adapters in this task.",
+    "Do not replace the existing local-fixed extension.",
+    "Do not add automatic sending behavior."
+  ],
+  "acceptance_criteria": [
+    "extensions/web-agents-extension exists with package.json, manifest, Vite, TypeScript, React, and build scripts.",
+    "Source folders exist for background, content, ui, adapters, mcp, permissions, sessions, and i18n.",
+    "Chinese is the default UI language and English resources exist.",
+    "The extension build output can be loaded by Chrome as an unpacked MV3 extension.",
+    "Typecheck and build commands are documented and runnable."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test",
+    "create_files_under_project",
+    "install_dependencies_after_user_confirmation"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json"
+  ]
+}

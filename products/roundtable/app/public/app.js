@@ -5,9 +5,17 @@ import {
   removeToken,
 } from "./composer-model.mjs";
 import { findSnappedHost, HOST_POINT, stepRoundtablePhysics } from "./roundtable-physics.mjs";
+import { createDetailSidebarController } from "./detail-sidebar-controller.mjs";
+import { hardenRenderedLinks, markdownForEvent, renderSafeMarkdown } from "./conversation-renderer.mjs";
+import { bindProgressDisclosure, captureProgressView, restoreProgressView } from "./progress-disclosure-controller.mjs";
+import { resolveRoundtableCommand } from "./roundtable-command-model.mjs";
+import { resolveThreadStatus } from "./thread-status-model.mjs";
+import { TurnProgressStore } from "./turn-progress-store.mjs";
+import { createWorkspaceSplitController } from "./workspace-split-controller.mjs";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const LAST_SESSION_STORAGE_KEY = "web-agents-roundtable:last-session";
 
 const state = {
   health: null,
@@ -16,6 +24,8 @@ const state = {
   sessions: [],
   session: null,
   audit: [],
+  executionIndex: [],
+  pendingExecutions: [],
   tokens: [{ id: "all", label: "全体", kind: "all" }],
   rounds: 3,
   conversationMode: "discussion",
@@ -30,6 +40,22 @@ const state = {
   animationFrame: null,
   lastFrame: performance.now(),
 };
+
+const detailSidebarController = createDetailSidebarController({
+  workspace: $(".workspace-layout"),
+  sidebar: $(".detail-sidebar"),
+  collapseButton: $("#collapseDetailSidebarButton"),
+  restoreButton: $("#restoreDetailSidebarButton"),
+  storage: window.localStorage,
+});
+const turnProgressStore = new TurnProgressStore();
+const workspaceSplitController = createWorkspaceSplitController({
+  workspace: $(".roundtable-workspace"),
+  separator: $("#workspaceDivider"),
+  storage: window.localStorage,
+  mediaQuery: window.matchMedia("(max-width: 900px)"),
+  resizeTarget: window,
+});
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -76,7 +102,7 @@ function currentSettings() {
     autoSend: true,
     autoCapture: true,
     maxContextEvents: Number($("#maxContextEvents").value || 24),
-    providerConcurrency: Number($("#providerConcurrency").value || 3),
+    providerConcurrency: Number($("#providerConcurrency").value || 1),
     handoffThreshold: Number($("#handoffThreshold").value || 72),
     urgentHandoffThreshold: Number($("#urgentHandoffThreshold").value || 90),
   };
@@ -130,16 +156,6 @@ function renderSessionOptions() {
   select.value = state.session?.id || "";
 }
 
-function threadStatus(thread) {
-  const value = thread?.status || "unprovisioned";
-  if (["verified", "ready", "opened"].includes(value)) return { className: "is-ready", label: "线程可用" };
-  if (["waiting_login", "waiting_verification", "waiting_user", "manual_binding", "opening", "unprovisioned", "composer_missing"].includes(value)) {
-    const label = value === "waiting_login" ? "等待登录" : value === "waiting_verification" ? "等待验证" : value === "manual_binding" ? "等待绑定" : "线程待就绪";
-    return { className: "is-waiting", label };
-  }
-  return { className: "is-error", label: "线程异常" };
-}
-
 function capacityFor(thread) {
   const used = Number(thread?.deliveredChars || 0) + Number(thread?.capturedChars || 0);
   const percent = Math.max(0, Math.min(100, Math.round((used / 120000) * 100)));
@@ -156,17 +172,18 @@ function renderParticipants() {
   root.className = "participant-list";
   root.innerHTML = state.session.participants.map((participant) => {
     const thread = state.session.threads?.[participant.id];
-    const status = threadStatus(thread);
+    const status = resolveThreadStatus(thread, state.health?.browser?.bindings);
     const capacity = capacityFor(thread);
     const cursor = state.session.context?.seatCursors?.[participant.id] ?? thread?.lastDeliveredEventIndex ?? -1;
     const total = state.session.events?.length || 0;
     const synced = Math.min(total, Math.max(0, cursor + 1));
     return `
-      <div class="participant-row" data-provider-id="${escapeHtml(participant.id)}">
+      <div class="participant-row" data-provider-id="${escapeHtml(participant.id)}" title="${escapeHtml(status.detail || "")}">
         <span class="participant-avatar">${escapeHtml(participant.label.slice(0, 2))}<i class="${status.className}"></i></span>
         <span class="participant-info"><strong>${escapeHtml(participant.label)}</strong><small>${escapeHtml(status.label)} · 同步 ${synced}/${total}</small><span class="participant-progress"><i style="width:${capacity.percent}%"></i></span></span>
         <button class="participant-menu" type="button" aria-label="${escapeHtml(participant.label)} 席位菜单">•••</button>
         <span class="participant-actions">
+          <button type="button" data-action="reconnect">重新登录/刷新</button>
           <button type="button" data-action="handoff">交接包</button>
           <button type="button" data-action="remove">离席</button>
         </span>
@@ -206,14 +223,16 @@ function renderRoundtable() {
     return;
   }
   $("#roundtableEyebrow").textContent = state.session.title;
-  $("#roundtableObjective").textContent = state.session.objective || state.session.events?.find((event) => event.type === "command")?.content || "等待第一条指令";
+  const commandText = resolveRoundtableCommand(state.session);
+  $("#roundtableObjective").textContent = commandText;
+  $("#roundtableObjective").title = commandText;
   const activePlan = [...(state.session.plans || [])].reverse().find((plan) => ["running", "waiting_recovery", "completed"].includes(plan.status));
   const completedRounds = Math.max(0, ...(activePlan?.turns || []).filter((turn) => turn.status === "completed" && turn.role !== "closure").map((turn) => Number(turn.round || 0)));
   $("#roundProgress").textContent = activePlan ? `${completedRounds} / ${activePlan.rounds}${activePlan.status === "completed" ? " · 已收束" : ""}` : "0 / 0";
   initializeLayoutNodes();
   root.innerHTML = state.session.participants.map((participant) => {
     const thread = state.session.threads?.[participant.id];
-    const status = threadStatus(thread);
+    const status = resolveThreadStatus(thread, state.health?.browser?.bindings);
     const capacity = capacityFor(thread);
     return `<button class="seat-node${state.session.hostId === participant.id ? " is-host" : ""}" type="button" data-provider-id="${escapeHtml(participant.id)}" title="拖动席位；东家仅在上方吸附点生效">
       <span class="capacity-ring" style="--capacity:${capacity.percent}%"><b>${capacity.percent}%</b></span>
@@ -253,25 +272,88 @@ function eventSpeaker(event) {
   return event.providerId ? providerById(event.providerId).label : "系统";
 }
 
+function renderReplyContent(event) {
+  return `<div class="markdown-body">${renderSafeMarkdown(markdownForEvent(event))}</div>`;
+}
+
 function renderConversation() {
   const root = $("#chatStream");
-  const events = state.session?.events || [];
-  $("#eventCount").textContent = String(events.length);
-  if (!events.length) {
+  const events = (state.session?.events || []).filter((event) =>
+    event?.metadata?.visibility !== "private"
+      && event?.metadata?.commitStatus !== "rejected"
+  );
+  const progressItems = turnProgressStore.list(state.session?.id);
+  $("#eventCount").textContent = String(events.length + progressItems.length);
+  if (!events.length && !progressItems.length) {
     root.className = "chat-stream empty-state";
     root.innerHTML = "<p>第一条消息会命名当前圆桌，并进入公共上下文。</p>";
     return;
   }
   root.className = "chat-stream";
-  root.innerHTML = events.map((event) => {
+  const nearBottom = root.scrollHeight - root.clientHeight - root.scrollTop <= 96;
+  for (const child of [...root.children]) {
+    if (!child.dataset.conversationKey) child.remove();
+  }
+  const items = [
+    ...events.map((event, index) => ({ kind: "event", key: `event:${event.id || index}`, event })),
+    ...progressItems.map((progress) => ({ kind: "progress", key: `progress:${progress.turnId}`, progress })),
+  ];
+  const existing = new Map([...root.querySelectorAll("[data-conversation-key]")].map((node) => [node.dataset.conversationKey, node]));
+  const retained = new Set();
+  for (const item of items) {
+    const node = existing.get(item.key) || document.createElement("article");
+    retained.add(item.key);
+    node.dataset.conversationKey = item.key;
+    const signature = item.kind === "event"
+      ? JSON.stringify([item.event.content, item.event.metadata, item.event.createdAt])
+      : JSON.stringify([item.progress.executionId, item.progress.partialText, item.progress.status, item.progress.updatedAt]);
+    if (node.dataset.renderSignature !== signature) {
+      const progressView = item.kind === "progress" ? captureProgressView(node) : null;
+      node.dataset.renderSignature = signature;
+      const rendered = item.kind === "event" ? renderConversationEvent(item.event) : renderProgressItem(item.progress);
+      node.className = rendered.className;
+      node.innerHTML = rendered.html;
+      node.querySelectorAll(".markdown-body").forEach((content) => hardenRenderedLinks(content));
+      if (item.kind === "progress") {
+        restoreProgressView(node, progressView);
+        bindProgressDisclosure(node);
+      }
+    }
+    root.append(node);
+  }
+  for (const node of existing.values()) {
+    if (!retained.has(node.dataset.conversationKey)) node.remove();
+  }
+  if (nearBottom) root.scrollTop = root.scrollHeight;
+}
+
+function renderConversationEvent(event) {
     const qualityFlags = event.metadata?.qualityFlags || [];
+    const qualityLabels = qualityFlags.map((flag) => typeof flag === "string" ? flag : flag?.label || flag?.code).filter(Boolean);
     const time = event.createdAt ? new Date(event.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
-    return `<article class="chat-event${event.type === "command" ? " is-command" : ""}${event.type === "closure" || event.metadata?.closure ? " is-closure" : ""}">
+    return {
+      className: `chat-event${event.type === "command" ? " is-command" : ""}${event.type === "closure" || event.metadata?.closure ? " is-closure" : ""}`,
+      html: `
       <div class="event-meta"><strong>${escapeHtml(eventSpeaker(event))}</strong><time>${escapeHtml(time)}${event.round ? ` · R${event.round}` : ""}</time></div>
-      <div class="event-content">${escapeHtml(event.content)}${qualityFlags.length ? `<div class="quality-flags">${qualityFlags.map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>` : ""}</div>
-    </article>`;
-  }).join("");
-  root.scrollTop = root.scrollHeight;
+      <div class="event-content">${renderReplyContent(event)}${qualityLabels.length ? `<div class="quality-flags">${qualityLabels.map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>` : ""}</div>
+    `,
+    };
+}
+
+function renderProgressItem(progress) {
+  const time = progress.updatedAt ? new Date(progress.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
+  const body = progress.partialText
+    ? `<div class="markdown-body">${renderSafeMarkdown(progress.partialText)}</div>`
+    : `<div class="generation-placeholder" role="status" aria-live="polite"><span>内容生成中</span><span class="generation-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+  return {
+    className: "chat-event is-progress",
+    html: `
+    <details class="progress-disclosure" open>
+      <summary>${escapeHtml(progress.providerLabel)} · ${progress.stage ? escapeHtml(progress.stage) : "当前阶段"} · 正在生成${time ? ` · ${escapeHtml(time)}` : ""}${progress.round ? ` · R${progress.round}` : ""}</summary>
+      <div class="progress-stream" data-progress-scroll>${body}</div>
+    </details>
+  `,
+  };
 }
 
 function renderPlan() {
@@ -473,17 +555,25 @@ function renderAll() {
 async function loadSession(sessionId, { reconnect = true } = {}) {
   if (!sessionId) {
     state.session = null;
+    turnProgressStore.setActiveSession(null);
     state.audit = [];
+    state.executionIndex = [];
+    state.pendingExecutions = [];
     state.activeRun = null;
     renderAll();
     return;
   }
   const previousSessionId = state.session?.id || null;
-  const [sessionResult, auditResult] = await Promise.all([
+  const [sessionResult, auditResult, executionResult] = await Promise.all([
     api(`/api/sessions/${encodeURIComponent(sessionId)}`),
     api(`/api/sessions/${encodeURIComponent(sessionId)}/audit`).catch(() => ({ audit: [] })),
+    api(`/api/sessions/${encodeURIComponent(sessionId)}/executions`).catch(() => ({ executions: [], pending: [] })),
   ]);
   state.session = sessionResult.session;
+  state.executionIndex = executionResult.executions || [];
+  state.pendingExecutions = executionResult.pending || [];
+  turnProgressStore.syncSession(state.session);
+  try { localStorage.setItem(LAST_SESSION_STORAGE_KEY, state.session.id); } catch { }
   state.audit = auditResult.audit || [];
   const settings = state.session.settings || {};
   state.rounds = Number(settings.defaultRounds || state.rounds || 3);
@@ -511,6 +601,7 @@ async function refreshRuntime({ preserveSession = true } = {}) {
   if (!state.workspaceRegistry.selected) {
     state.sessions = [];
     state.session = null;
+    turnProgressStore.setActiveSession(null);
     renderAll();
     renderRecentWorkspaces();
     if (!$("#workspaceDialog").open) $("#workspaceDialog").showModal();
@@ -518,9 +609,13 @@ async function refreshRuntime({ preserveSession = true } = {}) {
   }
   const sessionResult = await api("/api/sessions");
   state.sessions = sessionResult.sessions || [];
+  let preserveSessionId = null;
+  try { preserveSessionId = localStorage.getItem(LAST_SESSION_STORAGE_KEY); } catch { }
   const selectedId = preserveSession && state.session && state.sessions.some((session) => session.id === state.session.id)
     ? state.session.id
-    : state.sessions[0]?.id || null;
+    : state.sessions.some((session) => session.id === preserveSessionId)
+      ? preserveSessionId
+      : state.sessions[0]?.id || null;
   if (selectedId) await loadSession(selectedId, { reconnect: !state.eventSource });
   else renderAll();
   await refreshPendingPermission();
@@ -539,7 +634,25 @@ function connectEvents(sessionId) {
   if (!sessionId) return;
   const source = new EventSource(`/api/events?sessionId=${encodeURIComponent(sessionId)}`);
   source.onmessage = () => scheduleRefresh();
-  for (const eventName of ["plan.started", "turn.started", "turn.completed", "turn.failed", "round.completed", "plan.completed", "plan.failed", "handoff.completed", "permission.requested", "transaction.completed"]) {
+  for (const eventName of ["turn.started", "turn.progress", "turn.completed", "turn.failed", "turn.absent"]) {
+    source.addEventListener(eventName, (message) => {
+      let event;
+      try { event = JSON.parse(message.data); } catch { return; }
+      if (eventName === "turn.started") {
+        turnProgressStore.handleStarted(event);
+        renderConversation();
+        scheduleRefresh(120);
+      } else if (eventName === "turn.progress") {
+        turnProgressStore.handleProgress(event);
+        renderConversation();
+      } else {
+        turnProgressStore.handleTerminal(event);
+        renderConversation();
+        scheduleRefresh(0);
+      }
+    });
+  }
+  for (const eventName of ["plan.started", "round.completed", "plan.completed", "plan.failed", "handoff.completed", "permission.requested", "transaction.completed"]) {
     source.addEventListener(eventName, () => scheduleRefresh());
   }
   source.onerror = () => { source.close(); setTimeout(() => state.session?.id === sessionId && connectEvents(sessionId), 2500); };
@@ -644,6 +757,9 @@ function refreshRecoveryDialog() {
     ["阶段", turn.role === "closure" || turn.role === "host_summary" ? "自动收束" : turn.round ? `第 ${turn.round} 轮` : "当前回合"],
     ["原因", runtime.error?.message || turn.error?.message || "执行中断"],
     ["错误码", runtime.error?.code || turn.error?.code || "PROVIDER_EXECUTION_FAILED"],
+    ["sendState", turn.sendState || "NOT_SENT"],
+    ["idempotencyKey", turn.idempotencyKey || "-"],
+    ["attemptId", turn.attemptId || "-"],
   ].map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><p>${escapeHtml(value)}</p></div>`).join("");
   if (!dialog.open) dialog.showModal();
 }
@@ -680,7 +796,8 @@ async function resolveRunRecovery(action) {
     return;
   }
   try {
-    await runAction(action, { turnId, ...(action === "manual" ? { content } : {}) });
+    const decisionId = `${turnId}:${action}:${content}`;
+    await runAction(action, { turnId, decisionId, ...(action === "manual" ? { content } : {}) });
     $("#recoveryDialog").close();
     showToast(action === "retry" ? "已重新执行本回合" : action === "skip" ? "已跳过本回合" : "已采用手动回复");
     scheduleRefresh();
@@ -796,6 +913,18 @@ $("#participantList").addEventListener("click", async (event) => {
       state.session = result.session;
       renderAll();
     } catch (error) { showToast(`离席失败：${error.message}`, { error: true }); }
+  }
+  if (action === "reconnect") {
+    try {
+      const result = await api(`/api/sessions/${encodeURIComponent(state.session.id)}/participants-reconnect`, {
+        method: "POST",
+        body: JSON.stringify({ providerId, refresh: true }),
+      });
+      state.session = result.session;
+      renderAll();
+      const label = providerById(providerId).label;
+      showToast(`${label} 页面已打开/刷新，请在专用 Chrome 中完成登录后再次点击此按钮`);
+    } catch (error) { showToast(`重新连接失败：${error.message}`, { error: true }); }
   }
   if (action === "handoff") {
     try {
@@ -1044,6 +1173,8 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("beforeunload", () => state.eventSource?.close());
 
 async function initialize() {
+  detailSidebarController.initialize();
+  workspaceSplitController.initialize();
   state.animationFrame = requestAnimationFrame(animateRoundtable);
   try {
     await refreshRuntime({ preserveSession: false });

@@ -12,6 +12,7 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const launcherPath = path.join(__dirname, "start-browser.ps1");
 const processHelperPath = path.join(__dirname, "native-process.ps1");
 const rootBatPath = path.join(__dirname, "start-browser.bat");
+const roundtableLauncherPath = path.join(__dirname, "start-roundtable.ps1");
 const isWindows = process.platform === "win32";
 
 test("manual browser launcher is parseable and never contains provider navigation", { skip: !isWindows }, async () => {
@@ -37,6 +38,22 @@ test("manual browser launcher is parseable and never contains provider navigatio
     `$e=$null; [System.Management.Automation.Language.Parser]::ParseFile('${escaped}',[ref]$null,[ref]$e)|Out-Null; if($e){$e|Out-String|Write-Error; exit 1}`,
   ], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   assert.equal(parsed.status, 0, parsed.stderr || parsed.stdout);
+});
+
+test("roundtable opens its URL through the dedicated CDP browser, never the system default browser", async () => {
+  const [browserSource, roundtableSource] = await Promise.all([
+    fs.readFile(launcherPath, "utf8"),
+    fs.readFile(roundtableLauncherPath, "utf8"),
+  ]);
+  assert.match(browserSource, /\[string\]\s+\$OpenUrl/i);
+  assert.match(browserSource, /OpenUrl/);
+  assert.match(browserSource, /\/json\/list/);
+  assert.match(browserSource, /\/json\/activate\//);
+  assert.match(browserSource, /\/json\/new\?/);
+  assert.match(browserSource, /-Method\s+Put/i);
+  assert.match(roundtableSource, /-OpenUrl/);
+  assert.doesNotMatch(roundtableSource, /Start-Process\s+-FilePath\s+\$roundtableUrl/i);
+  assert.match(roundtableSource, /Get-RoundtableIdentity\s+-Port\s+\$Port\s+-AllowDegradedLocalServices/i);
 });
 
 test("native process helper returns bounded process and TCP listener metadata", { skip: !isWindows }, async () => {

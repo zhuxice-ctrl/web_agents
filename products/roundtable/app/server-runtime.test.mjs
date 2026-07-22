@@ -125,6 +125,21 @@ test("local API exposes verifiable identity and rejects remote browser origins",
   assert.equal((await wrongContentType.json()).error, "APPLICATION_JSON_REQUIRED");
 });
 
+test("roundtable serves pinned markdown and sanitizer browser assets locally", async (t) => {
+  const { baseUrl } = await startServer(t);
+  const [markedResponse, purifyResponse] = await Promise.all([
+    fetch(`${baseUrl}/vendor/marked.umd.js`),
+    fetch(`${baseUrl}/vendor/purify.min.js`),
+  ]);
+
+  assert.equal(markedResponse.status, 200);
+  assert.match(markedResponse.headers.get("content-type"), /javascript/);
+  assert.match(await markedResponse.text(), /marked/);
+  assert.equal(purifyResponse.status, 200);
+  assert.match(purifyResponse.headers.get("content-type"), /javascript/);
+  assert.match(await purifyResponse.text(), /DOMPurify/);
+});
+
 test("unknown internal NOT_FOUND messages remain server errors", async (t) => {
   const browserManager = {
     mode: "cdp",
@@ -559,6 +574,7 @@ test("playwright command returns 202 and publishes completion through SSE", asyn
   });
 
   const sseController = new AbortController();
+  t.after(() => sseController.abort());
   const sseResponse = await fetch(`${baseUrl}/api/events?sessionId=${encodeURIComponent(session.id)}`, {
     signal: sseController.signal,
   });
@@ -591,8 +607,19 @@ test("playwright command returns 202 and publishes completion through SSE", asyn
   assert.equal(command.payload.run.status, "running");
 
   const completed = await waitForSession(baseUrl, session.id, (value) => value.plans.at(-1)?.status === "completed");
-  await consume;
-  sseController.abort();
+  let completionTimer;
+  try {
+    await Promise.race([
+      consume,
+      new Promise((_, reject) => {
+        completionTimer = setTimeout(() => reject(new Error(`SSE_COMPLETION_TIMEOUT:${seen.join(",")}`)), 5000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(completionTimer);
+    await reader.cancel().catch(() => {});
+    sseController.abort();
+  }
   assert.equal(completed.events.at(-1).content, "deepseek real-worker reply");
   assert.ok(seen.includes("turn.started"));
   assert.ok(seen.includes("turn.completed"));

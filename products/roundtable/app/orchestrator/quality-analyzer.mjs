@@ -72,6 +72,7 @@ export function analyzeReplyQuality(content, context = {}) {
   const lowConfidence = flags.some((flag) => lowConfidenceCodes.has(flag.code));
   return {
     rawContent,
+    structureStatus: context.structureStatus || "unknown",
     flags,
     flagCodes: flags.map((flag) => flag.code),
     confidence: lowConfidence ? "low" : flags.length ? "review" : "candidate",
@@ -127,5 +128,6 @@ export function isTechnicalFailure(error) {
     "MANUAL_SEND_REQUIRED",
     "MANUAL_CAPTURE_REQUIRED",
     "RUN_CANCELLED",
+    "SEND_UNKNOWN",
   ]).has(error.code);
 }

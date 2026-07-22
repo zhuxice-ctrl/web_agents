@@ -8,8 +8,9 @@ import { PROVIDERS, coerceSettings, createDefaultLayout } from "../core/provider
 import { LocalWorkspaceStore } from "../storage/local-workspace-store.mjs";
 import { parseRoundtableCommand } from "./command-parser.mjs";
 import { buildPrompt, getDiscussionStage } from "./context-builder.mjs";
-import { RoundtableScheduler, createTurnPlan } from "./scheduler.mjs";
+import { RoundtableScheduler, createTurnPlan, requiresLocalToolProtocol } from "./scheduler.mjs";
 import { RunRegistry } from "./run-registry.mjs";
+import { EventBus } from "./event-bus.mjs";
 
 async function createSession(store, settings = {}) {
   const participants = ["chatgpt", "deepseek", "doubao"].map((id) => ({
@@ -112,6 +113,86 @@ test("discussion turns share one immutable snapshot and merge replies into the n
   assert.equal(saved.threads.chatgpt.usage.interactions, 3);
 });
 
+test("worker progress becomes a transient turn event and never enters the ledger", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 1, mode: "playwright" });
+  const eventBus = new EventBus({ historyLimit: 100 });
+  const progressAt = "2026-07-20T01:02:03.000Z";
+  const worker = {
+    async execute(request) {
+      await request.onProgress({ text: "## 中间结果\n\n- 正在分析", at: progressAt });
+      return { text: "最终结果" };
+    },
+  };
+  const scheduler = new RoundtableScheduler({ store, worker, eventBus });
+
+  const result = await scheduler.executeCommand(session.id, {
+    text: "只让 DeepSeek 回答",
+    targets: ["deepseek"],
+    mentionTokens: [],
+  });
+
+  const turn = result.plan.turns[0];
+  const progress = eventBus.history().find((event) => event.type === "turn.progress");
+  assert.deepEqual(progress, {
+    id: progress.id,
+    type: "turn.progress",
+    sessionId: session.id,
+    planId: result.plan.id,
+    runId: null,
+    turnId: turn.id,
+    executionId: turn.executionId,
+    providerId: "deepseek",
+    providerLabel: "DeepSeek",
+    round: 1,
+    stage: turn.stage,
+    text: "## 中间结果\n\n- 正在分析",
+    at: progressAt,
+  });
+  const saved = await store.readSession(session.id);
+  assert.equal(saved.events.some((event) => event.type === "turn.progress"), false);
+  assert.equal(saved.events.some((event) => event.content.includes("中间结果")), false);
+});
+
+test("discussion rounds start all peers concurrently and block the next round", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 2, mode: "playwright" });
+  const calls = [];
+  const releaseByRound = new Map([[1, []], [2, []]]);
+  const startedByRound = new Map([[1, 0], [2, 0]]);
+  const roundOneStarted = new Promise((resolve) => { releaseByRound.get(1).started = resolve; });
+  const roundTwoStarted = new Promise((resolve) => { releaseByRound.get(2).started = resolve; });
+  const worker = {
+    async execute(request) {
+      calls.push({ ...request });
+      if (request.role === "closure") return { text: "closure" };
+      startedByRound.set(request.round, (startedByRound.get(request.round) || 0) + 1);
+      if (startedByRound.get(request.round) === 3) releaseByRound.get(request.round).started();
+      await new Promise((resolve) => releaseByRound.get(request.round).push(resolve));
+      return { text: `${request.providerId}-R${request.round}` };
+    },
+  };
+  const scheduler = new RoundtableScheduler({ store, worker });
+  const execution = scheduler.executeCommand(session.id, { text: "@全体 受控并发讨论" });
+
+  await roundOneStarted;
+  assert.equal(calls.filter((call) => call.round === 1).length, 3);
+  assert.equal(calls.filter((call) => call.round === 2).length, 0);
+  releaseByRound.get(1).splice(0, 2).forEach((resolve) => resolve());
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(calls.filter((call) => call.round === 2).length, 0);
+  releaseByRound.get(1).filter((entry) => typeof entry === "function").forEach((resolve) => resolve());
+
+  await roundTwoStarted;
+  const roundTwo = calls.filter((call) => call.round === 2);
+  assert.equal(roundTwo.length, 3);
+  assert.equal(roundTwo.every((call) => call.prompt.includes("chatgpt-R1")), true);
+  assert.equal(roundTwo.every((call) => call.prompt.includes("deepseek-R1")), true);
+  assert.equal(roundTwo.every((call) => call.prompt.includes("doubao-R1")), true);
+  releaseByRound.get(2).filter((entry) => typeof entry === "function").forEach((resolve) => resolve());
+  await execution;
+});
+
 test("multi-model host cannot produce a mutating side effect before the visible closure", async () => {
   const store = await createStore();
   const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 1, mode: "playwright" });
@@ -200,6 +281,53 @@ test("context builder labels shared event speakers and respects context limits",
   assert.match(prompt, /用户: four/);
 });
 
+test("context builder requests natural discussion output without a fixed reply schema", async () => {
+  const store = await createStore();
+  const session = await createSession(store);
+  const prompt = buildPrompt(session, "chatgpt", { commandText: "继续", round: 1, targets: ["chatgpt"] });
+
+  assert.match(prompt, /像正常讨论一样直接回答/);
+  assert.match(prompt, /自然语言或 Markdown/);
+  assert.match(prompt, /模仿人类语气进行自然、正常的交流/);
+  assert.match(prompt, /不要每句话单独分段/);
+  assert.match(prompt, /只有真正枚举时才使用列表/);
+  assert.doesNotMatch(prompt, /web-agents-roundtable\.reply\.v1/);
+  assert.doesNotMatch(prompt, /只输出一个 JSON 对象/);
+  assert.doesNotMatch(prompt, /missingEvidence/);
+});
+
+test("tool protocol routing distinguishes ordinary discussion from explicit local file work", () => {
+  assert.equal(requiresLocalToolProtocol({ originalTask: "软件开发最重要的路径是什么", writeExecutorId: null }), false);
+  assert.equal(requiresLocalToolProtocol({ originalTask: "读取 F:\\web_agents\\README.md 并分析", writeExecutorId: null }), true);
+  assert.equal(requiresLocalToolProtocol({ originalTask: "修改本地文件并保存", writeExecutorId: "chatgpt" }), true);
+});
+
+test("context builder relays authoritative raw content even when derived structure exists", async () => {
+  const store = await createStore();
+  const session = await createSession(store);
+  session.events = [{
+    type: "reply",
+    providerId: "deepseek",
+    content: "这是模型实际说出的原文。",
+    metadata: {
+      structureStatus: "valid",
+      structuredReply: {
+        summary: "程序派生摘要",
+        claims: ["程序派生主张"],
+        evidence: [],
+        risks: [],
+        disagreements: [],
+        actions: [],
+        missingEvidence: [],
+      },
+    },
+  }];
+  const prompt = buildPrompt(session, "chatgpt", { commandText: "继续" });
+
+  assert.match(prompt, /这是模型实际说出的原文/);
+  assert.doesNotMatch(prompt, /程序派生摘要|程序派生主张|结构化回复/);
+});
+
 test("context builder separates compressed state from recent raw events", async () => {
   const store = await createStore();
   const session = await createSession(store);
@@ -271,7 +399,8 @@ test("technical provider failure is retried once automatically", async () => {
       return { text: `${request.providerId}-retry-success` };
     },
   };
-  const scheduler = new RoundtableScheduler({ store, worker });
+  const eventBus = new EventBus({ historyLimit: 100 });
+  const scheduler = new RoundtableScheduler({ store, worker, eventBus });
   const prepared = await scheduler.prepareCommand(session.id, { text: "@ds 单独分析" });
   assert.equal(calls, 0);
   assert.equal(prepared.plan.status, "running");
@@ -282,6 +411,7 @@ test("technical provider failure is retried once automatically", async () => {
   assert.equal(result.session.events.at(-1).content, "deepseek-retry-success");
   assert.equal(requests.every((request) => request.runId === null), true);
   assert.equal(requests.every((request) => request.writeExecutorId === "deepseek"), true);
+  assert.deepEqual(eventBus.history().filter((event) => event.type === "turn.started").map((event) => event.turn.executionId).length, 2);
 });
 
 test("single-model direct execution retains that model's write authority", async () => {
@@ -628,6 +758,37 @@ test("multi-model technical failure becomes an absence after one automatic retry
   assert.equal(result.plan.status, "completed");
 });
 
+test("missing provider page becomes an actionable absence without an identical retry", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { mode: "playwright", defaultRounds: 1 });
+  const calls = [];
+  const worker = {
+    async execute(request) {
+      calls.push({ ...request });
+      if (request.providerId === "deepseek") {
+        throw Object.assign(
+          new Error("DeepSeek 当前会话没有可用页面，请在席位菜单点击“重新登录/刷新”。"),
+          { code: "PROVIDER_PAGE_NOT_BOUND" },
+        );
+      }
+      return { text: `${request.providerId}-${request.role}-reply` };
+    },
+  };
+  const scheduler = new RoundtableScheduler({ store, worker });
+  const result = await scheduler.executeCommand(session.id, {
+    text: "比较两个方案",
+    targets: ["chatgpt", "deepseek"],
+    mentionTokens: [],
+    rounds: 1,
+  });
+
+  assert.equal(calls.filter((call) => call.providerId === "deepseek").length, 1);
+  const absentTurn = result.plan.turns.find((turn) => turn.providerId === "deepseek" && turn.round === 1);
+  assert.equal(absentTurn.status, "absent");
+  const placeholder = result.session.events.find((event) => event.type === "absence" && event.providerId === "deepseek");
+  assert.match(placeholder.content, /重新登录\/刷新/);
+});
+
 test("a failure after submission starts is not retried automatically", async () => {
   const store = await createStore();
   const session = await createSession(store, { mode: "playwright", defaultRounds: 1 });
@@ -734,5 +895,7 @@ test("quality flags are persisted without blocking the raw reply", async () => {
   assert.equal(reply.content, raw);
   assert.ok(reply.metadata.qualityFlags.some((flag) => flag.code === "prompt_echo"));
   assert.equal(reply.metadata.sideEffectsAllowed, false);
+  assert.equal(reply.metadata.structureStatus, "invalid");
+  assert.equal(reply.metadata.structuredReply.structureConfidence, "low");
   assert.equal(result.plan.status, "completed");
 });

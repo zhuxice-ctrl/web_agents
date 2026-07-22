@@ -69,3 +69,42 @@ test("strict runtime requires a validated workspace and stores sessions under .w
   assert.equal(renamed.payload.session.title, "审美训练研究");
   assert.equal(renamed.payload.session.renamedManually, true);
 });
+
+test("session provisioning persists provider readiness diagnostics", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-readiness-diagnostics-"));
+  const browserManager = {
+    mode: "cdp",
+    adapters: new Map(),
+    status: () => ({ mode: "cdp", connected: false, bindings: [] }),
+    async createProviderThread(providerId) {
+      return {
+        providerId,
+        status: "composer_missing",
+        url: "https://www.doubao.com/chat/",
+        diagnostics: { selectors: ["textarea"], timeoutMs: 30000 },
+      };
+    },
+    async close() {},
+  };
+  const server = createRoundtableServer({ repoRoot: root, browserManager });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  t.after(async () => {
+    server.closeAllConnections();
+    server.close();
+    await once(server, "close");
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const created = await request(baseUrl, "/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({ participants: ["doubao"], settings: { mode: "playwright" } }),
+  });
+
+  assert.equal(created.response.status, 201);
+  assert.deepEqual(created.payload.session.threads.doubao.diagnostics, {
+    selectors: ["textarea"],
+    timeoutMs: 30000,
+  });
+});

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { DEFAULT_SETTINGS } from "../core/providers.mjs";
 import { estimatePromptTokens as defaultEstimatePromptTokens, estimateTextTokens } from "./context-token-estimator.mjs";
+import { isContextEvent } from "./reply-lifecycle.mjs";
 
 const COMPRESSION_SCHEMA = "web-agents-roundtable-compression.v1";
 const BUCKETS = ["consensus", "disagreements", "evidence", "decisions", "unclassified"];
@@ -11,6 +12,15 @@ const MARKERS = new Map([
   ["证据", "evidence"],
   ["决定", "decisions"],
   ["决策", "decisions"],
+]);
+const DERIVED_COMPRESSION_FIELDS = Object.freeze([
+  ["summary", "unclassified", "核心判断"],
+  ["claims", "unclassified", "主张"],
+  ["evidence", "evidence", ""],
+  ["risks", "unclassified", "风险"],
+  ["disagreements", "disagreements", ""],
+  ["actions", "unclassified", "行动"],
+  ["missingEvidence", "unclassified", "信息缺口"],
 ]);
 
 function compressionError(code) {
@@ -70,6 +80,31 @@ function markerEntry(event, eventIndex) {
   };
 }
 
+function derivedEntries(event, eventIndex) {
+  const status = event?.metadata?.structureStatus;
+  const reply = event?.metadata?.structuredReply;
+  if (!["valid", "recovered"].includes(status) || !reply || typeof reply !== "object") return [];
+  const sourceEventId = String(event.id || eventIndex);
+  const entries = [];
+  for (const [field, bucket, label] of DERIVED_COMPRESSION_FIELDS) {
+    const rawValues = field === "summary" ? [reply[field]] : reply[field];
+    if (!Array.isArray(rawValues)) continue;
+    rawValues.forEach((value, itemIndex) => {
+      const text = compactText(value, 320);
+      if (!text) return;
+      entries.push({
+        bucket,
+        entry: {
+          id: `${bucket}:${sourceEventId}:${field}:${itemIndex}`,
+          text: label ? `${label}：${text}` : text,
+          sourceEventIds: [sourceEventId],
+        },
+      });
+    });
+  }
+  return entries;
+}
+
 function emptyBuckets() {
   return Object.fromEntries(BUCKETS.map((bucket) => [bucket, []]));
 }
@@ -81,10 +116,15 @@ function cloneBuckets(revision) {
 function appendCoveredEvents(buckets, events, fromIndex, throughIndex) {
   for (let index = fromIndex; index <= throughIndex; index += 1) {
     const event = events[index];
-    if (!event?.id) continue;
+    if (!event?.id || !isContextEvent(event)) continue;
     const marked = markerEntry(event, index);
     if (marked) {
       buckets[marked.bucket].push(marked.entry);
+      continue;
+    }
+    const derived = derivedEntries(event, index);
+    if (derived.length) {
+      for (const item of derived) buckets[item.bucket].push(item.entry);
       continue;
     }
     buckets.unclassified.push({
@@ -158,6 +198,7 @@ export function compressSessionContext(session, options = {}) {
     coveredThroughEventIndex,
     sourceEventIds: events
       .slice(coveredFromEventIndex, coveredThroughEventIndex + 1)
+      .filter(isContextEvent)
       .map((event) => String(event.id))
       .filter(Boolean),
     ...buckets,

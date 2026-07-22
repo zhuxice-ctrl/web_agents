@@ -17,7 +17,6 @@
     "test:config-gateway": "node --test products/plugin/services/config-gateway.test.mjs",
     "test:roundtable-compat-extension": "node --test products/roundtable/compat-extension/test/*.test.mjs",
     "test:plugin": "npm --workspace @web-agents/plugin-product test",
-    "build:plugin": "npm --workspace @web-agents/plugin-product run build",
     "test:launcher": "npm --workspace @web-agents/roundtable-product run test:launcher",
     "test:roundtable-web": "npm --workspace @web-agents/roundtable-product run test:core",
     "test:roundtable-browser": "npm --workspace @web-agents/roundtable-product run test:browser",

@@ -11,8 +11,8 @@ function delay(ms, signal) {
 }
 
 export class ProviderConcurrency {
-  constructor({ defaultLimit = 3, limits = {}, baseBackoffMs = 1000, maxBackoffMs = 30000 } = {}) {
-    this.defaultLimit = Math.max(1, Number(defaultLimit) || 3);
+  constructor({ defaultLimit = 1, limits = {}, baseBackoffMs = 1000, maxBackoffMs = 30000 } = {}) {
+    this.defaultLimit = Math.max(1, Number(defaultLimit) || 1);
     this.limits = new Map(Object.entries(limits).map(([key, value]) => [key, Math.max(1, Number(value) || 1)]));
     this.baseBackoffMs = baseBackoffMs;
     this.maxBackoffMs = maxBackoffMs;

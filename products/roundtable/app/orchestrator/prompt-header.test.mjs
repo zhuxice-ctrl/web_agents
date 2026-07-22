@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { DEFAULT_SETTINGS } from "../core/providers.mjs";
 import { buildPrompt, sanitizeEventContent } from "./context-builder.mjs";
-import { buildWebAgentPromptHeader, FIXED_IO_ENCODING_SKILL } from "./prompt-header.mjs";
+import { buildRoundtablePromptHeader, buildWebAgentPromptHeader, FIXED_IO_ENCODING_SKILL } from "./prompt-header.mjs";
 
 test("fixed prompt header describes the legacy web_Agent JSONL protocol without embedding an executable call", () => {
   const header = buildWebAgentPromptHeader({ provider: "deepseek", providerLabel: "DeepSeek" });
@@ -31,6 +31,46 @@ test("fixed prompt header always includes the UTF-8 IO encoding skill", () => {
   assert.match(FIXED_IO_ENCODING_SKILL, /显式使用 UTF-8/);
   assert.match(FIXED_IO_ENCODING_SKILL, /InputEncoding、OutputEncoding 和 \$OutputEncoding/);
   assert.match(FIXED_IO_ENCODING_SKILL, /二进制、图片、音频、视频和 Office 文件不得当作普通文本读写/);
+});
+
+test("ordinary discussion uses a minimal roundtable header without the MCP JSONL protocol", () => {
+  const session = {
+    id: "minimal-discussion",
+    title: "普通讨论",
+    objective: "比较方案",
+    participants: [{ id: "deepseek", label: "DeepSeek" }],
+    settings: { ...DEFAULT_SETTINGS, maxContextEvents: 8 },
+    events: [],
+  };
+  const header = buildRoundtablePromptHeader({ provider: "deepseek", providerLabel: "DeepSeek" });
+  const prompt = buildPrompt(session, "deepseek", { commandText: "给出判断", round: 1, targets: ["deepseek"] });
+
+  assert.match(header, /^\[ROUND_TABLE_FIXED_INSTRUCTION_BEGIN\]/);
+  assert.match(prompt, /^\[ROUND_TABLE_FIXED_INSTRUCTION_BEGIN\]/);
+  assert.doesNotMatch(prompt, /旧插件兼容协议|function_call_start|可用本地工具/);
+  assert.match(prompt, /像正常讨论一样直接回答/);
+  assert.doesNotMatch(prompt, /web-agents-roundtable\.reply\.v1|只输出一个 JSON 对象/);
+  assert.doesNotMatch(header, /唯一回复结构/);
+});
+
+test("tool-enabled rounds retain the explicit MCP JSONL protocol", () => {
+  const session = {
+    id: "tool-discussion",
+    title: "本地任务",
+    objective: "读取文件",
+    participants: [{ id: "deepseek", label: "DeepSeek" }],
+    settings: { ...DEFAULT_SETTINGS, maxContextEvents: 8 },
+    events: [],
+  };
+  const prompt = buildPrompt(session, "deepseek", {
+    commandText: "读取本地文件",
+    round: 1,
+    targets: ["deepseek"],
+    enableToolProtocol: true,
+  });
+
+  assert.match(prompt, /^\[WEB_AGENT_FIXED_INSTRUCTION_BEGIN\]/);
+  assert.match(prompt, /function_call_start/);
 });
 
 test("project agent header pins fixed-io-encoding for every repository agent", () => {
@@ -63,6 +103,7 @@ test("roundtable prompt injects the fixed header before task and untrusted histo
     commandText: "分析真实文件证据",
     round: 1,
     targets: ["deepseek"],
+    enableToolProtocol: true,
   });
 
   const headerStart = prompt.indexOf("[WEB_AGENT_FIXED_INSTRUCTION_BEGIN]");

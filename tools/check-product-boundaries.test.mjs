@@ -15,8 +15,7 @@ async function writeFixture(root, relativePath, content) {
 async function createValidFixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-boundaries-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await writeFixture(root, "products/plugin/legacy-extension/manifest.json", "{}");
-  await writeFixture(root, "products/plugin/extension/public/manifest.json", "{}");
+  await writeFixture(root, "products/plugin/extension/manifest.json", "{}");
   await writeFixture(root, "products/roundtable/package.json", JSON.stringify({
     scripts: { test: "node --test", "test:compat": "node --test compat/*.test.mjs" },
   }));
@@ -30,7 +29,7 @@ for (const fixture of [
   ["roundtable-imports-plugin", "products/roundtable/index.mjs", 'import "@web-agents/plugin";'],
   ["roundtable-relative-imports-plugin", "products/roundtable/nested/index.mjs", 'import "../../plugin/index.mjs";'],
   ["core-imports-product", "packages/local-core/src/index.mjs", 'import "../../../products/plugin/index.mjs";'],
-  ["normal-manifest-has-roundtable", "products/plugin/legacy-extension/manifest.json", '{"name":"roundtable"}'],
+  ["normal-manifest-has-roundtable", "products/plugin/extension/manifest.json", '{"name":"roundtable"}'],
 ]) {
   test(`rejects ${fixture[0]}`, async (t) => {
     const root = await createValidFixture(t);

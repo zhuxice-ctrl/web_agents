@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { AutomationError } from "./errors.mjs";
 import { BrowserManager } from "./browser-manager.mjs";
+import { PageLeaseRegistry } from "./page-lease-registry.mjs";
 
 function eventTarget() {
   return {
@@ -19,12 +23,29 @@ function createPage(url) {
     closed: false,
     closeCalls: 0,
     gotoCalls: 0,
+    gotoUrls: [],
+    reloadCalls: 0,
+    marker: "",
+    targetId: `target-${Math.random().toString(16).slice(2)}`,
     url() { return this.currentUrl; },
     isClosed() { return this.closed; },
     async title() { return "Provider page"; },
-    async goto() { this.gotoCalls += 1; },
+    async goto(nextUrl) {
+      this.gotoCalls += 1;
+      this.gotoUrls.push(nextUrl);
+      this.currentUrl = nextUrl;
+    },
+    async reload() { this.reloadCalls += 1; },
     async close() { this.closeCalls += 1; this.closed = true; },
     async bringToFront() {},
+    context() { return this.browserContext; },
+    async evaluate(_fn, value) {
+      if (arguments.length > 1) {
+        if (!this.marker || this.marker.startsWith("roundtable:")) this.marker = value;
+        return undefined;
+      }
+      return this.marker;
+    },
   };
 }
 
@@ -34,6 +55,12 @@ function createCdpFixture({ pages = [], adapterOverrides = {} } = {}) {
     closeCalls: 0,
     newPageCalls: 0,
     pages: () => pages,
+    async newCDPSession(page) {
+      return {
+        async send() { return { targetInfo: { targetId: page.targetId } }; },
+        async detach() {},
+      };
+    },
     async close() { this.closeCalls += 1; },
     async newPage() {
       this.newPageCalls += 1;
@@ -60,8 +87,35 @@ function createCdpFixture({ pages = [], adapterOverrides = {} } = {}) {
     adapters: new Map([["chatgpt", adapter]]),
     connectOverCDP: async () => browser,
   });
+  for (const page of pages) page.browserContext = context;
   return { manager, browser, context, adapter };
 }
+
+test("CDP bindings recover from the persistent lease registry by target id", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-manager-lease-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const filePath = path.join(root, "page-leases.json");
+  const page = createPage("https://chatgpt.com/c/recover");
+  const first = createCdpFixture({ pages: [page] });
+  first.manager.setLeaseRegistry(new PageLeaseRegistry({ filePath }));
+  await first.manager.bindProviderPage("chatgpt", page.currentUrl, { sessionId: "session", threadKey: "thread" });
+
+  const restoredRegistry = new PageLeaseRegistry({ filePath });
+  await restoredRegistry.initialize();
+  const restored = createCdpFixture({ pages: [page] });
+  restored.manager.setLeaseRegistry(restoredRegistry);
+  await restored.manager.connect();
+  const reconciliation = await restored.manager.reconcilePageLeases();
+
+  assert.equal(reconciliation.matched.length, 1);
+  assert.equal(await restored.manager.getPage("chatgpt", { threadKey: "thread" }), page);
+  const acquired = await restored.manager.acquirePage("chatgpt", { threadKey: "thread", executionId: "exec-old" });
+  await restoredRegistry.reserve({ providerId: "chatgpt", sessionId: "session", threadKey: "thread", targetId: page.targetId });
+  await assert.rejects(
+    () => restored.manager.assertPageLease("chatgpt", { threadKey: "thread", executionId: "exec-old", leaseEpoch: acquired.lease.leaseEpoch }),
+    (error) => error instanceof AutomationError && error.code === "PAGE_LEASE_STALE",
+  );
+});
 
 test("manual CDP mode reports an unavailable browser without launching Chrome", async () => {
   let calls = 0;
@@ -129,6 +183,121 @@ test("bound CDP pages may change paths on the same provider without exposing que
 
   assert.equal(await manager.getPage("chatgpt"), page);
   assert.equal(manager.status().bindings[0].url, "https://chatgpt.com/c/new-thread");
+});
+
+test("new roundtable threads reuse the existing provider tab and open a fresh conversation", async () => {
+  const page = createPage("https://chatgpt.com/c/previous-roundtable");
+  const { manager, context } = createCdpFixture({ pages: [page] });
+  const previousThreadKey = "session-old:chatgpt:thread-old";
+  await manager.bindProviderPage("chatgpt", page.currentUrl, { threadKey: previousThreadKey });
+
+  const opened = await manager.createProviderThread("chatgpt", {
+    threadKey: "session-new:chatgpt:thread-new",
+    sessionId: "session-new",
+    seatId: "chatgpt",
+  });
+
+  assert.equal(context.newPageCalls, 0);
+  assert.deepEqual(page.gotoUrls, ["https://chatgpt.com/"]);
+  assert.equal(await manager.getPage("chatgpt", { threadKey: opened.threadKey }), page);
+  await assert.rejects(
+    () => manager.getPage("chatgpt", { threadKey: previousThreadKey }),
+    (error) => error.code === "PROVIDER_PAGE_NOT_BOUND"
+  );
+  assert.equal(opened.reused, true);
+  assert.equal(opened.url, "https://chatgpt.com/");
+});
+
+test("explicit reconnect transfers an idle provider page and orphans the old thread lease", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-manager-transfer-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const registry = new PageLeaseRegistry({ filePath: path.join(root, "page-leases.json") });
+  const page = createPage("https://chatgpt.com/c/old");
+  const { manager } = createCdpFixture({ pages: [page] });
+  manager.setLeaseRegistry(registry);
+  const oldKey = "session-old:chatgpt:thread-old";
+  const newKey = "session-new:chatgpt:thread-new";
+  await manager.bindProviderPage("chatgpt", page.currentUrl, { threadKey: oldKey, sessionId: "session-old" });
+  const oldLease = registry.find({ providerId: "chatgpt", threadKey: oldKey });
+
+  await manager.reconnectProviderThread("chatgpt", {
+    threadKey: newKey,
+    sessionId: "session-new",
+    seatId: "chatgpt",
+    refresh: true,
+  });
+
+  assert.equal(await manager.getPage("chatgpt", { threadKey: newKey }), page);
+  await assert.rejects(
+    () => manager.getPage("chatgpt", { threadKey: oldKey }),
+    (error) => error.code === "PROVIDER_PAGE_NOT_BOUND",
+  );
+  assert.equal(registry.get(oldLease.pageBindingId).state, "ORPHANED");
+});
+
+test("explicit reconnect refuses to transfer a page that another execution is using", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "roundtable-manager-busy-transfer-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const registry = new PageLeaseRegistry({ filePath: path.join(root, "page-leases.json") });
+  const page = createPage("https://chatgpt.com/c/old");
+  const { manager } = createCdpFixture({ pages: [page] });
+  manager.setLeaseRegistry(registry);
+  const oldKey = "session-old:chatgpt:thread-old";
+  await manager.bindProviderPage("chatgpt", page.currentUrl, { threadKey: oldKey, sessionId: "session-old" });
+  await manager.acquirePage("chatgpt", { threadKey: oldKey, executionId: "execution-old" });
+
+  await assert.rejects(
+    () => manager.reconnectProviderThread("chatgpt", {
+      threadKey: "session-new:chatgpt:thread-new",
+      sessionId: "session-new",
+      seatId: "chatgpt",
+      refresh: true,
+    }),
+    (error) => error.code === "PROVIDER_PAGE_IN_USE",
+  );
+  assert.equal(await manager.getPage("chatgpt", { threadKey: oldKey }), page);
+});
+
+test("new provider threads wait for a delayed composer before reporting readiness", async () => {
+  const page = createPage("https://chatgpt.com/c/previous-roundtable");
+  let composerChecks = 0;
+  const { manager } = createCdpFixture({
+    pages: [page],
+    adapterOverrides: {
+      async hasUsableComposer() {
+        composerChecks += 1;
+        return composerChecks >= 2;
+      },
+    },
+  });
+
+  const opened = await manager.createProviderThread("chatgpt", {
+    threadKey: "session-delayed:chatgpt:thread-new",
+    readyTimeoutMs: 100,
+  });
+
+  assert.equal(opened.status, "verified");
+  assert.ok(composerChecks >= 2);
+});
+
+test("composer readiness failures return selector diagnostics for the UI", async () => {
+  const page = createPage("https://chatgpt.com/");
+  const { manager } = createCdpFixture({
+    pages: [page],
+    adapterOverrides: {
+      inputSelectors: ["#prompt-textarea"],
+      async hasUsableComposer() { return false; },
+    },
+  });
+
+  const opened = await manager.createProviderThread("chatgpt", {
+    threadKey: "session-missing:chatgpt:thread-new",
+    readyTimeoutMs: 500,
+  });
+
+  assert.equal(opened.status, "composer_missing");
+  assert.deepEqual(opened.diagnostics.selectors, ["#prompt-textarea"]);
+  assert.equal(opened.diagnostics.timeoutMs, 500);
 });
 
 test("bound CDP pages are invalidated when the provider redirects back to login", async () => {

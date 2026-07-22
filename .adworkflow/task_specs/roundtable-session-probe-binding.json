@@ -1,0 +1,36 @@
+{
+  "task_id": "roundtable-session-probe-binding",
+  "goal": "Use the Web Agents extension to discover, authenticate, bind, and execute roundtable turns in the user's normal Chrome without exporting provider credentials.",
+  "scope": [
+    "extensions/web-agents-extension/**",
+    "apps/roundtable-web/**",
+    "package.json",
+    ".adworkflow/**",
+    "docs/superpowers/specs/2026-07-16-roundtable-session-probe-binding-design.md",
+    "docs/superpowers/plans/2026-07-16-roundtable-session-probe-binding.md"
+  ],
+  "non_goals": [
+    "Do not automate login, CAPTCHA, human verification, or credential entry.",
+    "Do not return or persist cookies, access tokens, bearer values, complete session responses, account identity, or provider request headers.",
+    "Do not remove the dedicated CDP and fake-provider fallback paths.",
+    "Do not accept a URL as proof of authentication."
+  ],
+  "acceptance_criteria": [
+    "Normal Chrome provider tabs can be opened or focused from the web page through the installed extension.",
+    "ChatGPT, DeepSeek, and Doubao login state is reduced to a boolean inside the provider origin and combined with composer readiness.",
+    "The web page automatically discovers and binds authenticated ready tabs without pasted URLs.",
+    "The existing server scheduler can execute extension-backed turns through an in-memory loopback relay.",
+    "Bridge, login, verification, composer, and response timeout failures use the existing recovery workflow.",
+    "Extension tests, typecheck, build, focused server tests, and the full local runtime suite pass."
+  ],
+  "risk_level": "high",
+  "execution_mode": "solo_with_independent_review",
+  "allowed_actions": ["read", "edit", "test", "build_extension", "start_local_services", "control_browser", "run_read_only_review"],
+  "required_outputs": [
+    ".adworkflow/artifacts/roundtable-session-probe-binding/requirements.md",
+    ".adworkflow/context_manifest.json",
+    ".adworkflow/worker_state.json",
+    ".adworkflow/verification_result.json",
+    ".adworkflow/review_findings.json"
+  ]
+}

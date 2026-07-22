@@ -1,0 +1,27 @@
+{
+  "task_id": "current-page-insertion",
+  "goal": "Implement current-page provider detection and native input insertion without auto-send.",
+  "non_goals": [
+    "Do not implement automatic send as default behavior.",
+    "Do not implement full chat history capture.",
+    "Do not open other provider pages."
+  ],
+  "acceptance_criteria": [
+    "A SiteAdapter interface exists with detect and insertText methods.",
+    "The UI shows current page provider and insertion readiness.",
+    "Clicking insert sends task text to the current page native input.",
+    "After insertion, UI prompts the user to manually send.",
+    "Insertion failure is visible with a user-readable Chinese error."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json"
+  ]
+}

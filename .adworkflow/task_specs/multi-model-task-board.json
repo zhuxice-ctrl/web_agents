@@ -1,0 +1,27 @@
+{
+  "task_id": "multi-model-task-board",
+  "goal": "Implement explicit multi-model participant selection and task board state modeling.",
+  "non_goals": [
+    "Do not default to opening all provider pages.",
+    "Do not fully replace native provider chat history.",
+    "Do not auto-send without a user-enabled advanced option."
+  ],
+  "acceptance_criteria": [
+    "Current page is the only default participant.",
+    "Other providers must be manually selected before opening or binding pages.",
+    "Task board displays per-provider status cards.",
+    "Status cards include not_open, ready, inserted, waiting_user_send, waiting_response, captured, and error states.",
+    "The board stores task-level prompt and response snapshots without claiming full chat sync."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json"
+  ]
+}

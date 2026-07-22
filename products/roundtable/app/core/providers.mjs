@@ -49,7 +49,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   compressionTriggerPercent: 80,
   compressionTargetPercent: 20,
   recentRawTokenBudget: 16384,
-  providerConcurrency: 3,
+  providerConcurrency: 1,
   estimatedThreadCapacityChars: 120000,
   handoffThreshold: 72,
   urgentHandoffThreshold: 90,

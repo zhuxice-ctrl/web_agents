@@ -1,0 +1,62 @@
+{
+  "task_id": "roundtable-binding-streaming-polish",
+  "status": "passed_with_known_full_suite_hang",
+  "commands": [
+    {
+      "command": "focused roundtable regression tests",
+      "exit_code": 0,
+      "tests": 63,
+      "passed": 63,
+      "failed": 0
+    },
+    {
+      "command": "npm --workspace @web-agents/roundtable-product run test:browser",
+      "exit_code": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "command": "npm --workspace @web-agents/roundtable-product run test:launcher",
+      "exit_code": 0,
+      "tests": 15,
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "command": "npm run test:roundtable",
+      "exit_code": null,
+      "tests": null,
+      "passed": null,
+      "failed": null,
+      "note": "Core suite was stopped after existing server-runtime workers produced no new output for several minutes; no assertion failure was reported before termination. Browser and launcher suites were rerun independently and passed."
+    }
+  ],
+  "health": {
+    "url": "http://127.0.0.1:3020/api/health",
+    "ok": true,
+    "roundtable_port": 3020,
+    "chrome_cdp_port": 9223,
+    "playwright_mcp_port": 8931,
+    "doubao_current_binding": true
+  },
+  "rendered_checks": {
+    "desktop_viewport": "1440x1000",
+    "mobile_viewport": "390x844",
+    "current_command_visible": true,
+    "progress_stream_max_height": "220px",
+    "participant_menu_opens": true,
+    "mobile_horizontal_overflow": false,
+    "console_errors_or_warnings": false,
+    "screenshot": "C:/tmp/roundtable-binding-streaming-polish.png"
+  },
+  "acceptance": {
+    "live_binding_status": true,
+    "safe_reconnect_transfer": true,
+    "missing_binding_single_attempt": true,
+    "collapsible_streaming_with_inner_follow": true,
+    "natural_tone_and_coherent_paragraphs": true,
+    "active_or_latest_command_in_center": true,
+    "raw_final_reply_preserved": true
+  }
+}

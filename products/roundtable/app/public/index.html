@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
+    <link rel="icon" href="data:," />
     <title>Web Agents 圆桌</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -72,6 +73,8 @@
             </div>
           </section>
 
+          <div id="workspaceDivider" class="workspace-divider" role="separator" aria-label="调整圆桌与会话宽度" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="39" tabindex="0"></div>
+
           <section class="conversation-pane" aria-label="圆桌会话记录">
             <div class="panel-heading conversation-heading">
               <div><small>PUBLIC LEDGER</small><h2>公共会话</h2></div>
@@ -108,13 +111,16 @@
           </section>
         </main>
 
-        <aside class="detail-sidebar" aria-label="圆桌详情">
-          <nav class="detail-tabs" aria-label="详情视图">
-            <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
-            <button class="tab-button" type="button" data-tab="files">文件</button>
-            <button class="tab-button" type="button" data-tab="audit">审计</button>
-            <button class="tab-button" type="button" data-tab="context">上下文</button>
-          </nav>
+        <aside id="detailSidebar" class="detail-sidebar" aria-label="圆桌详情">
+          <div class="detail-sidebar-toolbar">
+            <nav class="detail-tabs" aria-label="详情视图">
+              <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
+              <button class="tab-button" type="button" data-tab="files">文件</button>
+              <button class="tab-button" type="button" data-tab="audit">审计</button>
+              <button class="tab-button" type="button" data-tab="context">上下文</button>
+            </nav>
+            <button id="collapseDetailSidebarButton" class="icon-button detail-sidebar-toggle" type="button" title="折叠详情栏" aria-label="折叠详情栏" aria-controls="detailSidebar" aria-expanded="true">›</button>
+          </div>
           <section class="tab-panel is-active" data-panel="plan">
             <div class="panel-heading"><div><small>EXECUTION</small><h2>执行计划</h2></div><span id="planCount" class="count-badge">0</span></div>
             <div id="planView" class="detail-list empty-state"><p>发送指令后显示轮次与队列</p></div>
@@ -137,6 +143,7 @@
             <div id="recentRawContextView" class="context-section empty-state"><p>近期原文会显示在这里</p></div>
           </section>
         </aside>
+        <button id="restoreDetailSidebarButton" class="icon-button detail-sidebar-restore" type="button" title="展开详情栏" aria-label="展开详情栏" aria-controls="detailSidebar" aria-expanded="false" hidden>‹</button>
       </div>
     </div>
 
@@ -155,7 +162,7 @@
       <form id="newSessionForm" method="dialog">
         <div class="modal-heading"><div><small>NEW ROUNDTABLE</small><h2>选择首批席位</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
         <div id="newSessionProviders" class="provider-picker"></div>
-        <p class="form-hint">每个入席模型都会在项目专用 Chrome 中获得新的网页会话。登录与人机验证由你手动完成。</p>
+        <p class="form-hint">优先复用已有模型标签页并进入新对话；仅在该模型没有可用标签页时新建。登录与人机验证由你手动完成。</p>
         <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">创建圆桌</button></div>
       </form>
     </dialog>
@@ -216,7 +223,7 @@
     <dialog id="settingsDialog" class="settings-drawer">
       <form id="settingsForm" method="dialog">
         <div class="modal-heading"><div><small>ADVANCED</small><h2>自动化设置</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
-        <label><span>提供商软并发上限</span><input id="providerConcurrency" type="number" min="1" max="8" value="3" /></label>
+        <label><span>提供商软并发上限</span><input id="providerConcurrency" type="number" min="1" max="8" value="1" /></label>
         <label><span>单次上下文事件上限</span><input id="maxContextEvents" type="number" min="4" max="120" value="24" /></label>
         <label><span>交接提醒阈值（估算 %）</span><input id="handoffThreshold" type="number" min="50" max="95" value="72" /></label>
         <label><span>紧急交接阈值（估算 %）</span><input id="urgentHandoffThreshold" type="number" min="60" max="100" value="90" /></label>
@@ -227,6 +234,8 @@
     </dialog>
 
     <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+    <script src="/vendor/marked.umd.js"></script>
+    <script src="/vendor/purify.min.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

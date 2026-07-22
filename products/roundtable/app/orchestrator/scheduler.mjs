@@ -11,6 +11,13 @@ import { parseRoundtableCommand } from "./command-parser.mjs";
 import { buildPrompt, DISCUSSION_STAGES, getDiscussionStage } from "./context-builder.mjs";
 import { compressSessionContext, CONTEXT_COMPRESSION_SCHEMA } from "./context-compressor.mjs";
 import { applySeatProjection, projectContextForSeat } from "./context-projector.mjs";
+import { normalizeRoundtableReply } from "./reply-contract.mjs";
+import {
+  decideReplyCommit,
+  isCommittedReplyEvent,
+  normalizeReplyIdentity,
+} from "./reply-lifecycle.mjs";
+import { executionRecordFromTurn, upsertExecutionIndex } from "./execution-index.mjs";
 import {
   analyzeReplyQuality,
   isTechnicalFailure,
@@ -18,8 +25,9 @@ import {
 } from "./quality-analyzer.mjs";
 
 function createTurn(commandId, providerId, session, overrides = {}) {
+  const id = randomUUID();
   return {
-    id: randomUUID(),
+    id,
     commandId,
     round: null,
     sequence: null,
@@ -32,6 +40,9 @@ function createTurn(commandId, providerId, session, overrides = {}) {
     prompt: null,
     attempts: 0,
     providerAttempts: {},
+    idempotencyKey: `roundtable-turn:${id}`,
+    attemptId: null,
+    sendState: "NOT_SENT",
     ...overrides,
   };
 }
@@ -51,11 +62,38 @@ function writeExecutorForTurn(plan, turn) {
   return `roundtable-read-only:${plan.id}:${turn.id}`;
 }
 
+const LOCAL_TOOL_INTENT = /(?:[a-z]:[\\/]|(?:读取|打开|检查|分析|修改|编辑|写入|创建|删除|移动|搜索|列出).{0,16}(?:本地|文件|目录|路径|代码库|仓库)|(?:本地|文件|目录|路径|代码库|仓库).{0,16}(?:读取|打开|检查|分析|修改|编辑|写入|创建|删除|移动|搜索|列出))/iu;
+
+export function requiresLocalToolProtocol(plan = {}) {
+  if (plan.writeExecutorId) return true;
+  return LOCAL_TOOL_INTENT.test(String(plan.originalTask || plan.commandText || ""));
+}
+
 const TERMINAL_TURN_STATUSES = new Set(["completed", "absent", "skipped", "cancelled"]);
-const REPLAY_BLOCKING_PHASES = new Set(["submitting", "submitted", "captured", "completed"]);
+const REPLAY_BLOCKING_PHASES = new Set(["submitting", "submitted", "capturing", "captured", "send_unknown", "completed"]);
+const NON_RETRYABLE_TECHNICAL_CODES = new Set(["PROVIDER_PAGE_NOT_BOUND", "PROVIDER_PAGE_IN_USE"]);
+
+function sendStateForPhase(phase, fallback = "NOT_SENT") {
+  const normalized = String(phase || "").trim().toLowerCase();
+  return {
+    prepared: "NOT_SENT",
+    submitting: "SENDING",
+    submitted: "SENT",
+    capturing: "CAPTURING",
+    captured: "CAPTURED",
+    completed: "COMMITTED",
+    committed: "COMMITTED",
+    send_unknown: "SEND_UNKNOWN",
+  }[normalized] || fallback;
+}
 
 function requiresExplicitRecovery(error) {
-  return error?.code === "PERMISSION_REQUIRED";
+  return new Set(["PERMISSION_REQUIRED", "SEND_UNKNOWN"]).has(error?.code);
+}
+
+function canDegradeToAbsence(error, options = {}) {
+  if (error?.code === "SEND_UNKNOWN" && !options.runId) return true;
+  return !requiresExplicitRecovery(error);
 }
 
 function errorFromPersistedTurn(turn) {
@@ -67,11 +105,16 @@ function errorFromPersistedTurn(turn) {
       turn.error?.diagnostics || {},
     );
   }
-  if (turn.status === "running" && REPLAY_BLOCKING_PHASES.has(turn.executionPhase)) {
+  if (turn.status === "running" && (REPLAY_BLOCKING_PHASES.has(turn.executionPhase) || turn.sendState === "SEND_UNKNOWN")) {
+    const code = turn.sendState === "SEND_UNKNOWN" || turn.executionPhase === "send_unknown"
+      ? "SEND_UNKNOWN"
+      : "EXECUTION_REPLAY_BLOCKED";
     return new AutomationError(
-      "EXECUTION_REPLAY_BLOCKED",
-      `${turn.providerLabel} already submitted execution ${turn.executionId}; choose retry, skip, or provide a manual reply.`,
-      { turnId: turn.id, executionId: turn.executionId, phase: turn.executionPhase },
+      code,
+      code === "SEND_UNKNOWN"
+        ? `${turn.providerLabel} may have received the prompt, but the send result is unknown; confirm before retrying.`
+        : `${turn.providerLabel} already submitted execution ${turn.executionId}; choose retry, skip, or provide a manual reply.`,
+      { turnId: turn.id, executionId: turn.executionId, attemptId: turn.attemptId, idempotencyKey: turn.idempotencyKey, phase: turn.executionPhase },
     );
   }
   return null;
@@ -221,7 +264,7 @@ function commandEvent(plan, settings) {
 function latestSuccessfulBaton(session, plan) {
   return [...(session.events || [])].reverse().find((event) =>
     event.commandId === plan.id
-      && event.type === "reply"
+      && isCommittedReplyEvent(event)
       && event.metadata?.role !== "closure"
       && event.metadata?.role !== "host_summary"
   ) || null;
@@ -264,6 +307,7 @@ function serializeError(error) {
     message: error?.message || String(error),
     stack: error?.stack || null,
     diagnostics: error?.diagnostics || null,
+    details: error?.details || null,
   };
 }
 
@@ -287,13 +331,14 @@ function cloneCheckpointMetadata(metadata) {
 }
 
 export class RoundtableScheduler {
-  constructor({ store, worker = null, eventBus = null, runRegistry = null, contextCompression = {} } = {}) {
+  constructor({ store, worker = null, eventBus = null, runRegistry = null, contextCompression = {}, strictReplyCommit = false } = {}) {
     if (!store) throw new Error("STORE_REQUIRED");
     this.store = store;
     this.worker = worker;
     this.eventBus = eventBus;
     this.runRegistry = runRegistry;
     this.contextCompression = contextCompression;
+    this.strictReplyCommit = Boolean(strictReplyCommit);
     this.prepareLocks = new Map();
     this.executionCheckpointLocks = new Map();
   }
@@ -459,6 +504,7 @@ export class RoundtableScheduler {
       absences,
       fallbackFromProviderId: turn.fallbackFromProviderId || null,
       fallbackReason: turn.fallbackReason || null,
+      enableToolProtocol: requiresLocalToolProtocol(plan),
     };
     const buildProjectedPrompt = (targetSession, targetProjection) => buildPrompt(
       targetSession,
@@ -548,7 +594,7 @@ export class RoundtableScheduler {
         const result = await this.executeWithAutomaticRetry(session, plan, startedTurn, options);
         session = await this.persistTurnSuccess(session, plan, startedTurn, result, options, "restart");
       } catch (error) {
-        if (multiModel && !requiresExplicitRecovery(error)) {
+        if (multiModel && canDegradeToAbsence(error, options)) {
           session = await this.persistTurnAbsence(session, plan, startedTurn, error, options);
           continue;
         }
@@ -605,7 +651,7 @@ export class RoundtableScheduler {
           session = await this.persistTurnSuccess(session, savedPlan, turn, result.value, options);
           continue;
         }
-        if (multiModel && !requiresExplicitRecovery(result.reason)) {
+        if (multiModel && canDegradeToAbsence(result.reason, options)) {
           session = await this.persistTurnAbsence(session, savedPlan, turn, result.reason, options);
           continue;
         }
@@ -769,7 +815,10 @@ export class RoundtableScheduler {
     turn.attempts = (turn.attempts || 0) + 1;
     turn.providerAttempts = turn.providerAttempts || {};
     turn.providerAttempts[turn.providerId] = (turn.providerAttempts[turn.providerId] || 0) + 1;
+    turn.idempotencyKey ||= `roundtable-turn:${turn.id}`;
+    turn.attemptId = `${turn.idempotencyKey}:${turn.providerId}:attempt:${turn.providerAttempts[turn.providerId]}`;
     turn.executionId = `${turn.id}:${turn.providerId}:${turn.providerAttempts[turn.providerId]}`;
+    turn.sendState = "NOT_SENT";
   }
 
   async executeWithAutomaticRetry(session, plan, turn, options) {
@@ -781,12 +830,47 @@ export class RoundtableScheduler {
         if (resultFailure) throw resultFailure;
         return result;
       } catch (caught) {
-        error = technicalFailureForResult(null, caught);
+        const sendMayHaveStarted = turn.sendState === "SENDING"
+          || turn.executionPhase === "submitting"
+          || turn.sendState === "CAPTURING"
+          || turn.executionPhase === "submitted";
+        if (sendMayHaveStarted && !["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(caught?.code)) {
+          turn.sendState = "SEND_UNKNOWN";
+          const uncertainPhase = turn.executionPhase || "submitting";
+          await this.upsertExecutionCheckpoint({
+            sessionId: session.id,
+            planId: plan.id,
+            turnId: turn.id,
+            executionId: turn.executionId,
+            attemptId: turn.attemptId,
+            idempotencyKey: turn.idempotencyKey,
+            providerId: turn.providerId,
+            phase: uncertainPhase,
+            metadata: {
+              sendState: "SEND_UNKNOWN",
+              cause: serializeError(caught),
+            },
+          });
+          error = new AutomationError(
+            "SEND_UNKNOWN",
+            `${turn.providerLabel} send outcome is unknown; automatic replay is blocked.`,
+            {
+              idempotencyKey: turn.idempotencyKey,
+              attemptId: turn.attemptId,
+              cause: serializeError(caught),
+            },
+          );
+        } else {
+          error = technicalFailureForResult(null, caught);
+        }
         turn.attemptErrors = [
           ...(turn.attemptErrors || []),
           { providerId: turn.providerId, automaticAttempt: automaticAttempt + 1, error: serializeError(error) },
         ];
-        if (automaticAttempt >= 1 || !isTechnicalFailure(error) || REPLAY_BLOCKING_PHASES.has(turn.executionPhase)) {
+        if (automaticAttempt >= 1
+          || NON_RETRYABLE_TECHNICAL_CODES.has(error?.code)
+          || !isTechnicalFailure(error)
+          || REPLAY_BLOCKING_PHASES.has(turn.executionPhase)) {
           throw error;
         }
         await this.checkpoint(options);
@@ -798,6 +882,13 @@ export class RoundtableScheduler {
           error: serializeError(error),
         });
         this.markTurnRunning(turn);
+        this.emit("turn.started", {
+          sessionId: session.id,
+          planId: plan.id,
+          runId: options.runId || null,
+          turn,
+          recovery: "automatic_retry",
+        });
       }
     }
     throw error;
@@ -806,11 +897,27 @@ export class RoundtableScheduler {
   async persistTurnSuccess(session, plan, turn, result, options, recovery = null) {
     const content = String(result.text);
     const latestBeforeWrite = await this.store.readSession(session.id);
-    const previousReplies = (latestBeforeWrite.events || []).filter((event) => event.type === "reply");
+    const previousReplies = (latestBeforeWrite.events || []).filter(isCommittedReplyEvent);
+    const structured = normalizeRoundtableReply(content);
     const quality = analyzeReplyQuality(content, {
       capture: result.capture,
       previousReplies,
       originalTask: plan.originalTask,
+      structureStatus: structured.status,
+    });
+    const replyIdentity = normalizeReplyIdentity({
+      providerId: turn.providerId,
+      content,
+      capture: result.capture,
+      capturedAt: result.capture?.capturedAt || result.capture?.settledAt,
+    });
+    const strictReplyCommit = this.strictReplyCommit && session.settings?.mode !== "mock";
+    const commit = decideReplyCommit({
+      strict: strictReplyCommit,
+      structureStatus: structured.status,
+      quality,
+      identity: replyIdentity,
+      recovery,
     });
     const replyPath = await this.store.writeReply(session.id, {
       planId: plan.id,
@@ -833,7 +940,13 @@ export class RoundtableScheduler {
           confidence: quality.confidence,
           lowConfidence: quality.lowConfidence,
           sideEffectsAllowed: quality.sideEffectsAllowed,
+          structureStatus: structured.status,
+          structureErrors: structured.errors,
+          replyIdentity,
+          commitStatus: commit.status,
+          commitReason: commit.reason,
         },
+        structuredReply: structured.value,
         error: null,
       });
       if (recovery) savedTurn.recovery = recovery;
@@ -853,7 +966,11 @@ export class RoundtableScheduler {
     });
     const savedPlan = session.plans.find((candidate) => candidate.id === plan.id);
     const savedTurn = savedPlan.turns.find((candidate) => candidate.id === turn.id);
-    const event = this.createReplyEvent(session, savedPlan, savedTurn, content, recovery, quality);
+    const rawEvent = this.createRawReplyEvent(session, savedPlan, savedTurn, content, recovery, replyIdentity);
+    const validatedEvent = this.createValidatedReplyEvent(session, savedPlan, savedTurn, content, recovery, quality, structured, replyIdentity, commit);
+    const event = this.createReplyEvent(session, savedPlan, savedTurn, content, recovery, quality, structured.value, structured.status, replyIdentity, commit);
+    await this.store.appendAudit({ kind: rawEvent.type, sessionId: session.id, event: rawEvent });
+    await this.store.appendAudit({ kind: validatedEvent.type, sessionId: session.id, event: validatedEvent });
     session = await this.store.appendEvents(session.id, [event]);
     if (savedTurn.executionId) {
       session = await this.upsertExecutionCheckpoint({
@@ -861,10 +978,14 @@ export class RoundtableScheduler {
         planId: savedPlan.id,
         turnId: savedTurn.id,
         executionId: savedTurn.executionId,
+        attemptId: savedTurn.attemptId,
+        idempotencyKey: savedTurn.idempotencyKey,
         providerId: savedTurn.providerId,
         phase: "completed",
         metadata: {
           eventId: event.id,
+          commitStatus: commit.status,
+          sendState: "COMMITTED",
           replyPath,
           recovery,
         },
@@ -893,6 +1014,7 @@ export class RoundtableScheduler {
         failedAt: new Date().toISOString(),
         error: serializeError(error),
       });
+      upsertExecutionIndex(current, executionRecordFromTurn(current, savedPlan, savedTurn));
       current.updatedAt = savedTurn.failedAt;
       return current;
     });
@@ -918,6 +1040,7 @@ export class RoundtableScheduler {
         failedAt: new Date().toISOString(),
         error: serializeError(error),
       });
+      upsertExecutionIndex(current, executionRecordFromTurn(current, savedPlan, savedTurn));
       current.updatedAt = savedTurn.failedAt;
       return current;
     });
@@ -935,6 +1058,9 @@ export class RoundtableScheduler {
         placeholder: true,
         technicalFailure: isTechnicalFailure(error),
         error: savedTurn.error,
+        attemptId: savedTurn.attemptId,
+        idempotencyKey: savedTurn.idempotencyKey,
+        sendState: savedTurn.sendState || "NOT_SENT",
         turnId: savedTurn.id,
         sequence: savedTurn.sequence || null,
         role: savedTurn.role,
@@ -1130,6 +1256,8 @@ export class RoundtableScheduler {
     planId,
     turnId,
     executionId,
+    attemptId = null,
+    idempotencyKey = null,
     providerId,
     phase,
     metadata = {},
@@ -1160,6 +1288,8 @@ export class RoundtableScheduler {
         const checkpoint = {
           ...(existing || {}),
           executionId,
+          attemptId: attemptId || existing?.attemptId || turn.attemptId || null,
+          idempotencyKey: idempotencyKey || existing?.idempotencyKey || turn.idempotencyKey || null,
           sessionId,
           planId,
           turnId,
@@ -1177,7 +1307,18 @@ export class RoundtableScheduler {
         session.checkpoints = checkpoints;
         turn.executionId = executionId;
         turn.executionPhase = normalizedPhase;
+        turn.sendState = safeMetadata.sendState || sendStateForPhase(normalizedPhase, turn.sendState || "NOT_SENT");
         turn.executionCheckpointAt = now;
+        session.executionIndex = (session.executionIndex || []).map((record) =>
+          record.turnId === turn.id && record.executionId !== executionId && record.status === "running"
+            ? { ...record, status: "superseded", updatedAt: now }
+            : record
+        );
+        upsertExecutionIndex(session, {
+          ...executionRecordFromTurn(session, plan, turn, checkpoint),
+          status: turn.status,
+          updatedAt: now,
+        });
         session.updatedAt = now;
         return session;
       });
@@ -1190,6 +1331,8 @@ export class RoundtableScheduler {
       planId: plan.id,
       turnId: turn.id,
       executionId: turn.executionId,
+      attemptId: turn.attemptId,
+      idempotencyKey: turn.idempotencyKey,
       providerId: turn.providerId,
     };
     const resumingExecution = Boolean(turn.resumingExecution && turn.executionId);
@@ -1204,6 +1347,9 @@ export class RoundtableScheduler {
           round: turn.round,
           stage: turn.stage,
           threadKey: session.threads?.[turn.providerId]?.threadKey || null,
+          attemptId: turn.attemptId,
+          idempotencyKey: turn.idempotencyKey,
+          sendState: turn.sendState || "NOT_SENT",
         },
       });
     }
@@ -1215,6 +1361,8 @@ export class RoundtableScheduler {
       planId: plan.id,
       turnId: turn.id,
       executionId: turn.executionId,
+      attemptId: turn.attemptId,
+      idempotencyKey: turn.idempotencyKey,
       runId: options.runId || null,
       providerId: turn.providerId,
       writeExecutorId: writeExecutorForTurn(plan, turn),
@@ -1225,6 +1373,7 @@ export class RoundtableScheduler {
       role: turn.role,
       stage: turn.stage,
       attempt: turn.providerAttempts?.[turn.providerId] || 1,
+      sendState: turn.sendState || "NOT_SENT",
       contextEventIndex: turn.contextProjection?.throughEventIndex ?? null,
       timeoutMs: session.settings.executionTimeoutMs,
       settleMs: session.settings.settleMs,
@@ -1232,12 +1381,48 @@ export class RoundtableScheduler {
       autoCapture: session.settings.autoCapture,
       diagnosticsDir: paths.diagnostics,
       signal: options.signal,
+      onCaptureStart: async (metadata = {}) => {
+        turn.sendState = "CAPTURING";
+        await this.upsertExecutionCheckpoint({
+          ...checkpointBase,
+          phase: "submitted",
+          metadata: {
+            ...metadata,
+            sendState: "CAPTURING",
+            attemptId: turn.attemptId,
+            idempotencyKey: turn.idempotencyKey,
+          },
+        });
+      },
+      onProgress: async (snapshot = {}) => {
+        const text = String(snapshot.text || "").trim();
+        if (!text) return;
+        this.emit("turn.progress", {
+          sessionId: session.id,
+          planId: plan.id,
+          runId: options.runId || null,
+          turnId: turn.id,
+          executionId: turn.executionId,
+          providerId: turn.providerId,
+          providerLabel: turn.providerLabel || getProviderLabel(turn.providerId, session.participants),
+          round: turn.round,
+          stage: turn.stage,
+          text,
+          at: snapshot.at || new Date().toISOString(),
+        });
+      },
       checkpoint: async (phase, metadata = {}) => {
         turn.executionPhase = String(phase || "").trim().toLowerCase();
+        turn.sendState = metadata.sendState || sendStateForPhase(turn.executionPhase, turn.sendState || "NOT_SENT");
         const saved = await this.upsertExecutionCheckpoint({
           ...checkpointBase,
           phase,
-          metadata,
+          metadata: {
+            ...metadata,
+            attemptId: turn.attemptId,
+            idempotencyKey: turn.idempotencyKey,
+            sendState: turn.sendState,
+          },
         });
         turn.executionCheckpointAt = saved.plans
           .find((candidate) => candidate.id === plan.id)
@@ -1247,7 +1432,54 @@ export class RoundtableScheduler {
     });
   }
 
-  createReplyEvent(session, plan, turn, content, recovery = null, quality = null) {
+  createRawReplyEvent(session, plan, turn, content, recovery, replyIdentity) {
+    return {
+      id: randomUUID(),
+      type: "reply.raw_captured",
+      providerId: turn.providerId,
+      content,
+      commandId: plan.id,
+      round: turn.round,
+      metadata: {
+        visibility: "private",
+        lifecycle: "raw_captured",
+        turnId: turn.id,
+        role: turn.role,
+        stage: turn.stage,
+        recovery,
+        replyIdentity,
+      },
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  createValidatedReplyEvent(session, plan, turn, content, recovery, quality, structured, replyIdentity, commit) {
+    return {
+      id: randomUUID(),
+      type: "reply.validated",
+      providerId: turn.providerId,
+      content: "",
+      commandId: plan.id,
+      round: turn.round,
+      metadata: {
+        visibility: "private",
+        lifecycle: "validated",
+        turnId: turn.id,
+        role: turn.role,
+        stage: turn.stage,
+        recovery,
+        replyIdentity,
+        structureStatus: structured.status,
+        structureErrors: structured.errors,
+        qualityFlags: quality?.flags || [],
+        commitStatus: commit.status,
+        commitReason: commit.reason,
+      },
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  createReplyEvent(session, plan, turn, content, recovery = null, quality = null, structuredReply = null, structureStatus = "unknown", replyIdentity = null, commit = { status: "committed", reason: "legacy" }) {
     return {
       id: randomUUID(),
       type: "reply",
@@ -1268,8 +1500,16 @@ export class RoundtableScheduler {
         recovery,
         qualityFlags: quality?.flags || [],
         confidence: quality?.confidence || "candidate",
+        structureStatus,
+        structuredReply,
         verified: false,
         sideEffectsAllowed: quality?.sideEffectsAllowed ?? true,
+        replyIdentity,
+        lifecycle: commit.status === "committed" ? "committed" : "rejected",
+        commitStatus: commit.status,
+        commitReason: commit.reason,
+        visibility: commit.status === "committed" ? "public" : "private",
+        lifecycleTrace: ["raw_captured", "validated", commit.status === "committed" ? "committed" : "rejected"],
         contextEventIndex: turn.contextProjection?.throughEventIndex ?? null,
         fallbackFromProviderId: turn.fallbackFromProviderId || null,
         fallbackReason: turn.fallbackReason || null,

@@ -1,0 +1,33 @@
+{
+  "task_id": "roundtable-provider-runtime-repair",
+  "goal": "Unblock exact-tab readiness checks for DeepSeek and Doubao through the legacy extension sidecars.",
+  "scope": [
+    "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js",
+    "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js",
+    "extensions/mcp-superassistant-local-fixed/roundtable-background.js",
+    "apps/roundtable-web/automation/extension-relay.mjs",
+    "apps/roundtable-web/automation/extension-browser-manager.mjs",
+    "matching tests",
+    ".adworkflow/**"
+  ],
+  "non_goals": [
+    "Credential or session inspection",
+    "Live prompt submission or reply capture",
+    "Generated legacy bundle edits",
+    "ChatGPT testing"
+  ],
+  "acceptance_criteria": [
+    "DeepSeek can activate and resolve an insert-capable legacy adapter through public registry APIs.",
+    "Doubao probe and content-script failure paths complete within a fixed bound.",
+    "Only secret-free runtime diagnostics cross the extension relay.",
+    "Focused and full local test suites pass."
+  ],
+  "risk_level": "high",
+  "execution_mode": "solo_with_independent_review",
+  "allowed_actions": ["read", "edit", "test", "local_browser_read_only"],
+  "required_outputs": [
+    ".adworkflow/worker_state.json",
+    ".adworkflow/verification_result.json",
+    ".adworkflow/review_findings.json"
+  ]
+}

@@ -1,0 +1,380 @@
+{
+  "schema": "ADworkflo.context_raw.v1",
+  "task_id": "roundtable-expansion-automation",
+  "source": "codegraph-index",
+  "matched_files": [
+    {
+      "score": 15,
+      "path": "extensions/web-agents-extension/src/background/roundtable-orchestrator.test.ts",
+      "language": "typescript",
+      "loc": 171,
+      "sha256": "4b02ae6d6fdc8d7e6649b9ee3e835be150ebb773448666638bfcf2ad9349d2aa",
+      "mtime_ns": 1782894656000000000,
+      "is_test": true
+    },
+    {
+      "score": 15,
+      "path": "extensions/web-agents-extension/src/sessions/roundtable.test.ts",
+      "language": "typescript",
+      "loc": 116,
+      "sha256": "ea4a9a82b8d050e77b51dac8951d4b613390a868165f8561bc5500952b6ba315",
+      "mtime_ns": 1782894656000000000,
+      "is_test": true
+    },
+    {
+      "score": 14,
+      "path": "extensions/mcp-superassistant-local-fixed/content/roundtable-page-bridge.js",
+      "language": "javascript",
+      "loc": 99,
+      "sha256": "44631f387b506704589c1d76214ad8971594a2892df542befe35c7e680be42e9",
+      "mtime_ns": 1784155924296413700,
+      "is_test": false
+    },
+    {
+      "score": 14,
+      "path": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js",
+      "language": "javascript",
+      "loc": 192,
+      "sha256": "0dc62bde9ff7f7eb9877e88fd4bedb4b977804998a2ab42e7d64ed1281f96724",
+      "mtime_ns": 1784227117125230700,
+      "is_test": false
+    },
+    {
+      "score": 14,
+      "path": "extensions/mcp-superassistant-local-fixed/roundtable-background.js",
+      "language": "javascript",
+      "loc": 635,
+      "sha256": "b19dbd66f2421e2e43d3ff181309c09bcdfb8e940e52e2715183602adef6cf51",
+      "mtime_ns": 1784227362154930700,
+      "is_test": false
+    },
+    {
+      "score": 14,
+      "path": "extensions/web-agents-extension/src/background/provider-tabs.test.ts",
+      "language": "typescript",
+      "loc": 72,
+      "sha256": "435eb08085d2027a3af69536e6b6ba64256eb96ec96d34607da894a874f517ba",
+      "mtime_ns": 1784145536992427000,
+      "is_test": true
+    },
+    {
+      "score": 14,
+      "path": "extensions/web-agents-extension/src/background/roundtable-orchestrator.ts",
+      "language": "typescript",
+      "loc": 238,
+      "sha256": "9dc4d17e1b70086c042e8e332c09ff3c427c6bac9ca05eb39d1e3a38c97f9b59",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 14,
+      "path": "extensions/web-agents-extension/src/sessions/roundtable.ts",
+      "language": "typescript",
+      "loc": 132,
+      "sha256": "ef60e89c3240012db5ead2d2cabcef5e021a04191f2e7f5fa41f846b726b1fc4",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 14,
+      "path": "extensions/web-agents-extension/src/ui/panels/RoundtableSessionPanel.test.tsx",
+      "language": "typescript",
+      "loc": 109,
+      "sha256": "f591f07866dc65ccd5c1f1939970c2fb068176ad3a9dead13e00ce938d97a6fa",
+      "mtime_ns": 1782894656000000000,
+      "is_test": true
+    },
+    {
+      "score": 13,
+      "path": "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js",
+      "language": "javascript",
+      "loc": 603,
+      "sha256": "1b4bae80572f6058733794acbe398572fbe07925344d76661ed4272513da1c9b",
+      "mtime_ns": 1784227252221090800,
+      "is_test": false
+    },
+    {
+      "score": 13,
+      "path": "extensions/mcp-superassistant-local-fixed/content/roundtable-protocol.js",
+      "language": "javascript",
+      "loc": 198,
+      "sha256": "e16f5454e4da9c786308f82606aadac21921ddee1b58979df8ccf385f7a6b380",
+      "mtime_ns": 1784155789442664100,
+      "is_test": false
+    },
+    {
+      "score": 13,
+      "path": "extensions/web-agents-extension/src/background/provider-tabs.ts",
+      "language": "typescript",
+      "loc": 51,
+      "sha256": "118289ecd5c9380796d18c7319301949f4acd47190e4b82deb27eb87e846c025",
+      "mtime_ns": 1784145493413161600,
+      "is_test": false
+    },
+    {
+      "score": 13,
+      "path": "extensions/web-agents-extension/src/ui/panels/RoundtableSessionPanel.tsx",
+      "language": "typescript",
+      "loc": 186,
+      "sha256": "4498274edf4feb9e51f1a0f0c2c60f77373da9644fe099f7cf16463c16f48926",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 12,
+      "path": "extensions/web-agents-extension/src/mcp/local-context.test.ts",
+      "language": "typescript",
+      "loc": 34,
+      "sha256": "9667f816781847d87f91cb66d2bc9b53cf4f4490cd986b6916f3ad6bc084f87f",
+      "mtime_ns": 1782894656000000000,
+      "is_test": true
+    },
+    {
+      "score": 12,
+      "path": "extensions/web-agents-extension/src/permissions/model.ts",
+      "language": "typescript",
+      "loc": 129,
+      "sha256": "06f10c0776cd5b976dd6a3e4176242597b94eb664bf7ac068fffcadd6407db24",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 11,
+      "path": "extensions/web-agents-extension/src/mcp/local-context.ts",
+      "language": "typescript",
+      "loc": 149,
+      "sha256": "11215a536875d61179978757a5913c7adafb6e43e81a80f4b2c782167db11396",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 11,
+      "path": "extensions/web-agents-extension/src/providers/catalog.test.ts",
+      "language": "typescript",
+      "loc": 75,
+      "sha256": "f5452c2c5ed32e5b07b8e76034d3d3e87ba7a829ac86ce6d2f36af4bda9e2104",
+      "mtime_ns": 1784151405969626400,
+      "is_test": true
+    },
+    {
+      "score": 11,
+      "path": "extensions/web-agents-extension/src/sessions/model.ts",
+      "language": "typescript",
+      "loc": 13,
+      "sha256": "ebc76b5702891d0255a6316b5272b4c271b478ac505d6af47ab91c9f219e8bcf",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 11,
+      "path": "extensions/web-agents-extension/src/ui/panels/MultiModelBoard.tsx",
+      "language": "typescript",
+      "loc": 106,
+      "sha256": "e24626a0c11f14e8d04f66bba0575b6843ebbab293f366d8feaebc4e724e556e",
+      "mtime_ns": 1782894656000000000,
+      "is_test": false
+    },
+    {
+      "score": 10,
+      "path": "browser-profiles/roundtable/Default/Extensions/ncennffkjdiamlpmcbajkmaiiiddgioo/3.32_0/background.js",
+      "language": "javascript",
+      "loc": 1,
+      "sha256": "3acbd27751c0fd6ed708b4feb75ad6c36b90f2786b2ce516abbb635d24134e29",
+      "mtime_ns": 1661232770000000000,
+      "is_test": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-17-roundtable-expansion-design.md",
+      "reason": "task_spec.context_sources"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-17-roundtable-expansion-implementation.md",
+      "reason": "task_spec.context_sources"
+    },
+    {
+      "path": "findings.md",
+      "reason": "task_spec.context_sources"
+    },
+    {
+      "path": ".codex/AGENT_HEADER.md",
+      "reason": "task_spec.context_sources"
+    },
+    {
+      "path": ".adworkflow/permissions.md",
+      "reason": "task_spec.context_sources"
+    },
+    {
+      "path": ".adworkflow/verification_commands.md",
+      "reason": "task_spec.context_sources"
+    }
+  ],
+  "matched_symbols": [
+    {
+      "score": 18,
+      "type": "function",
+      "name": "chooseProviderTab",
+      "line": 45,
+      "end_line": 45,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 18,
+      "type": "function",
+      "name": "runProviderAuthProbe",
+      "line": 79,
+      "end_line": 79,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 18,
+      "type": "function",
+      "name": "pauseWithProviderError",
+      "line": 43,
+      "end_line": 43,
+      "file": "extensions/web-agents-extension/src/background/roundtable-orchestrator.ts"
+    },
+    {
+      "score": 18,
+      "type": "function",
+      "name": "getNextRoundtableProvider",
+      "line": 128,
+      "end_line": 128,
+      "file": "extensions/web-agents-extension/src/sessions/roundtable.ts"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "providerIdForUrl",
+      "line": 23,
+      "end_line": 23,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "sanitizeProviderUrl",
+      "line": 35,
+      "end_line": 35,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "isVisiblePageControl",
+      "line": 146,
+      "end_line": 146,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "hasVisibleControl",
+      "line": 166,
+      "end_line": 166,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable/background-core.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "requireProvider",
+      "line": 76,
+      "end_line": 76,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "boundProviderForTab",
+      "line": 248,
+      "end_line": 248,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "queryProviderTabs",
+      "line": 430,
+      "end_line": 430,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "discoverProviders",
+      "line": 439,
+      "end_line": 439,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "probeProvider",
+      "line": 464,
+      "end_line": 464,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 17,
+      "type": "function",
+      "name": "openProvider",
+      "line": 512,
+      "end_line": 512,
+      "file": "extensions/mcp-superassistant-local-fixed/roundtable-background.js"
+    },
+    {
+      "score": 16,
+      "type": "function",
+      "name": "detectProviderId",
+      "line": 147,
+      "end_line": 147,
+      "file": "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js"
+    },
+    {
+      "score": 16,
+      "type": "function",
+      "name": "adapterComposerSelectors",
+      "line": 200,
+      "end_line": 200,
+      "file": "extensions/mcp-superassistant-local-fixed/content/roundtable-content-bridge.js"
+    },
+    {
+      "score": 16,
+      "type": "function",
+      "name": "requireProvider",
+      "line": 121,
+      "end_line": 121,
+      "file": "extensions/mcp-superassistant-local-fixed/content/roundtable-protocol.js"
+    },
+    {
+      "score": 16,
+      "type": "function",
+      "name": "pauseRoundtableSession",
+      "line": 131,
+      "end_line": 131,
+      "file": "extensions/web-agents-extension/src/background/index.ts"
+    },
+    {
+      "score": 16,
+      "type": "function",
+      "name": "nextAfterCapture",
+      "line": 54,
+      "end_line": 54,
+      "file": "extensions/web-agents-extension/src/background/roundtable-orchestrator.ts"
+    },
+    {
+      "score": 15,
+      "type": "function",
+      "name": "cloneWebAgentValue",
+      "line": 15443,
+      "end_line": 15443,
+      "file": "extensions/mcp-superassistant-local-fixed/background.js"
+    }
+  ],
+  "likely_tests": [
+    "extensions/web-agents-extension/src/background/provider-tabs.test.ts",
+    "extensions/web-agents-extension/src/background/roundtable-orchestrator.test.ts",
+    "extensions/web-agents-extension/src/sessions/roundtable.test.ts",
+    "extensions/web-agents-extension/src/ui/panels/RoundtableSessionPanel.test.tsx"
+  ],
+  "warnings": []
+}

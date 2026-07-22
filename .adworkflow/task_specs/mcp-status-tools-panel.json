@@ -1,0 +1,27 @@
+{
+  "task_id": "mcp-status-tools-panel",
+  "goal": "Implement local MCP connection status and tools list display in the plugin UI.",
+  "non_goals": [
+    "Do not implement full MCP resources/prompts workflows in this task.",
+    "Do not execute high-risk tools from the UI without the permission contract.",
+    "Do not hardcode private local paths."
+  ],
+  "acceptance_criteria": [
+    "UI displays MCP status: disconnected, connecting, connected, error.",
+    "UI displays configured Server URI and transport.",
+    "UI can refresh and display tools list.",
+    "Empty tools, schema errors, and connection failures have clear Chinese messages.",
+    "MCP client code is isolated from UI components."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "worker_plus_reviewer",
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "required_outputs": [
+    "worker_state.json",
+    "verification_result.json"
+  ]
+}

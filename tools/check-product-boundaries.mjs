@@ -57,7 +57,7 @@ async function checkNormalPlugin(root, violations) {
       violations.push({ file, rule: "normal-plugin-roundtable-manifest" });
     }
   }
-  for (const directory of ["extension/src", "extension/public", "extension/dist", "legacy-extension"]) {
+  for (const directory of ["extension"]) {
     for (const file of await walkFiles(path.join(root, directory))) {
       if (!/\.(?:js|mjs|ts|tsx|json|css)$/.test(file)) continue;
       const source = await fs.readFile(file, "utf8");

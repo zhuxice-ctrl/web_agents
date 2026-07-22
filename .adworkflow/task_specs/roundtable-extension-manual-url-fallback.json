@@ -1,0 +1,31 @@
+{
+  "task_id": "roundtable-extension-manual-url-fallback",
+  "goal": "Expose the existing exact-tab URL binding as a manual fallback in legacy extension mode when automatic provider discovery cannot bind a session.",
+  "scope": [
+    "apps/roundtable-web/public/app.js",
+    "apps/roundtable-web/public/styles.css",
+    "apps/roundtable-web/automation/extension-browser-manager.test.mjs",
+    "apps/roundtable-web/server.test.mjs",
+    ".adworkflow/**"
+  ],
+  "non_goals": [
+    "Do not scrape, return, log, or persist cookies, tokens, localStorage, session response bodies, or account identity.",
+    "Do not automate login, CAPTCHA, human verification, provider navigation, or ChatGPT live testing.",
+    "Do not replace automatic discovery; manual URL binding is a user-triggered fallback only."
+  ],
+  "acceptance_criteria": [
+    "Every unbound extension-mode provider card exposes a folded manual URL binding control.",
+    "A pasted URL binds only the exact already-open matching provider tab after authentication, verification, and composer checks.",
+    "Only the sanitized URL returned by the server is persisted, and reload never auto-binds it.",
+    "Automatic discovery, CDP binding, unbind, and recovery behavior continue to pass regression tests.",
+    "DeepSeek and Doubao manual binding are verified without sending a live prompt or operating ChatGPT."
+  ],
+  "risk_level": "high",
+  "execution_mode": "solo_with_independent_review",
+  "allowed_actions": ["read", "edit", "test", "start_local_services", "control_browser_for_localhost_deepseek_doubao_only"],
+  "required_outputs": [
+    ".adworkflow/worker_state.json",
+    ".adworkflow/verification_result.json",
+    ".adworkflow/review_findings.json"
+  ]
+}

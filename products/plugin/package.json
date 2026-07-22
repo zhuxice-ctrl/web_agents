@@ -4,11 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:legacy": "node --test tests/legacy-*.test.mjs tests/result-*.test.mjs tests/permission-*.test.mjs",
+    "test:extension": "node --test tests/extension-*.test.mjs tests/result-*.test.mjs tests/permission-*.test.mjs",
     "test:services": "node --test services/*.test.mjs",
-    "test:source": "node --test tests/source-release-boundary.test.mjs && npm --prefix extension test && npm --prefix extension run typecheck",
-    "test": "npm run test:legacy && npm run test:services && npm run test:source",
-    "build": "npm --prefix extension run build"
+    "test": "npm run test:extension && npm run test:services"
   },
   "dependencies": {
     "@web-agents/local-core": "0.1.0"

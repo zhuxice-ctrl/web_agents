@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { AutomationError } from "./errors.mjs";
+import { fingerprint as pageFingerprint, pageMarker, parsePageMarker } from "./page-lease-registry.mjs";
 
 function sanitizePageUrl(value) {
   let parsed;
@@ -44,6 +45,31 @@ function bindingKey(providerId, threadKey = null) {
   return threadKey ? `${providerId}::${threadKey}` : providerId;
 }
 
+function leaseError(error, providerId) {
+  if (error instanceof AutomationError || !String(error?.code || error?.message || "").startsWith("PAGE_LEASE_")) return error;
+  const code = error.code || error.message;
+  return new AutomationError(code, `The ${providerId} page lease is no longer valid for this execution.`, {
+    providerId,
+    ...(error.details || {}),
+  });
+}
+
+async function waitForUsableComposer(adapter, page, { timeoutMs = 30000 } = {}) {
+  const effectiveTimeoutMs = Math.max(500, Number(timeoutMs) || 30000);
+  const deadline = Date.now() + effectiveTimeoutMs;
+  while (Date.now() < deadline) {
+    await adapter.assertAutomationReady(page, { phase: "wait_for_composer", allowSelectorFallback: true });
+    if (await adapter.hasUsableComposer(page)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new AutomationError("COMPOSER_NOT_FOUND", `Could not find a usable ${adapter.label} composer.`, {
+    providerId: adapter.id,
+    url: page.url(),
+    selectors: adapter.inputSelectors || [],
+    timeoutMs: effectiveTimeoutMs,
+  });
+}
+
 export class BrowserManager {
   constructor({
     mode = "launch",
@@ -55,6 +81,7 @@ export class BrowserManager {
     channel = "chrome",
     viewport = { width: 1440, height: 1000 },
     launchOptions = {},
+    leaseRegistry = null,
   } = {}) {
     this.mode = mode === "cdp" ? "cdp" : "launch";
     if (this.mode === "launch" && !profileDir) throw new Error("BROWSER_PROFILE_DIR_REQUIRED");
@@ -71,6 +98,37 @@ export class BrowserManager {
     this.pages = new Map();
     this.bindings = new Map();
     this.startPromise = null;
+    this.leaseRegistry = leaseRegistry || null;
+  }
+
+  setLeaseRegistry(registry) {
+    this.leaseRegistry = registry || null;
+    return this.leaseRegistry;
+  }
+
+  async pageIdentity(page, providerId = null) {
+    const url = statusPageUrl(page.url()) || page.url() || null;
+    const title = await page.title().catch(() => "");
+    let targetId = null;
+    try {
+      const session = await page.context().newCDPSession(page);
+      targetId = (await session.send("Target.getTargetInfo")).targetInfo?.targetId || null;
+      await session.detach().catch(() => {});
+    } catch {
+      // Playwright mocks and non-CDP contexts may not expose a CDP session.
+    }
+    return { targetId, url, pageFingerprint: pageFingerprint({ providerId, url, title }) };
+  }
+
+  async writeLeaseMarker(page, binding) {
+    if (!binding?.pageBindingId) return;
+    await page.evaluate((value) => {
+      if (!window.name || window.name.startsWith("roundtable:")) window.name = value;
+    }, pageMarker(binding.pageBindingId, binding.leaseEpoch)).catch(() => {});
+  }
+
+  async readLeaseMarker(page) {
+    return parsePageMarker(await page.evaluate(() => window.name).catch(() => ""));
   }
 
   async loadChromium() {
@@ -209,7 +267,14 @@ export class BrowserManager {
       });
     }
     const key = bindingKey(providerId, threadKey);
-    this.bindings.set(key, { page, url: sanitized, providerId, threadKey, sessionId, seatId });
+    const identity = await this.pageIdentity(page, providerId);
+    const lease = this.leaseRegistry
+      ? await this.leaseRegistry.reserve({ providerId, sessionId, threadKey, ...identity })
+      : null;
+    const binding = { page, url: sanitized, providerId, threadKey, sessionId, seatId, ...(lease || {}) };
+    this.bindings.set(key, binding);
+    await this.writeLeaseMarker(page, binding);
+    if (lease) await this.leaseRegistry.bind(lease.pageBindingId, { ...identity, url: sanitized });
     return {
       providerId,
       ...(threadKey ? { threadKey } : {}),
@@ -217,42 +282,221 @@ export class BrowserManager {
       ...(seatId ? { seatId } : {}),
       status: "verified",
       url: sanitized,
+      ...(lease ? { pageBindingId: lease.pageBindingId, leaseEpoch: lease.leaseEpoch } : {}),
     };
   }
 
   unbindProvider(providerId, { threadKey = null } = {}) {
-    return this.bindings.delete(bindingKey(providerId, threadKey));
+    const key = bindingKey(providerId, threadKey);
+    const binding = this.bindings.get(key);
+    const removed = this.bindings.delete(key);
+    if (removed && this.leaseRegistry && binding?.pageBindingId) {
+      void this.leaseRegistry.release(binding.pageBindingId, binding.leaseEpoch, null, { state: "FREE" }).catch(() => {});
+    }
+    return removed;
   }
 
-  async createProviderThread(providerId, { threadKey, sessionId = null, seatId = null, navigate = true } = {}) {
+  async transferPageBinding(page, { targetKey = null } = {}) {
+    const conflicts = [...this.bindings.entries()]
+      .filter(([key, binding]) => key !== targetKey && binding.page === page);
+    for (const [, binding] of conflicts) {
+      const lease = binding.pageBindingId ? this.leaseRegistry?.get(binding.pageBindingId) : null;
+      const unexpired = !lease?.leaseExpiresAt || Date.parse(lease.leaseExpiresAt) > Date.now();
+      if (lease?.state === "BUSY" && lease.ownerExecutionId && unexpired) {
+        throw new AutomationError(
+          "PROVIDER_PAGE_IN_USE",
+          `${binding.providerId} page is being used by another roundtable execution.`,
+          {
+            providerId: binding.providerId,
+            sessionId: binding.sessionId || null,
+            threadKey: binding.threadKey || null,
+            ownerExecutionId: lease.ownerExecutionId,
+          },
+        );
+      }
+    }
+    for (const [key, binding] of conflicts) {
+      this.bindings.delete(key);
+      if (this.leaseRegistry && binding.pageBindingId) {
+        await this.leaseRegistry.markOrphaned(binding.pageBindingId);
+      }
+    }
+  }
+
+  async createProviderThread(providerId, { threadKey, sessionId = null, seatId = null, navigate = true, readyTimeoutMs = 30000 } = {}) {
     if (!threadKey) throw new AutomationError("THREAD_KEY_REQUIRED", "A dedicated browser thread key is required.");
     const adapter = this.getAdapter(providerId);
     const context = this.mode === "cdp" ? await this.connect() : await this.start();
-    const page = await context.newPage();
+    const expectedOrigin = new URL(adapter.url).origin;
+    const matchesProvider = (candidate) => {
+      if (!candidate || candidate.isClosed()) return false;
+      try { return new URL(candidate.url()).origin === expectedOrigin; } catch { return false; }
+    };
+    let page = [...this.bindings.values()]
+      .reverse()
+      .find((binding) => binding.providerId === providerId && matchesProvider(binding.page))
+      ?.page;
+    if (!page) page = context.pages().find(matchesProvider) || null;
+    const reused = Boolean(page);
+    if (!page) page = await context.newPage();
     const key = bindingKey(providerId, threadKey);
-    const binding = { page, url: "about:blank", providerId, threadKey, sessionId, seatId };
+
+    if (reused) await this.transferPageBinding(page, { targetKey: key });
+    const identity = await this.pageIdentity(page, providerId);
+    const lease = this.leaseRegistry
+      ? await this.leaseRegistry.reserve({ providerId, sessionId, threadKey, ...identity })
+      : null;
+    const binding = { page, url: "about:blank", providerId, threadKey, sessionId, seatId, ...(lease || {}) };
     this.bindings.set(key, binding);
+    await this.writeLeaseMarker(page, binding);
     try {
       if (navigate) await page.goto(adapter.url, { waitUntil: "domcontentloaded", timeout: 45000 });
       binding.url = statusPageUrl(page.url()) || adapter.url;
+      if (this.leaseRegistry && lease) {
+        const currentIdentity = await this.pageIdentity(page, providerId);
+        await this.leaseRegistry.bind(lease.pageBindingId, { ...currentIdentity, url: binding.url });
+        Object.assign(binding, this.leaseRegistry.get(lease.pageBindingId) || {});
+      }
+      let status = "opened";
+      let diagnostics = null;
+      try {
+        await waitForUsableComposer(adapter, page, { timeoutMs: readyTimeoutMs });
+        status = "verified";
+      } catch (error) {
+        diagnostics = error?.details || null;
+        status = error?.code === "LOGIN_REQUIRED"
+          ? "waiting_login"
+          : error?.code === "HUMAN_VERIFICATION_REQUIRED" ? "waiting_verification"
+            : error?.code === "COMPOSER_NOT_FOUND" ? "composer_missing" : "opened";
+      }
+      return { providerId, threadKey, sessionId, seatId, status, url: binding.url, reused, diagnostics,
+        ...(lease ? { pageBindingId: lease.pageBindingId, leaseEpoch: lease.leaseEpoch } : {}) };
+    } catch (error) {
+      this.bindings.delete(key);
+      if (this.leaseRegistry && lease?.pageBindingId) await this.leaseRegistry.markOrphaned(lease.pageBindingId);
+      if (!reused) await page.close().catch(() => {});
+      throw new AutomationError("PROVIDER_NAVIGATION_FAILED", `Could not open a fresh ${adapter.label} thread.`, {
+        providerId,
+        cause: error.message,
+      });
+    }
+  }
+
+  async reconnectProviderThread(providerId, { threadKey, sessionId = null, seatId = null, refresh = true } = {}) {
+    if (!threadKey) throw new AutomationError("THREAD_KEY_REQUIRED", "A dedicated browser thread key is required.");
+    const adapter = this.getAdapter(providerId);
+    const context = this.mode === "cdp" ? await this.connect() : await this.start();
+    const expectedOrigin = new URL(adapter.url).origin;
+    let page = context.pages().find((candidate) => {
+      try { return new URL(candidate.url()).origin === expectedOrigin; } catch { return false; }
+    });
+    if (!page) page = await context.newPage();
+    const key = bindingKey(providerId, threadKey);
+    try {
+      await this.transferPageBinding(page, { targetKey: key });
+      let onProvider = false;
+      try { onProvider = new URL(page.url()).origin === expectedOrigin; } catch { }
+      if (!onProvider) await page.goto(adapter.url, { waitUntil: "domcontentloaded", timeout: 45000 });
+      else if (refresh) await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.bringToFront().catch(() => {});
       let status = "opened";
       try {
-        await adapter.assertAutomationReady(page, { phase: "create_thread", allowSelectorFallback: true });
+        await adapter.assertAutomationReady(page, { phase: "reconnect_thread", allowSelectorFallback: true });
         status = (await adapter.hasUsableComposer(page)) ? "verified" : "composer_missing";
       } catch (error) {
         status = error?.code === "LOGIN_REQUIRED"
           ? "waiting_login"
           : error?.code === "HUMAN_VERIFICATION_REQUIRED" ? "waiting_verification" : "opened";
       }
+      const identity = await this.pageIdentity(page, providerId);
+      const existing = this.leaseRegistry?.find({ providerId, threadKey, sessionId });
+      const lease = this.leaseRegistry
+        ? (existing
+          ? await this.leaseRegistry.bind(existing.pageBindingId, { ...identity, url: statusPageUrl(page.url()) || adapter.url })
+          : await this.leaseRegistry.reserve({ providerId, sessionId, threadKey, ...identity }))
+        : null;
+      const boundLease = lease?.state === "RESERVED"
+        ? await this.leaseRegistry.bind(lease.pageBindingId, { ...identity, url: statusPageUrl(page.url()) || adapter.url })
+        : lease;
+      const binding = { page, url: statusPageUrl(page.url()) || adapter.url, providerId, threadKey, sessionId, seatId, ...(boundLease || {}) };
+      this.bindings.set(key, binding);
+      await this.writeLeaseMarker(page, binding);
       return { providerId, threadKey, sessionId, seatId, status, url: binding.url };
     } catch (error) {
-      this.bindings.delete(key);
-      await page.close().catch(() => {});
-      throw new AutomationError("PROVIDER_NAVIGATION_FAILED", `Could not open a fresh ${adapter.label} thread.`, {
+      if (error?.code === "PROVIDER_PAGE_IN_USE") throw error;
+      throw new AutomationError("PROVIDER_RECONNECT_FAILED", `Could not refresh ${adapter.label}.`, {
         providerId,
         cause: error.message,
       });
     }
+  }
+
+  async acquirePage(providerId, { threadKey = null, executionId = null } = {}) {
+    const page = await this.getPage(providerId, { threadKey });
+    const binding = this.bindings.get(bindingKey(providerId, threadKey));
+    if (this.leaseRegistry && binding?.pageBindingId && executionId) {
+      let lease;
+      try {
+        lease = await this.leaseRegistry.acquire(binding.pageBindingId, executionId);
+      } catch (error) {
+        throw leaseError(error, providerId);
+      }
+      Object.assign(binding, lease);
+      await this.writeLeaseMarker(page, binding);
+      return { page, lease };
+    }
+    return { page, lease: binding?.pageBindingId ? { ...binding } : null };
+  }
+
+  async assertPageLease(providerId, { threadKey = null, executionId = null, leaseEpoch = null } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.bindings.get(bindingKey(providerId, threadKey));
+    if (!binding?.pageBindingId) throw new AutomationError("PAGE_LEASE_NOT_BOUND", "The provider page has no persistent lease.");
+    try {
+      return await this.leaseRegistry.assert(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId);
+    } catch (error) {
+      throw leaseError(error, providerId);
+    }
+  }
+
+  async heartbeatPageLease(providerId, { threadKey = null, executionId = null, leaseEpoch = null } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.bindings.get(bindingKey(providerId, threadKey));
+    if (!binding?.pageBindingId) return null;
+    return this.leaseRegistry.heartbeat(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId);
+  }
+
+  async releasePageLease(providerId, { threadKey = null, executionId = null, leaseEpoch = null, state = "BOUND_IDLE" } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.bindings.get(bindingKey(providerId, threadKey));
+    if (!binding?.pageBindingId) return null;
+    const lease = await this.leaseRegistry.release(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId, { state });
+    Object.assign(binding, lease);
+    return lease;
+  }
+
+  async reconcilePageLeases() {
+    if (!this.leaseRegistry || !this.context) return { matched: [], orphaned: [], ambiguous: [] };
+    const candidates = [];
+    for (const page of this.context.pages()) {
+      if (page.isClosed()) continue;
+      const url = statusPageUrl(page.url());
+      if (!url) continue;
+      const providerId = [...this.adapters.entries()].find(([, adapter]) => {
+        try { return new URL(adapter.url).origin === new URL(url).origin; } catch { return false; }
+      })?.[0] || null;
+      if (!providerId) continue;
+      const marker = await this.readLeaseMarker(page);
+      const identity = await this.pageIdentity(page, providerId);
+      candidates.push({ page, providerId, url, ...identity, ...(marker || {}) });
+    }
+    const result = await this.leaseRegistry.reconcile(candidates.map(({ page, ...candidate }) => candidate));
+    for (const binding of result.matched) {
+      const candidate = candidates.find((item) => item.targetId === binding.targetId || item.pageBindingId === binding.pageBindingId);
+      if (!candidate) continue;
+      this.bindings.set(bindingKey(binding.providerId, binding.threadKey), { page: candidate.page, ...binding, seatId: null });
+    }
+    return result;
   }
 
   async getPage(providerId, { navigate = true, threadKey = null } = {}) {
@@ -264,7 +508,7 @@ export class BrowserManager {
         this.bindings.delete(key);
         throw new AutomationError(
           "PROVIDER_PAGE_NOT_BOUND",
-          `${adapter.label} has not been bound to a verified existing tab.`,
+          `${adapter.label} 当前会话没有可用页面，请在席位菜单点击“重新登录/刷新”。`,
           { providerId }
         );
       }
@@ -275,7 +519,7 @@ export class BrowserManager {
         if (error?.code === "LOGIN_REQUIRED") throw error;
         throw new AutomationError(
           "PROVIDER_PAGE_NOT_BOUND",
-          `${adapter.label} is no longer on a verified provider page. Paste its current URL and validate it again.`,
+          `${adapter.label} 当前页面已失效，请在席位菜单点击“重新登录/刷新”。`,
           { providerId, reason: error?.code || "PROVIDER_URL_CHANGED" }
         );
       }
@@ -337,12 +581,18 @@ export class BrowserManager {
     const key = bindingKey(providerId, threadKey);
     if (this.mode === "cdp") {
       const binding = this.bindings.get(key);
-      if (!page || binding?.page === page) this.bindings.delete(key);
+      if (!page || binding?.page === page) {
+        this.bindings.delete(key);
+        if (this.leaseRegistry && binding?.pageBindingId) void this.leaseRegistry.markOrphaned(binding.pageBindingId, "INVALID").catch(() => {});
+      }
       return;
     }
     if (threadKey) {
       const binding = this.bindings.get(key);
-      if (!page || binding?.page === page) this.bindings.delete(key);
+      if (!page || binding?.page === page) {
+        this.bindings.delete(key);
+        if (this.leaseRegistry && binding?.pageBindingId) void this.leaseRegistry.markOrphaned(binding.pageBindingId, "INVALID").catch(() => {});
+      }
       return;
     }
     const current = this.pages.get(providerId);
@@ -368,6 +618,7 @@ export class BrowserManager {
         ...(binding.threadKey ? { threadKey: binding.threadKey } : {}),
         ...(binding.sessionId ? { sessionId: binding.sessionId } : {}),
         ...(binding.seatId ? { seatId: binding.seatId } : {}),
+        ...(binding.pageBindingId ? { pageBindingId: binding.pageBindingId, leaseEpoch: binding.leaseEpoch, leaseState: binding.state } : {}),
         status: "verified",
         url: binding.url,
         closed: false,
