@@ -65,3 +65,11 @@ test("run registry cancellation aborts browser work and recovery waits", async (
   assert.equal(controller.signal.aborted, true);
   assert.equal(registry.get("run-cancel").status, "cancelled");
 });
+
+test("run registry exposes awaiting continuation without reporting completion", () => {
+  const registry = new RunRegistry();
+  registry.create({ runId: "run-cap", sessionId: "session", planId: "plan" });
+  const run = registry.awaitContinuation("run-cap");
+  assert.equal(run.status, "awaiting_continuation");
+  assert.equal(registry.get("run-cap").status, "awaiting_continuation");
+});

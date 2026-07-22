@@ -14,6 +14,12 @@ import {
   normalizeLayout,
   uniqueProviderIds,
 } from "./core/providers.mjs";
+import {
+  queueIntervention,
+  removeIntervention,
+  setDefaultSeatRole,
+  updateIntervention,
+} from "./core/discussion-session-state.mjs";
 import { createProviderAdapters } from "./automation/adapters/index.mjs";
 import { BrowserManager, sanitizePageUrl } from "./automation/browser-manager.mjs";
 import { BrowserWorker } from "./automation/worker.mjs";
@@ -190,6 +196,10 @@ function errorStatus(error) {
     "REPARSE_PATH_WRITE_DENIED",
     "TRANSACTION_SESSION_MISMATCH",
     "STALE_COMPRESSION_REVISION",
+    "DISCUSSION_PLAN_NOT_ACTIVE",
+    "PLAN_NOT_AWAITING_CONTINUATION",
+    "DISCUSSION_CYCLE_LIMIT_REACHED",
+    "INTERVENTION_NOT_PENDING",
   ].includes(code)) return 409;
   if ([
     "INVALID_PROVIDER_URL",
@@ -207,6 +217,8 @@ function errorStatus(error) {
     "INVALID_COMPRESSION_BUCKET",
     "INVALID_COMPRESSION_ENTRY",
     "DUPLICATE_COMPRESSION_ENTRY",
+    "INTERVENTION_TOO_LONG",
+    "ROLE_OVERRIDE_PROVIDER_NOT_SELECTED",
   ].includes(code)) return 400;
   if (code === "ENOENT") return 404;
   if (message.includes("ALREADY_EXISTS") || message.includes("ACTIVE") || message.includes("TARGET_CHANGED")) return 409;
@@ -1006,12 +1018,13 @@ async function persistRunState(runtime, services, run) {
 function startBackgroundRun(runtime, services, sessionId, planId, runId, controller, executionOptions = {}) {
   queueMicrotask(async () => {
     try {
-      await services.scheduler.executePreparedPlan(sessionId, planId, {
+      const result = await services.scheduler.executePreparedPlan(sessionId, planId, {
         runId,
         signal: controller.signal,
         ...executionOptions,
       });
-      runtime.runRegistry.complete(runId);
+      if (result?.awaitingContinuation) runtime.runRegistry.awaitContinuation(runId);
+      else runtime.runRegistry.complete(runId);
     } catch (error) {
       runtime.runRegistry.fail(runId, error);
     }
@@ -1195,6 +1208,44 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       const result = await scheduler.executeCommand(sessionId, payload);
       return sendJson(response, 200, { ok: true, ...result, run: null });
     }
+    if (request.method === "POST" && action === "participant-role") {
+      const payload = await readJson(request);
+      let role = "";
+      const session = await store.updateSession(sessionId, (current) => {
+        role = setDefaultSeatRole(current, payload);
+        current.updatedAt = new Date().toISOString();
+        return current;
+      });
+      runtime.eventBus.emit({
+        type: "participant.role_updated",
+        sessionId,
+        providerId: String(payload.providerId || ""),
+        role,
+        session,
+      });
+      return sendJson(response, 200, { ok: true, providerId: String(payload.providerId || ""), role, session });
+    }
+    if (request.method === "POST" && action === "interventions") {
+      const payload = await readJson(request);
+      let intervention = null;
+      const session = await store.updateSession(sessionId, (current) => {
+        const planId = String(payload.planId || current.runtime?.activePlanId || "");
+        const plan = current.plans?.find((candidate) => candidate.id === planId);
+        if (!plan) throw Object.assign(new Error("PLAN_NOT_FOUND"), { code: "PLAN_NOT_FOUND" });
+        if (plan.conversationMode !== "discussion" || !["planned", "running", "waiting_recovery", "awaiting_continuation"].includes(plan.status) || plan.closureTurnId) {
+          throw Object.assign(new Error("DISCUSSION_PLAN_NOT_ACTIVE"), { code: "DISCUSSION_PLAN_NOT_ACTIVE" });
+        }
+        intervention = queueIntervention(current, {
+          id: randomUUID(),
+          planId,
+          content: payload.content,
+        });
+        current.updatedAt = intervention.updatedAt;
+        return current;
+      });
+      runtime.eventBus.emit({ type: "intervention.queued", sessionId, planId: intervention.planId, intervention, session });
+      return sendJson(response, 201, { ok: true, intervention, session });
+    }
     if (request.method === "POST" && action === "settings") {
       const session = await updateSessionSettings(sessionId, await readJson(request), { store });
       runtime.eventBus.emit({ type: "session.settings_updated", sessionId, session });
@@ -1283,6 +1334,54 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       const handoff = await handoffManager.preview(sessionId, String(payload.providerId || ""));
       return sendJson(response, 201, { ok: true, handoff });
     }
+  }
+  if (action === "interventions" && parts.length === 5 && ["PATCH", "DELETE"].includes(request.method)) {
+    const interventionId = parts[4];
+    const payload = request.method === "PATCH" ? await readJson(request) : {};
+    let intervention = null;
+    const session = await store.updateSession(sessionId, (current) => {
+      intervention = request.method === "PATCH"
+        ? updateIntervention(current, { id: interventionId, content: payload.content })
+        : removeIntervention(current, { id: interventionId });
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    const eventType = request.method === "PATCH" ? "intervention.updated" : "intervention.removed";
+    runtime.eventBus.emit({ type: eventType, sessionId, planId: intervention.planId, intervention, session });
+    return sendJson(response, 200, { ok: true, intervention, session });
+  }
+  if (action === "plans" && parts.length === 6 && parts[5] === "continue" && request.method === "POST") {
+    const planId = parts[4];
+    const runId = randomUUID();
+    const controller = new AbortController();
+    let plan = null;
+    const session = await store.updateSession(sessionId, (current) => {
+      plan = current.plans?.find((candidate) => candidate.id === planId);
+      if (!plan) throw Object.assign(new Error("PLAN_NOT_FOUND"), { code: "PLAN_NOT_FOUND" });
+      if (plan.conversationMode !== "discussion" || plan.status !== "awaiting_continuation") {
+        throw Object.assign(new Error("PLAN_NOT_AWAITING_CONTINUATION"), { code: "PLAN_NOT_AWAITING_CONTINUATION" });
+      }
+      if (Number(plan.maxCycles || plan.rounds || 0) >= 10) {
+        throw Object.assign(new Error("DISCUSSION_CYCLE_LIMIT_REACHED"), { code: "DISCUSSION_CYCLE_LIMIT_REACHED" });
+      }
+      plan.maxCycles = Number(plan.maxCycles || plan.rounds || 0) + 1;
+      plan.rounds = plan.maxCycles;
+      plan.status = "running";
+      plan.error = null;
+      current.runtime = {
+        ...(current.runtime || {}),
+        status: "running",
+        activePlanId: planId,
+        activeRunId: runId,
+        failedTurnId: null,
+        error: null,
+      };
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    const run = runtime.runRegistry.create({ runId, sessionId, planId, controller });
+    startBackgroundRun(runtime, services, sessionId, planId, runId, controller, { resumePersisted: true });
+    return sendJson(response, 202, { ok: true, session, plan, run });
   }
   if (action === "context" && parts.length === 5 && parts[4] === "compression" && request.method === "GET") {
     const session = await store.readSession(sessionId);

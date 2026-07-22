@@ -191,6 +191,16 @@ export class RunRegistry {
     return publicRun(run);
   }
 
+  awaitContinuation(runId) {
+    const run = this.require(runId);
+    run.status = "awaiting_continuation";
+    run.updatedAt = new Date().toISOString();
+    run.failedTurnId = null;
+    run.error = null;
+    this.emit("run.awaiting_continuation", run);
+    return publicRun(run);
+  }
+
   fail(runId, error) {
     const run = this.require(runId);
     if (run.status === "cancelled") return publicRun(run);

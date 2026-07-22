@@ -63,7 +63,7 @@ test("roundtable session writes ledger, events, and summary", async () => {
   assert.equal(appended.event.providerId, "chatgpt");
 
   const prompt = buildPrompt(appended.session, "qwen");
-  assert.match(prompt, /Web Agents 本地圆桌/);
+  assert.match(prompt, /你正在参加一场/);
   assert.match(prompt, /先做启动器/);
 
   const summary = await writeSummary(session.id, { summary: "结论：先做最小圆桌。" }, { repoRoot });
@@ -113,7 +113,7 @@ test("roundtable HTTP API creates session and returns prompts", async () => {
       `${baseUrl}/api/sessions/${encodeURIComponent(created.session.id)}/prompt?provider=deepseek`
     ).then((response) => response.json());
     assert.equal(prompt.ok, true);
-    assert.match(prompt.prompt, /Roundtable API/);
+    assert.match(prompt.prompt, /验证接口/);
   } finally {
     server.close();
   }
@@ -203,18 +203,14 @@ test("roundtable command parser resolves all, single target, and pair discussion
   assert.equal(pair.rounds, 3);
 
   const plan = createTurnPlan(session, pair.commandText, session.settings);
-  assert.equal(plan.turns.length, 7);
+  assert.equal(plan.turns.length, 2);
   assert.deepEqual(plan.turns.map((turn) => `${turn.round}:${turn.providerId}`), [
     "1:gemini",
     "1:chatgpt",
-    "2:gemini",
-    "2:chatgpt",
-    "3:gemini",
-    "3:chatgpt",
-    "null:chatgpt",
   ]);
-  assert.equal(plan.turns.at(-1).role, "closure");
-  assert.equal(plan.turns.at(-1).countsTowardRounds, false);
+  assert.equal(plan.maxCycles, 3);
+  assert.deepEqual(plan.cycles[0].turnIds, plan.turns.map((turn) => turn.id));
+  assert.equal(plan.turns.every((turn) => turn.countsTowardRounds), true);
 });
 
 test("executeRoundtableCommand writes command plan and mock replies", async () => {
