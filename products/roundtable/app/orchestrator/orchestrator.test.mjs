@@ -113,6 +113,105 @@ test("discussion turns share one immutable snapshot and merge replies into the n
   assert.equal(saved.threads.chatgpt.usage.interactions, 3);
 });
 
+test("passed seats stay private and can rejoin after a later direct mention", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 3, mode: "playwright" });
+  const calls = [];
+  const worker = {
+    async execute(request) {
+      calls.push({ ...request });
+      if (request.role === "closure") return { text: "东家自然收束" };
+      if (request.round === 1) return { text: `${request.providerLabel} 第一周期观点` };
+      if (request.round === 2 && request.providerId === "deepseek") return { text: "ChatGPT 的反馈循环观点值得继续讨论。" };
+      if (request.round === 2) return { text: "PASS" };
+      if (request.round === 3 && request.providerId === "chatgpt") return { text: "我回应 DeepSeek：这里需要加入时间约束。" };
+      return { text: "PASS" };
+    },
+  };
+  const eventBus = new EventBus({ historyLimit: 200 });
+  const scheduler = new RoundtableScheduler({ store, worker, eventBus });
+  const result = await scheduler.executeCommand(session.id, {
+    text: "如何进行自学",
+    targets: ["chatgpt", "deepseek", "doubao"],
+    mentionTokens: [],
+    rounds: 3,
+  });
+
+  const cycleTwo = result.plan.cycles.find((cycle) => cycle.number === 2);
+  const chatgptCycleTwo = result.plan.turns.find((turn) => turn.cycleNumber === 2 && turn.providerId === "chatgpt");
+  const chatgptCycleThree = result.plan.turns.find((turn) => turn.cycleNumber === 3 && turn.providerId === "chatgpt");
+  assert.equal(chatgptCycleTwo.status, "passed");
+  assert.equal(chatgptCycleTwo.replyPath, null);
+  assert.equal(chatgptCycleThree.mustRespond, true);
+  assert.equal(chatgptCycleThree.status, "completed");
+  assert.equal(cycleTwo.passedCount, 2);
+  assert.equal(result.session.events.some((event) => /^PASS$/i.test(event.content || "")), false);
+  assert.equal(eventBus.history().some((event) => event.type === "turn.passed"), true);
+});
+
+test("discussion replies are committed in provider completion order", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 2, mode: "playwright" });
+  const delays = { chatgpt: 700, deepseek: 5, doubao: 80 };
+  const scheduler = new RoundtableScheduler({
+    store,
+    worker: {
+      async execute(request) {
+        if (request.role === "closure") return { text: "收束" };
+        if (request.round === 2) return { text: "PASS" };
+        await new Promise((resolve) => setTimeout(resolve, delays[request.providerId]));
+        return { text: `${request.providerId} 完成` };
+      },
+    },
+  });
+  const result = await scheduler.executeCommand(session.id, {
+    text: "讨论完成顺序",
+    targets: ["chatgpt", "deepseek", "doubao"],
+    mentionTokens: [],
+    rounds: 2,
+  });
+  assert.deepEqual(
+    result.session.events.filter((event) => event.type === "reply" && event.round === 1).map((event) => event.providerId),
+    ["deepseek", "doubao", "chatgpt"],
+  );
+  assert.equal(result.plan.cycles.length, 2);
+});
+
+test("a directly addressed seat receives one bounded correction opportunity", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 3, mode: "playwright" });
+  let doubaoCycleThreeCalls = 0;
+  const scheduler = new RoundtableScheduler({
+    store,
+    worker: {
+      async execute(request) {
+        if (request.role === "closure") return { text: "收束" };
+        if (request.round === 1) return { text: `${request.providerId} 第一周期` };
+        if (request.round === 2 && request.providerId === "chatgpt") return { text: "豆包的学习时长判断需要修正。" };
+        if (request.round === 2) return { text: "PASS" };
+        if (request.round === 3 && request.providerId === "doubao") {
+          doubaoCycleThreeCalls += 1;
+          return { text: doubaoCycleThreeCalls === 1 ? "PASS" : "我回应 ChatGPT：这里确实需要区分时长和反馈质量。" };
+        }
+        return { text: "PASS" };
+      },
+    },
+  });
+
+  const result = await scheduler.executeCommand(session.id, {
+    text: "如何进行自学",
+    targets: ["chatgpt", "deepseek", "doubao"],
+    mentionTokens: [],
+    rounds: 3,
+  });
+  const turn = result.plan.turns.find((candidate) => candidate.cycleNumber === 3 && candidate.providerId === "doubao");
+  assert.equal(doubaoCycleThreeCalls, 2);
+  assert.equal(turn.mustRespond, true);
+  assert.equal(turn.participationCorrectionAttempts, 1);
+  assert.equal(turn.status, "completed");
+  assert.match(result.session.events.find((event) => event.metadata?.turnId === turn.id)?.content || "", /回应 ChatGPT/);
+});
+
 test("worker progress becomes a transient turn event and never enters the ledger", async () => {
   const store = await createStore();
   const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 1, mode: "playwright" });
@@ -368,10 +467,9 @@ test("turn plan preserves same-round target order", async () => {
   assert.deepEqual(plan.turns.map((turn) => `${turn.round}:${turn.providerId}`), [
     "1:doubao",
     "1:chatgpt",
-    "2:doubao",
-    "2:chatgpt",
-    "null:chatgpt",
   ]);
+  assert.equal(plan.maxCycles, 2);
+  assert.deepEqual(plan.cycles[0].turnIds, plan.turns.map((turn) => turn.id));
 });
 
 async function waitUntil(predicate, timeoutMs = 3000) {
@@ -541,6 +639,95 @@ test("a restarted ambiguous or completed submission is never dispatched again au
     );
     assert.equal(calls, 0, phase);
   }
+});
+
+test("restart recovery skips a submitted discussion turn and resumes the remaining cycle", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 2, mode: "playwright" });
+  const calls = [];
+  const registry = new RunRegistry();
+  const scheduler = new RoundtableScheduler({
+    store,
+    runRegistry: registry,
+    worker: {
+      async execute(request) {
+        calls.push({ providerId: request.providerId, round: request.round, role: request.role });
+        if (request.role === "closure") return { text: "东家收束" };
+        if (request.round === 2) return { text: "PASS" };
+        return { text: `${request.providerId} 恢复后发言` };
+      },
+    },
+  });
+  const prepared = await scheduler.prepareCommand(session.id, {
+    text: "验证动态讨论恢复",
+    targets: ["chatgpt", "deepseek"],
+    mentionTokens: [],
+    rounds: 2,
+  }, { runId: "restart-discussion-run" });
+  const persisted = await store.readSession(session.id);
+  const submittedTurn = persisted.plans.at(-1).turns.find((turn) => turn.providerId === "chatgpt");
+  submittedTurn.status = "running";
+  submittedTurn.executionId = `${submittedTurn.id}:chatgpt:1`;
+  submittedTurn.executionPhase = "submitted";
+  submittedTurn.sendState = "SENT";
+  await store.saveSession(persisted);
+
+  registry.create({
+    runId: "restart-discussion-run",
+    sessionId: session.id,
+    planId: prepared.plan.id,
+  });
+  const execution = scheduler.executePreparedPlan(session.id, prepared.plan.id, {
+    runId: "restart-discussion-run",
+    resumePersisted: true,
+  });
+  await waitUntil(() => registry.get("restart-discussion-run")?.status === "waiting_recovery");
+  registry.skip("restart-discussion-run", submittedTurn.id, "restart-skip-submitted");
+  const result = await execution;
+
+  assert.equal(calls.some((call) => call.providerId === "chatgpt" && call.round === 1), false);
+  assert.equal(calls.some((call) => call.providerId === "deepseek" && call.round === 1), true);
+  assert.equal(result.plan.turns.find((turn) => turn.id === submittedTurn.id).status, "skipped");
+  assert.equal(result.plan.status, "completed");
+});
+
+test("intervention commit is idempotent across an append-before-remove restart", async () => {
+  const store = await createStore();
+  const session = await createSession(store, { conversationMode: "discussion", defaultRounds: 2, mode: "playwright" });
+  const scheduler = new RoundtableScheduler({ store });
+  const prepared = await scheduler.prepareCommand(session.id, {
+    text: "测试插话幂等",
+    targets: ["chatgpt"],
+    mentionTokens: [],
+    rounds: 2,
+  });
+  await store.updateSession(session.id, (current) => {
+    current.pendingInterventions.push({
+      id: "intervention-restart",
+      planId: prepared.plan.id,
+      content: "补充考虑时间限制",
+      status: "pending",
+      createdAt: "2026-07-23T00:00:00.000Z",
+      updatedAt: "2026-07-23T00:00:00.000Z",
+    });
+    return current;
+  });
+  await store.appendEvents(session.id, [{
+    id: "intervention:intervention-restart",
+    type: "command",
+    providerId: null,
+    content: "补充考虑时间限制",
+    commandId: prepared.plan.id,
+    round: 2,
+    metadata: { intervention: true, interventionId: "intervention-restart" },
+    createdAt: "2026-07-23T00:00:00.000Z",
+  }]);
+
+  await scheduler.commitPendingInterventions(session.id, prepared.plan.id, 2);
+  await scheduler.commitPendingInterventions(session.id, prepared.plan.id, 2);
+  const saved = await store.readSession(session.id);
+  assert.equal(saved.events.filter((event) => event.id === "intervention:intervention-restart").length, 1);
+  assert.deepEqual(saved.pendingInterventions, []);
 });
 
 test("concurrent command preparation allows only one active plan per session", async () => {
@@ -840,7 +1027,7 @@ test("relay keeps the original task, last successful baton, and absence notes", 
   assert.equal(result.plan.status, "completed");
 });
 
-test("failed host closure falls back to a healthy successful seat", async () => {
+test("failed discussion closure remains assigned to the east-host", async () => {
   const store = await createStore();
   const session = await createSession(store, { mode: "playwright", defaultRounds: 1 });
   const calls = [];
@@ -864,14 +1051,10 @@ test("failed host closure falls back to a healthy successful seat", async () => 
   assert.equal(calls.filter((call) => call.role === "closure" && call.providerId === "chatgpt").length, 2);
   const closureTurn = result.plan.turns.at(-1);
   assert.equal(closureTurn.role, "closure");
-  assert.equal(closureTurn.providerId, "deepseek");
-  assert.equal(closureTurn.fallbackFromProviderId, "chatgpt");
-  assert.match(closureTurn.fallbackReason, /PROVIDER_UNAVAILABLE/);
-  const fallbackCall = calls.find((call) => call.role === "closure" && call.providerId === "deepseek");
-  assert.match(fallbackCall.prompt, /临时收束说明/);
-  assert.match(fallbackCall.prompt, /PROVIDER_UNAVAILABLE/);
-  assert.equal(fallbackCall.writeExecutorId, "deepseek");
-  assert.equal(result.plan.effectiveClosureProviderId, "deepseek");
+  assert.equal(closureTurn.providerId, "chatgpt");
+  assert.equal(closureTurn.status, "absent");
+  assert.equal(calls.some((call) => call.role === "closure" && call.providerId === "deepseek"), false);
+  assert.equal(result.plan.effectiveClosureProviderId, "chatgpt");
   assert.equal(result.plan.status, "completed");
 });
 
