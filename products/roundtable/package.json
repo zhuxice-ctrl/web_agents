@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node app/server.mjs",
-    "test:core": "node --test app/server.test.mjs app/server-runtime.test.mjs app/server-workspace.test.mjs app/storage/*.test.mjs app/orchestrator/*.test.mjs app/mcp/*.test.mjs app/public/*.test.mjs app/automation/browser-manager.test.mjs app/automation/provider-concurrency.test.mjs app/automation/controller-tool-worker.test.mjs app/automation/completion-detector.test.mjs app/automation/extension-relay.test.mjs app/automation/extension-browser-manager.test.mjs app/automation/extension-worker.test.mjs",
+    "test:core": "node --test app/server.test.mjs app/server-runtime.test.mjs app/server-workspace.test.mjs app/storage/*.test.mjs app/orchestrator/*.test.mjs app/mcp/*.test.mjs app/public/*.test.mjs app/automation/browser-manager.test.mjs app/automation/page-lease-registry.test.mjs app/automation/provider-concurrency.test.mjs app/automation/controller-tool-worker.test.mjs app/automation/completion-detector.test.mjs app/automation/extension-relay.test.mjs app/automation/extension-browser-manager.test.mjs app/automation/extension-worker.test.mjs",
     "test:browser": "node --test app/automation/worker.e2e.test.mjs app/automation/roundtable-fake.e2e.test.mjs",
     "test:compat": "node --test compat-extension/test/*.test.mjs",
     "test:launcher": "node --test launcher/*.test.mjs",
@@ -14,6 +14,8 @@
   "dependencies": {
     "@playwright/mcp": "0.0.78",
     "@web-agents/local-core": "0.1.0",
+    "dompurify": "3.4.12",
+    "marked": "18.0.6",
     "playwright": "^1.61.1"
   }
 }

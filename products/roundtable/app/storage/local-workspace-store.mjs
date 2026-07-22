@@ -62,7 +62,10 @@ function stateFromSession(session) {
     handoffs: session.handoffs || [],
     transactions: session.transactions || [],
     pendingParticipants: session.pendingParticipants || [],
+    participantRoles: session.participantRoles || {},
+    pendingInterventions: session.pendingInterventions || [],
     checkpoints: session.checkpoints || [],
+    executionIndex: session.executionIndex || [],
     actionJournal: session.actionJournal || [],
     unreadCount: Number(session.unreadCount || 0),
   };
@@ -104,13 +107,19 @@ export async function resolveConfiguredDataRoot({ repoRoot, configFile, env = pr
 }
 
 export class LocalWorkspaceStore {
-  constructor({ repoRoot = process.cwd(), workspaceRoot = null, dataRoot = null, configFile = null } = {}) {
+  constructor({ repoRoot = process.cwd(), workspaceRoot = null, dataRoot = null, configFile = null, controlStore = null } = {}) {
     this.repoRoot = path.resolve(repoRoot);
     this.workspaceRoot = workspaceRoot ? path.resolve(workspaceRoot) : null;
     this.configFile = configFile || path.join(this.repoRoot, "config", "data-root.local.txt");
     this.dataRoot = dataRoot ? path.resolve(dataRoot) : null;
     this.rootSource = dataRoot ? "explicit" : "default";
     this.locks = new Map();
+    this.controlStore = controlStore || null;
+  }
+
+  setControlStore(controlStore) {
+    this.controlStore = controlStore || null;
+    return this.controlStore;
   }
 
   async initialize() {
@@ -252,6 +261,13 @@ export class LocalWorkspaceStore {
     const paths = this.getSessionPaths(session.id);
     await atomicWriteJson(paths.metadata, metadataFromSession(session));
     await atomicWriteJson(paths.state, stateFromSession(session));
+    if (this.controlStore?.available && Array.isArray(session.executionIndex) && session.executionIndex.length) {
+      try {
+        this.controlStore.importExecutions(session.executionIndex);
+      } catch (error) {
+        this.controlStore.markDegraded?.(error);
+      }
+    }
     for (const plan of session.plans || []) {
       if (plan?.id) await atomicWriteJson(path.join(paths.plans, `${safeSegment(plan.id)}.json`), plan);
     }
@@ -458,6 +474,8 @@ export class LocalWorkspaceStore {
       handoffs: candidate.handoffs || [],
       transactions: candidate.transactions || [],
       pendingParticipants: candidate.pendingParticipants || [],
+      participantRoles: candidate.participantRoles || {},
+      pendingInterventions: candidate.pendingInterventions || [],
       checkpoints: candidate.checkpoints || [],
       actionJournal: candidate.actionJournal || [],
       unreadCount: Number(candidate.unreadCount || 0),

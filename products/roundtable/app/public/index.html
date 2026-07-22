@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
+    <link rel="icon" href="data:," />
     <title>Web Agents 圆桌</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -72,6 +73,8 @@
             </div>
           </section>
 
+          <div id="workspaceDivider" class="workspace-divider" role="separator" aria-label="调整圆桌与会话宽度" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="39" tabindex="0"></div>
+
           <section class="conversation-pane" aria-label="圆桌会话记录">
             <div class="panel-heading conversation-heading">
               <div><small>PUBLIC LEDGER</small><h2>公共会话</h2></div>
@@ -83,6 +86,7 @@
           </section>
 
           <section class="composer-pane" aria-label="唯一会话输入区">
+            <section id="pendingInterventionQueue" class="intervention-queue" aria-label="下一周期插话队列" hidden></section>
             <div id="mentionTokens" class="mention-tokens" aria-label="本轮发言模型"></div>
             <form id="commandForm" class="command-form">
               <div class="composer-input-wrap">
@@ -95,7 +99,7 @@
                   <label><input type="radio" name="conversationMode" value="discussion" checked /><span>讨论</span></label>
                   <label><input type="radio" name="conversationMode" value="relay" /><span>传递</span></label>
                 </div>
-                <label class="round-stepper"><span>轮数</span><button id="roundDown" type="button" aria-label="减少轮数">−</button><output id="roundValue">3</output><button id="roundUp" type="button" aria-label="增加轮数">＋</button></label>
+                <label class="round-stepper"><span>最多周期</span><button id="roundDown" type="button" aria-label="减少最多周期">−</button><output id="roundValue">5</output><button id="roundUp" type="button" aria-label="增加最多周期">＋</button></label>
                 <button id="settingsButton" class="icon-button" type="button" title="高级设置" aria-label="高级设置">⚙</button>
                 <button id="pauseButton" class="icon-button" type="button" title="暂停当前圆桌" aria-label="暂停当前圆桌">Ⅱ</button>
                 <button id="stopButton" class="icon-button is-danger" type="button" title="终止当前圆桌" aria-label="终止当前圆桌">■</button>
@@ -108,13 +112,16 @@
           </section>
         </main>
 
-        <aside class="detail-sidebar" aria-label="圆桌详情">
-          <nav class="detail-tabs" aria-label="详情视图">
-            <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
-            <button class="tab-button" type="button" data-tab="files">文件</button>
-            <button class="tab-button" type="button" data-tab="audit">审计</button>
-            <button class="tab-button" type="button" data-tab="context">上下文</button>
-          </nav>
+        <aside id="detailSidebar" class="detail-sidebar" aria-label="圆桌详情">
+          <div class="detail-sidebar-toolbar">
+            <nav class="detail-tabs" aria-label="详情视图">
+              <button class="tab-button is-active" type="button" data-tab="plan">计划</button>
+              <button class="tab-button" type="button" data-tab="files">文件</button>
+              <button class="tab-button" type="button" data-tab="audit">审计</button>
+              <button class="tab-button" type="button" data-tab="context">上下文</button>
+            </nav>
+            <button id="collapseDetailSidebarButton" class="icon-button detail-sidebar-toggle" type="button" title="折叠详情栏" aria-label="折叠详情栏" aria-controls="detailSidebar" aria-expanded="true">›</button>
+          </div>
           <section class="tab-panel is-active" data-panel="plan">
             <div class="panel-heading"><div><small>EXECUTION</small><h2>执行计划</h2></div><span id="planCount" class="count-badge">0</span></div>
             <div id="planView" class="detail-list empty-state"><p>发送指令后显示轮次与队列</p></div>
@@ -137,6 +144,7 @@
             <div id="recentRawContextView" class="context-section empty-state"><p>近期原文会显示在这里</p></div>
           </section>
         </aside>
+        <button id="restoreDetailSidebarButton" class="icon-button detail-sidebar-restore" type="button" title="展开详情栏" aria-label="展开详情栏" aria-controls="detailSidebar" aria-expanded="false" hidden>‹</button>
       </div>
     </div>
 
@@ -155,7 +163,7 @@
       <form id="newSessionForm" method="dialog">
         <div class="modal-heading"><div><small>NEW ROUNDTABLE</small><h2>选择首批席位</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
         <div id="newSessionProviders" class="provider-picker"></div>
-        <p class="form-hint">每个入席模型都会在项目专用 Chrome 中获得新的网页会话。登录与人机验证由你手动完成。</p>
+        <p class="form-hint">优先复用已有模型标签页并进入新对话；仅在该模型没有可用标签页时新建。登录与人机验证由你手动完成。</p>
         <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">创建圆桌</button></div>
       </form>
     </dialog>
@@ -166,6 +174,17 @@
         <label><span>模型</span><select id="participantProvider"></select></label>
         <fieldset><legend>上下文策略</legend><label><input type="radio" name="joinPolicy" value="sync_all" checked />同步圆桌公共上下文</label><label><input type="radio" name="joinPolicy" value="from_now" />从加入后开始记录</label></fieldset>
         <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">加入下一轮</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="roleDialog" class="modal compact-modal">
+      <form id="roleForm" method="dialog">
+        <div class="modal-heading"><div><small>DISCUSSION ROLE</small><h2 id="roleDialogTitle">席位角色</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
+        <input id="roleProviderId" type="hidden" />
+        <label><span>默认角色</span><input id="defaultRoleInput" type="text" maxlength="160" placeholder="例如：学习科学研究者" /></label>
+        <label><span>仅下一场讨论使用</span><input id="temporaryRoleInput" type="text" maxlength="160" placeholder="留空则使用默认角色" /></label>
+        <p class="form-hint">默认角色保存在当前圆桌；临时角色只随下一条新命令发送。</p>
+        <div class="modal-actions"><button class="secondary-button dialog-close" type="button">取消</button><button class="primary-button" type="submit">保存角色</button></div>
       </form>
     </dialog>
 
@@ -216,7 +235,7 @@
     <dialog id="settingsDialog" class="settings-drawer">
       <form id="settingsForm" method="dialog">
         <div class="modal-heading"><div><small>ADVANCED</small><h2>自动化设置</h2></div><button class="icon-button dialog-close" type="button" aria-label="关闭">×</button></div>
-        <label><span>提供商软并发上限</span><input id="providerConcurrency" type="number" min="1" max="8" value="3" /></label>
+        <label><span>提供商软并发上限</span><input id="providerConcurrency" type="number" min="1" max="8" value="1" /></label>
         <label><span>单次上下文事件上限</span><input id="maxContextEvents" type="number" min="4" max="120" value="24" /></label>
         <label><span>交接提醒阈值（估算 %）</span><input id="handoffThreshold" type="number" min="50" max="95" value="72" /></label>
         <label><span>紧急交接阈值（估算 %）</span><input id="urgentHandoffThreshold" type="number" min="60" max="100" value="90" /></label>
@@ -227,6 +246,8 @@
     </dialog>
 
     <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+    <script src="/vendor/marked.umd.js"></script>
+    <script src="/vendor/purify.min.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -86,7 +86,7 @@ function Get-HealthPayload {
 }
 
 function Get-RoundtableIdentity {
-  param([int] $Port)
+  param([int] $Port, [switch] $AllowDegradedLocalServices)
 
   $owners = @(Get-PortOwnerIds -Port $Port)
   if ($owners.Count -eq 0) {
@@ -114,7 +114,7 @@ function Get-RoundtableIdentity {
     (Test-SamePath -First ([string]$health.repoRoot) -Second $repoRoot) -and
     $commandLine.IndexOf($expectedScript, [StringComparison]::OrdinalIgnoreCase) -ge 0
 
-  if ($matches -and -not $RoundtableOnly -and $BrowserMode -eq "cdp") {
+  if ($matches -and -not $AllowDegradedLocalServices -and -not $RoundtableOnly -and $BrowserMode -eq "cdp") {
     $local = $health.localServices
     $matches =
       $local -and
@@ -175,7 +175,7 @@ function Wait-PortFree {
 
 function Stop-CompatibleRoundtable {
   param([int] $Port)
-  $identity = Get-RoundtableIdentity -Port $Port
+  $identity = Get-RoundtableIdentity -Port $Port -AllowDegradedLocalServices
   if ($identity.State -eq "free") {
     Write-Host "Roundtable is not running on port $Port." -ForegroundColor Yellow
     return
@@ -194,7 +194,8 @@ function Stop-CompatibleRoundtable {
 function Invoke-BrowserLauncher {
   param(
     [switch] $StopBrowser,
-    [string] $CleanupLaunchStatePath
+    [string] $CleanupLaunchStatePath,
+    [string] $OpenUrl
   )
   if ($RoundtableOnly -or $BrowserMode -ne "cdp") { return }
   if (-not (Test-Path -LiteralPath $browserLauncher -PathType Leaf)) {
@@ -205,12 +206,15 @@ function Invoke-BrowserLauncher {
     "-File", $browserLauncher,
     "-CdpPort", [string]$CdpPort
   )
-  $isLaunch = -not $StopBrowser -and -not $CleanupLaunchStatePath
+  $isLaunch = -not $StopBrowser -and -not $CleanupLaunchStatePath -and -not $OpenUrl
   if ($StopBrowser) {
     $arguments += "-Stop"
   }
   elseif ($CleanupLaunchStatePath) {
     $arguments += @("-CleanupLaunchStatePath", "`"$CleanupLaunchStatePath`"")
+  }
+  elseif ($OpenUrl) {
+    $arguments += @("-OpenUrl", "`"$OpenUrl`"")
   }
   else {
     $script:browserLaunchStatePath = Join-Path (
@@ -357,6 +361,7 @@ function Start-Roundtable {
   $priorDataRoot = $env:WEB_AGENTS_DATA_ROOT
   $priorBrowserMode = $env:WEB_AGENTS_BROWSER_MODE
   $priorCdpPort = $env:WEB_AGENTS_CDP_PORT
+  $priorBrowserProfile = $env:WEB_AGENTS_ROUNDTABLE_PROFILE_DIR
   $priorRequireWorkspace = $env:WEB_AGENTS_REQUIRE_WORKSPACE
   $priorSkipPlaywright = $env:WEB_AGENTS_SKIP_PLAYWRIGHT_MCP
   try {
@@ -365,6 +370,7 @@ function Start-Roundtable {
     $env:WEB_AGENTS_DATA_ROOT = $Preflight.DataRoot
     $env:WEB_AGENTS_BROWSER_MODE = $BrowserMode
     $env:WEB_AGENTS_CDP_PORT = [string]$CdpPort
+    $env:WEB_AGENTS_ROUNDTABLE_PROFILE_DIR = Join-Path $productRoot "data/browser-profile"
     $env:WEB_AGENTS_REQUIRE_WORKSPACE = if ($RoundtableOnly) { "0" } else { "1" }
     $env:WEB_AGENTS_SKIP_PLAYWRIGHT_MCP = if ($RoundtableOnly) { "1" } else { "0" }
     $script:startedProcess = Start-Process -FilePath $Preflight.NodePath `
@@ -381,6 +387,7 @@ function Start-Roundtable {
     $env:WEB_AGENTS_DATA_ROOT = $priorDataRoot
     $env:WEB_AGENTS_BROWSER_MODE = $priorBrowserMode
     $env:WEB_AGENTS_CDP_PORT = $priorCdpPort
+    $env:WEB_AGENTS_ROUNDTABLE_PROFILE_DIR = $priorBrowserProfile
     $env:WEB_AGENTS_REQUIRE_WORKSPACE = $priorRequireWorkspace
     $env:WEB_AGENTS_SKIP_PLAYWRIGHT_MCP = $priorSkipPlaywright
   }
@@ -458,7 +465,7 @@ try {
       Write-Host "Workspace: select or resume it in the roundtable page."
       Write-Host "Services: Chrome CDP $CdpPort, Playwright MCP 8931, roundtable $RoundtablePort"
     }
-    if (-not $NoOpen) { Start-Process -FilePath $roundtableUrl }
+    if (-not $NoOpen) { Invoke-BrowserLauncher -OpenUrl $roundtableUrl }
   }
 }
 catch {

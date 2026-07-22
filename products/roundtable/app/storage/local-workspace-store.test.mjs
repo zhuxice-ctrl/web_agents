@@ -29,6 +29,15 @@ test("local workspace store writes atomic state and append-only ledger records",
     plans: [],
     summary: null,
     runtime: {},
+    participantRoles: { chatgpt: "学习科学研究者" },
+    pendingInterventions: [{
+      id: "i1",
+      planId: "p1",
+      content: "请考虑时间有限的情况",
+      status: "pending",
+      createdAt: "2026-07-23T00:00:00.000Z",
+      updatedAt: "2026-07-23T00:00:00.000Z",
+    }],
     events: [],
   });
 
@@ -44,7 +53,10 @@ test("local workspace store writes atomic state and append-only ledger records",
   const ledgerText = await fs.readFile(path.join(sessionDir, "ledger.jsonl"), "utf8");
   const lines = ledgerText.trim().split("\n").map((line) => JSON.parse(line));
   assert.deepEqual(lines.map((line) => line.id), ["event-1", "event-2", "event-3"]);
-  assert.equal((await store.readSession(session.id)).events.length, 3);
+  const savedSession = await store.readSession(session.id);
+  assert.equal(savedSession.events.length, 3);
+  assert.equal(savedSession.participantRoles.chatgpt, "学习科学研究者");
+  assert.equal(savedSession.pendingInterventions[0].content, "请考虑时间有限的情况");
 
   const directoryEntries = await fs.readdir(sessionDir);
   assert.equal(directoryEntries.some((name) => name.includes(".tmp-")), false);

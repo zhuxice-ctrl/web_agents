@@ -38,7 +38,7 @@ export const PROVIDER_ALIASES = new Map([
 export const ALL_ALIASES = new Set(["all", "全体", "大家", "全部"]);
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  defaultRounds: 3,
+  defaultRounds: 5,
   conversationMode: "discussion",
   mode: "mock",
   autoSend: true,
@@ -49,7 +49,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   compressionTriggerPercent: 80,
   compressionTargetPercent: 20,
   recentRawTokenBudget: 16384,
-  providerConcurrency: 3,
+  providerConcurrency: 1,
   estimatedThreadCapacityChars: 120000,
   handoffThreshold: 72,
   urgentHandoffThreshold: 90,
@@ -140,7 +140,7 @@ export function coerceSettings(value = {}) {
   );
   const targetTokens = Math.floor((contextWindowTokens * compressionTargetPercent) / 100);
   return {
-    defaultRounds: coerceInteger(value.defaultRounds, DEFAULT_SETTINGS.defaultRounds, 1, 10),
+    defaultRounds: coerceInteger(value.defaultRounds, DEFAULT_SETTINGS.defaultRounds, 2, 10),
     conversationMode: value.conversationMode === "relay" ? "relay" : "discussion",
     mode: value.mode === "extension" ? "extension" : value.mode === "playwright" ? "playwright" : "mock",
     autoSend: value.autoSend === undefined ? DEFAULT_SETTINGS.autoSend : Boolean(value.autoSend),

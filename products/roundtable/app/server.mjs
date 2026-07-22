@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -13,6 +14,12 @@ import {
   normalizeLayout,
   uniqueProviderIds,
 } from "./core/providers.mjs";
+import {
+  queueIntervention,
+  removeIntervention,
+  setDefaultSeatRole,
+  updateIntervention,
+} from "./core/discussion-session-state.mjs";
 import { createProviderAdapters } from "./automation/adapters/index.mjs";
 import { BrowserManager, sanitizePageUrl } from "./automation/browser-manager.mjs";
 import { BrowserWorker } from "./automation/worker.mjs";
@@ -20,6 +27,7 @@ import { ControllerToolWorker } from "./automation/controller-tool-worker.mjs";
 import { ExtensionRelay } from "./automation/extension-relay.mjs";
 import { ExtensionBrowserManager } from "./automation/extension-browser-manager.mjs";
 import { ExtensionBrowserWorker } from "./automation/extension-worker.mjs";
+import { PageLeaseRegistry } from "./automation/page-lease-registry.mjs";
 import { ArtifactWriter } from "./orchestrator/artifact-writer.mjs";
 import { HandoffManager } from "./orchestrator/handoff-manager.mjs";
 import { parseRoundtableCommand } from "./orchestrator/command-parser.mjs";
@@ -29,11 +37,13 @@ import { EventBus } from "./orchestrator/event-bus.mjs";
 import { RunRegistry } from "./orchestrator/run-registry.mjs";
 import { RoundtableScheduler, createTurnPlan } from "./orchestrator/scheduler.mjs";
 import { LocalWorkspaceStore } from "./storage/local-workspace-store.mjs";
+import { SqliteControlStore } from "./storage/sqlite-control-store.mjs";
 import { WorkspaceRegistry } from "./storage/workspace-registry.mjs";
 import {
   CONTROLLER_TOOL_CAPABILITY,
   createFilesystemTools,
 } from "@web-agents/local-core/filesystem-tools";
+import { listExecutionIndex } from "./orchestrator/execution-index.mjs";
 import { PermissionBroker } from "@web-agents/local-core/permissions";
 import { TransactionManager } from "@web-agents/local-core/transactions";
 import { defaultToolRegistry } from "@web-agents/local-core/tool-registry";
@@ -47,6 +57,14 @@ const defaultPort = Number(process.env.WEB_AGENTS_ROUNDTABLE_PORT || 3020);
 const SERVICE_ID = "web-agents-roundtable";
 const EXTENSION_BRIDGE_PORT = 3020;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const require = createRequire(import.meta.url);
+const VENDOR_FILES = new Map();
+try {
+  VENDOR_FILES.set("/vendor/marked.umd.js", path.join(path.dirname(require.resolve("marked")), "marked.umd.js"));
+  VENDOR_FILES.set("/vendor/purify.min.js", path.join(path.dirname(require.resolve("dompurify")), "purify.min.js"));
+} catch {
+  // The public UI reports a normal load failure when optional browser assets are unavailable.
+}
 
 const MIME_TYPES = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -145,6 +163,7 @@ function errorStatus(error) {
   if (["EXTENSION_BRIDGE_UNAVAILABLE", "EXTENSION_BRIDGE_CLOSED"].includes(code)) return 503;
   if (code === "EXTENSION_COMMAND_TIMEOUT") return 504;
   if (code === "PROVIDER_RESPONSE_TIMEOUT") return 504;
+  if (code === "PROVIDER_PAGE_IN_USE") return 409;
   if ([
     "EXTENSION_CLIENT_NOT_FOUND",
     "EXTENSION_COMMAND_NOT_FOUND",
@@ -177,6 +196,10 @@ function errorStatus(error) {
     "REPARSE_PATH_WRITE_DENIED",
     "TRANSACTION_SESSION_MISMATCH",
     "STALE_COMPRESSION_REVISION",
+    "DISCUSSION_PLAN_NOT_ACTIVE",
+    "PLAN_NOT_AWAITING_CONTINUATION",
+    "DISCUSSION_CYCLE_LIMIT_REACHED",
+    "INTERVENTION_NOT_PENDING",
   ].includes(code)) return 409;
   if ([
     "INVALID_PROVIDER_URL",
@@ -194,6 +217,8 @@ function errorStatus(error) {
     "INVALID_COMPRESSION_BUCKET",
     "INVALID_COMPRESSION_ENTRY",
     "DUPLICATE_COMPRESSION_ENTRY",
+    "INTERVENTION_TOO_LONG",
+    "ROLE_OVERRIDE_PROVIDER_NOT_SELECTED",
   ].includes(code)) return 400;
   if (code === "ENOENT") return 404;
   if (message.includes("ALREADY_EXISTS") || message.includes("ACTIVE") || message.includes("TARGET_CHANGED")) return 409;
@@ -235,7 +260,7 @@ function runtimeOptions(options = {}) {
     ? new ExtensionBrowserManager({ relay: extensionRelay, adapters })
     : new BrowserManager({
         mode: browserMode,
-        profileDir: options.browserProfileDir || path.join(repoRoot, "browser-profiles", "roundtable"),
+        profileDir: options.browserProfileDir || process.env.WEB_AGENTS_ROUNDTABLE_PROFILE_DIR || path.join(repoRoot, "browser-profiles", "roundtable"),
         cdpEndpoint: options.browserCdpEndpoint ?? process.env.WEB_AGENTS_BROWSER_CDP_ENDPOINT ?? "http://127.0.0.1:9223",
         adapters,
         headless: options.browserHeadless ?? process.env.WEB_AGENTS_BROWSER_HEADLESS === "1",
@@ -263,6 +288,10 @@ function runtimeOptions(options = {}) {
     requireWorkspaceSelection: Boolean(options.requireWorkspaceSelection),
     localServicesProvider: options.localServicesProvider || null,
     explicitStore: Boolean(options.store || options.dataRoot),
+    pageLeaseRegistry: options.pageLeaseRegistry || null,
+    controlStore: options.controlStore || null,
+    controlStores: new Map(),
+    sqliteControlEnabled: options.sqliteControlEnabled ?? process.env.WEB_AGENTS_SQLITE_CONTROL !== "0",
     initializationPromise: null,
   };
   const services = createWorkspaceServices(runtime, store, {
@@ -334,6 +363,7 @@ function createWorkspaceServices(runtime, store, overrides = {}) {
       worker: executionWorker,
       eventBus: runtime.eventBus,
       runRegistry: runtime.runRegistry,
+      strictReplyCommit: true,
     }),
     artifactWriter: overrides.artifactWriter || new ArtifactWriter({
       store,
@@ -451,15 +481,62 @@ async function reconcileInterruptedSessions(runtime) {
   }
 }
 
+async function configureControlStore(runtime, store) {
+  await store.initialize();
+  const dbPath = path.join(store.dataRoot, "roundtable.db");
+  const key = path.resolve(dbPath);
+  let controlStore = runtime.controlStores.get(key) || null;
+  if (!controlStore) {
+    controlStore = runtime.controlStore && runtime.controlStores.size === 0
+      ? runtime.controlStore
+      : new SqliteControlStore({ dbPath, enabled: runtime.sqliteControlEnabled });
+    await controlStore.initialize();
+    runtime.controlStores.set(key, controlStore);
+  }
+  store.setControlStore?.(controlStore);
+  runtime.controlStore = controlStore;
+  if (controlStore.available) {
+    try {
+      for (const summary of await store.listSessions()) {
+        const session = await store.readSession(summary.id);
+        controlStore.importExecutions(listExecutionIndex(session));
+      }
+    } catch (error) {
+      controlStore.markDegraded(error);
+    }
+  }
+  return controlStore;
+}
+
+async function configurePageLeaseRegistry(runtime, store) {
+  const leaseFile = path.join(store.dataRoot, "browser", "page-leases.json");
+  if (!runtime.pageLeaseRegistry || runtime.pageLeaseRegistry.filePath !== path.resolve(leaseFile)) {
+    runtime.pageLeaseRegistry = new PageLeaseRegistry({ filePath: leaseFile, controlStore: runtime.controlStore });
+  } else {
+    runtime.pageLeaseRegistry.setControlStore?.(runtime.controlStore);
+  }
+  await runtime.pageLeaseRegistry.initialize();
+  runtime.browserManager.setLeaseRegistry?.(runtime.pageLeaseRegistry);
+  return runtime.pageLeaseRegistry;
+}
+
 async function initializeRuntime(runtime) {
   if (!runtime.initializationPromise) {
     runtime.initializationPromise = (async () => {
       await runtime.store.initialize();
+      await configureControlStore(runtime, runtime.store);
+      await configurePageLeaseRegistry(runtime, runtime.store);
       await runtime.workspaceRegistry.initialize();
       if (runtime.requireWorkspaceSelection && runtime.workspaceRegistry.active && !runtime.explicitStore) {
         activateWorkspace(runtime, runtime.workspaceRegistry.active);
         await runtime.store.initialize();
+        await configureControlStore(runtime, runtime.store);
+        await configurePageLeaseRegistry(runtime, runtime.store);
       }
+      if (runtime.browserManager.mode === "cdp" && runtime.pageLeaseRegistry.list().some((lease) => !["FREE", "RELEASED", "INVALID"].includes(lease.state))) {
+        await Promise.resolve(runtime.browserManager.connect?.()).catch(() => null);
+      }
+      await Promise.resolve(runtime.browserManager.reconcilePageLeases?.()).catch(() => {});
       for (const services of runtime.workspaceServices.values()) {
         await services.ready;
         await reconcileInterruptedSessions({ ...runtime, ...services });
@@ -549,6 +626,8 @@ export async function createSession(payload = {}, options = {}) {
     handoffs: [],
     transactions: [],
     pendingParticipants: [],
+    participantRoles: {},
+    pendingInterventions: [],
     checkpoints: [],
     actionJournal: [],
     unreadCount: 0,
@@ -631,7 +710,7 @@ export async function renameSession(sessionId, payload = {}, options = {}) {
   });
 }
 
-async function provisionParticipantThread(runtime, services, sessionId, providerId) {
+async function provisionParticipantThread(runtime, services, sessionId, providerId, { refresh = false } = {}) {
   const initialSession = await services.store.readSession(sessionId);
   const thread = initialSession.threads?.[providerId];
   if (!thread) throw new Error("THREAD_NOT_FOUND");
@@ -651,14 +730,22 @@ async function provisionParticipantThread(runtime, services, sessionId, provider
   });
   let outcome;
   try {
-    const opened = await runtime.browserManager.createProviderThread(providerId, {
+    const opened = await (refresh && runtime.browserManager.reconnectProviderThread
+      ? runtime.browserManager.reconnectProviderThread(providerId, {
+          threadKey: thread.threadKey,
+          sessionId,
+          seatId: providerId,
+          refresh: true,
+        })
+      : runtime.browserManager.createProviderThread(providerId, {
       threadKey: thread.threadKey,
       sessionId,
       seatId: providerId,
-    });
+      }));
     outcome = {
       status: opened.status,
       url: opened.url || null,
+      diagnostics: opened.diagnostics || null,
       openedAt: new Date().toISOString(),
       error: null,
     };
@@ -666,7 +753,8 @@ async function provisionParticipantThread(runtime, services, sessionId, provider
     outcome = {
       status: ["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(error?.code)
         ? "waiting_user" : "waiting_browser",
-      error: { code: error?.code || "THREAD_OPEN_FAILED", message: error?.message || String(error) },
+      diagnostics: error?.details || error?.diagnostics || null,
+      error: { code: error?.code || "THREAD_OPEN_FAILED", message: error?.message || String(error), details: error?.details || null },
     };
   }
   return services.store.updateSession(sessionId, (session) => {
@@ -868,6 +956,18 @@ async function serveStatic(request, response, publicDir) {
   }
 }
 
+async function serveVendor(request, response) {
+  const filePath = VENDOR_FILES.get(new URL(request.url, "http://127.0.0.1").pathname);
+  if (!filePath) return sendText(response, 404, "Not found");
+  try {
+    const content = await fs.readFile(filePath);
+    response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+    response.end(content);
+  } catch {
+    sendText(response, 404, "Not found");
+  }
+}
+
 function serveEvents(request, response, runtime, url) {
   const sessionId = url.searchParams.get("sessionId");
   response.writeHead(200, {
@@ -918,12 +1018,13 @@ async function persistRunState(runtime, services, run) {
 function startBackgroundRun(runtime, services, sessionId, planId, runId, controller, executionOptions = {}) {
   queueMicrotask(async () => {
     try {
-      await services.scheduler.executePreparedPlan(sessionId, planId, {
+      const result = await services.scheduler.executePreparedPlan(sessionId, planId, {
         runId,
         signal: controller.signal,
         ...executionOptions,
       });
-      runtime.runRegistry.complete(runId);
+      if (result?.awaitingContinuation) runtime.runRegistry.awaitContinuation(runId);
+      else runtime.runRegistry.complete(runId);
     } catch (error) {
       runtime.runRegistry.fail(runId, error);
     }
@@ -946,6 +1047,9 @@ async function handleStorageRoute(request, response, runtime, parts) {
       const entry = await runtime.workspaceRegistry.select(payload.path);
       const selected = activateWorkspace(runtime, entry);
       await selected.ready;
+      await selected.store.initialize();
+      await configureControlStore(runtime, selected.store);
+      await configurePageLeaseRegistry(runtime, selected.store);
       await reconcileInterruptedSessions({ ...runtime, ...selected });
       const storage = selected.store.describe();
       runtime.eventBus.emit({ type: "workspace.selected", workspace: entry.descriptor, storage });
@@ -953,6 +1057,8 @@ async function handleStorageRoute(request, response, runtime, parts) {
     }
     services = requireActiveWorkspace(runtime);
     const storage = await services.store.setDataRoot(payload.path);
+    await configureControlStore(runtime, services.store);
+    await configurePageLeaseRegistry(runtime, services.store);
     await reconcileInterruptedSessions({ ...runtime, ...services });
     runtime.eventBus.emit({ type: "storage.root_changed", storage });
     return sendJson(response, 200, { ok: true, storage });
@@ -960,6 +1066,7 @@ async function handleStorageRoute(request, response, runtime, parts) {
   if (parts[2] === "import") {
     services = requireActiveWorkspace(runtime);
     const result = await services.store.importFromPath(payload.path);
+    await configureControlStore(runtime, services.store);
     await reconcileInterruptedSessions({ ...runtime, ...services });
     runtime.eventBus.emit({ type: "storage.imported", result });
     return sendJson(response, 200, { ok: true, ...result });
@@ -967,6 +1074,7 @@ async function handleStorageRoute(request, response, runtime, parts) {
   if (parts[2] === "reindex") {
     services = requireActiveWorkspace(runtime);
     const result = await services.store.reindex();
+    await configureControlStore(runtime, services.store);
     await reconcileInterruptedSessions({ ...runtime, ...services });
     runtime.eventBus.emit({ type: "storage.reindexed", count: result.sessions.length });
     return sendJson(response, 200, { ok: true, ...result });
@@ -1024,13 +1132,15 @@ async function handleRunAction(request, response, runtime, services, sessionId, 
   const run = runtime.runRegistry.get(runId);
   if (!run || run.sessionId !== sessionId) throw new Error("RUN_NOT_FOUND");
   const payload = await readJson(request);
+  const turnId = String(payload.turnId || "");
+  const decisionKey = String(payload.decisionId || `${action}:${turnId}:${action === "manual" ? String(payload.content || "").trim() : ""}`);
   let updated;
   if (action === "pause") updated = runtime.runRegistry.pause(runId);
   else if (action === "resume") updated = runtime.runRegistry.resume(runId);
   else if (action === "cancel") updated = runtime.runRegistry.cancel(runId, payload.reason || "用户终止");
-  else if (action === "retry") updated = runtime.runRegistry.retry(runId, String(payload.turnId || ""));
-  else if (action === "skip") updated = runtime.runRegistry.skip(runId, String(payload.turnId || ""));
-  else if (action === "manual") updated = runtime.runRegistry.manual(runId, String(payload.turnId || ""), payload.content);
+  else if (action === "retry") updated = runtime.runRegistry.retry(runId, turnId, { decisionKey });
+  else if (action === "skip") updated = runtime.runRegistry.skip(runId, turnId, decisionKey);
+  else if (action === "manual") updated = runtime.runRegistry.manual(runId, turnId, payload.content, decisionKey);
   else return false;
   const schedulerOwnedRecovery = ["retry", "skip", "manual"].includes(action);
   if (schedulerOwnedRecovery) return sendJson(response, 200, { ok: true, run: updated });
@@ -1098,6 +1208,44 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       const result = await scheduler.executeCommand(sessionId, payload);
       return sendJson(response, 200, { ok: true, ...result, run: null });
     }
+    if (request.method === "POST" && action === "participant-role") {
+      const payload = await readJson(request);
+      let role = "";
+      const session = await store.updateSession(sessionId, (current) => {
+        role = setDefaultSeatRole(current, payload);
+        current.updatedAt = new Date().toISOString();
+        return current;
+      });
+      runtime.eventBus.emit({
+        type: "participant.role_updated",
+        sessionId,
+        providerId: String(payload.providerId || ""),
+        role,
+        session,
+      });
+      return sendJson(response, 200, { ok: true, providerId: String(payload.providerId || ""), role, session });
+    }
+    if (request.method === "POST" && action === "interventions") {
+      const payload = await readJson(request);
+      let intervention = null;
+      const session = await store.updateSession(sessionId, (current) => {
+        const planId = String(payload.planId || current.runtime?.activePlanId || "");
+        const plan = current.plans?.find((candidate) => candidate.id === planId);
+        if (!plan) throw Object.assign(new Error("PLAN_NOT_FOUND"), { code: "PLAN_NOT_FOUND" });
+        if (plan.conversationMode !== "discussion" || !["planned", "running", "waiting_recovery", "awaiting_continuation"].includes(plan.status) || plan.closureTurnId) {
+          throw Object.assign(new Error("DISCUSSION_PLAN_NOT_ACTIVE"), { code: "DISCUSSION_PLAN_NOT_ACTIVE" });
+        }
+        intervention = queueIntervention(current, {
+          id: randomUUID(),
+          planId,
+          content: payload.content,
+        });
+        current.updatedAt = intervention.updatedAt;
+        return current;
+      });
+      runtime.eventBus.emit({ type: "intervention.queued", sessionId, planId: intervention.planId, intervention, session });
+      return sendJson(response, 201, { ok: true, intervention, session });
+    }
     if (request.method === "POST" && action === "settings") {
       const session = await updateSessionSettings(sessionId, await readJson(request), { store });
       runtime.eventBus.emit({ type: "session.settings_updated", sessionId, session });
@@ -1126,6 +1274,28 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
     if (request.method === "GET" && action === "audit") {
       return sendJson(response, 200, { ok: true, audit: await store.listAudit({ sessionId }) });
     }
+    if (request.method === "GET" && action === "executions") {
+      const session = await store.readSession(sessionId);
+      const jsonExecutions = listExecutionIndex(session);
+      const sqliteExecutions = runtime.controlStore?.available
+        ? runtime.controlStore.listExecutions({ sessionId })
+        : [];
+      const executions = [...new Map([
+        ...jsonExecutions.map((record) => [record.executionId, record]),
+        ...sqliteExecutions.map((record) => [record.executionId, record]),
+      ]).values()];
+      return sendJson(response, 200, {
+        ok: true,
+        executions,
+        pending: executions.filter((record) =>
+          ["waiting_recovery", "failed"].includes(record.status)
+            || record.sendState === "SEND_UNKNOWN"
+            || record.executionPhase === "send_unknown"
+        ),
+        source: runtime.controlStore?.available ? "sqlite_primary" : "json",
+        runtime: session.runtime || {},
+      });
+    }
     if (action === "artifacts" && request.method === "GET") {
       return sendJson(response, 200, { ok: true, artifacts: await artifactWriter.list(sessionId) });
     }
@@ -1146,6 +1316,13 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       runtime.eventBus.emit({ type: "session.participant_joined", sessionId, providerId: payload.providerId, session });
       return sendJson(response, 201, { ok: true, session });
     }
+    if (request.method === "POST" && action === "participants-reconnect") {
+      const payload = await readJson(request);
+      const providerId = String(payload.providerId || "");
+      const session = await provisionParticipantThread(runtime, services, sessionId, providerId, { refresh: true });
+      runtime.eventBus.emit({ type: "session.participant_reconnected", sessionId, providerId, session });
+      return sendJson(response, 200, { ok: true, session });
+    }
     if (request.method === "POST" && action === "participants-remove") {
       const payload = await readJson(request);
       const session = await removeSessionParticipant(sessionId, payload, { store });
@@ -1157,6 +1334,54 @@ async function handleSessionRoute(request, response, runtime, url, parts) {
       const handoff = await handoffManager.preview(sessionId, String(payload.providerId || ""));
       return sendJson(response, 201, { ok: true, handoff });
     }
+  }
+  if (action === "interventions" && parts.length === 5 && ["PATCH", "DELETE"].includes(request.method)) {
+    const interventionId = parts[4];
+    const payload = request.method === "PATCH" ? await readJson(request) : {};
+    let intervention = null;
+    const session = await store.updateSession(sessionId, (current) => {
+      intervention = request.method === "PATCH"
+        ? updateIntervention(current, { id: interventionId, content: payload.content })
+        : removeIntervention(current, { id: interventionId });
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    const eventType = request.method === "PATCH" ? "intervention.updated" : "intervention.removed";
+    runtime.eventBus.emit({ type: eventType, sessionId, planId: intervention.planId, intervention, session });
+    return sendJson(response, 200, { ok: true, intervention, session });
+  }
+  if (action === "plans" && parts.length === 6 && parts[5] === "continue" && request.method === "POST") {
+    const planId = parts[4];
+    const runId = randomUUID();
+    const controller = new AbortController();
+    let plan = null;
+    const session = await store.updateSession(sessionId, (current) => {
+      plan = current.plans?.find((candidate) => candidate.id === planId);
+      if (!plan) throw Object.assign(new Error("PLAN_NOT_FOUND"), { code: "PLAN_NOT_FOUND" });
+      if (plan.conversationMode !== "discussion" || plan.status !== "awaiting_continuation") {
+        throw Object.assign(new Error("PLAN_NOT_AWAITING_CONTINUATION"), { code: "PLAN_NOT_AWAITING_CONTINUATION" });
+      }
+      if (Number(plan.maxCycles || plan.rounds || 0) >= 10) {
+        throw Object.assign(new Error("DISCUSSION_CYCLE_LIMIT_REACHED"), { code: "DISCUSSION_CYCLE_LIMIT_REACHED" });
+      }
+      plan.maxCycles = Number(plan.maxCycles || plan.rounds || 0) + 1;
+      plan.rounds = plan.maxCycles;
+      plan.status = "running";
+      plan.error = null;
+      current.runtime = {
+        ...(current.runtime || {}),
+        status: "running",
+        activePlanId: planId,
+        activeRunId: runId,
+        failedTurnId: null,
+        error: null,
+      };
+      current.updatedAt = new Date().toISOString();
+      return current;
+    });
+    const run = runtime.runRegistry.create({ runId, sessionId, planId, controller });
+    startBackgroundRun(runtime, services, sessionId, planId, runId, controller, { resumePersisted: true });
+    return sendJson(response, 202, { ok: true, session, plan, run });
   }
   if (action === "context" && parts.length === 5 && parts[4] === "compression" && request.method === "GET") {
     const session = await store.readSession(sessionId);
@@ -1242,6 +1467,7 @@ export function createRoundtableServer(options = {}) {
           storage: !runtime.requireWorkspaceSelection || runtime.workspaceRegistry.active || runtime.explicitStore ? runtime.store.describe() : null,
           workspace: runtime.workspaceRegistry.describe(),
           sessionsDir: !runtime.requireWorkspaceSelection || runtime.workspaceRegistry.active || runtime.explicitStore ? runtime.store.sessionsDir : null,
+          controlStore: runtime.controlStore?.describe?.() || null,
           providers: runtime.providers.length,
           mvpProviders: [...runtime.adapters.keys()],
           browser: runtime.browserManager.status(),
@@ -1290,9 +1516,10 @@ export function createRoundtableServer(options = {}) {
       if (url.pathname === "/api/browser/connect" && request.method === "POST") {
         const payload = await readJson(request);
         await runtime.browserManager.connect({ providers: payload.providers });
+        const reconciliation = await Promise.resolve(runtime.browserManager.reconcilePageLeases?.({ refresh: false })).catch(() => null);
         const browser = runtime.browserManager.status();
         runtime.eventBus.emit({ type: "browser.connected", browser });
-        return sendJson(response, 200, { ok: true, browser });
+        return sendJson(response, 200, { ok: true, browser, ...(reconciliation ? { reconciliation } : {}) });
       }
       if (url.pathname === "/api/browser/bind" && request.method === "POST") {
         const payload = await readJson(request);
@@ -1359,6 +1586,7 @@ export function createRoundtableServer(options = {}) {
         const handled = await handleSessionRoute(request, response, runtime, url, parts);
         if (handled !== false) return handled;
       }
+      if (request.method === "GET" && url.pathname.startsWith("/vendor/")) return serveVendor(request, response);
       if (request.method === "GET") return serveStatic(request, response, publicDir);
       return sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
     } catch (error) {
@@ -1374,6 +1602,7 @@ export function createRoundtableServer(options = {}) {
   server.on("close", () => {
     void runtime.browserManager.close();
     runtime.extensionRelay.close();
+    for (const controlStore of runtime.controlStores.values()) controlStore.close();
   });
   return server;
 }

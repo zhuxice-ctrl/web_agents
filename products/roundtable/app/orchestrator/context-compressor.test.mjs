@@ -62,6 +62,75 @@ test("compression triggers at 80 percent and classifies only explicit markers", 
   assert.deepEqual(session.events, originalEvents);
 });
 
+test("compression uses derived structure as auxiliary data without inventing consensus", () => {
+  const session = createSession();
+  session.events[0] = {
+    id: "e1",
+    type: "reply",
+    content: "这是不可改写的模型原文",
+    metadata: {
+      structureStatus: "valid",
+      structuredReply: {
+        summary: "建议先验证输入链路",
+        claims: ["网页原文应是主数据"],
+        evidence: ["下一轮能读取 event.content"],
+        risks: ["派生结构可能误判"],
+        disagreements: ["是否保留旧格式"],
+        actions: ["增加回归测试"],
+        missingEvidence: ["真实长会话样本"],
+      },
+    },
+  };
+  const originalEvents = structuredClone(session.events);
+
+  const result = compressSessionContext(session, {
+    prompt: buildPrompt(session),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    now: () => "2026-07-22T12:00:00.000Z",
+    idFactory: () => "compression-derived",
+  });
+
+  assert.equal(result.compression.consensus.length, 0);
+  assert.equal(result.compression.evidence[0].text, "下一轮能读取 event.content");
+  assert.equal(result.compression.disagreements[0].text, "是否保留旧格式");
+  assert.ok(result.compression.unclassified.some((entry) => entry.text === "核心判断：建议先验证输入链路"));
+  assert.ok(result.compression.unclassified.some((entry) => entry.text === "风险：派生结构可能误判"));
+  assert.deepEqual(session.events, originalEvents);
+});
+
+test("compression falls back to raw content when derived structure is unavailable", () => {
+  const session = {
+    id: "raw-fallback",
+    settings: {
+      contextWindowTokens: 100,
+      compressionTriggerPercent: 80,
+      compressionTargetPercent: 20,
+      recentRawTokenBudget: 3,
+    },
+    events: [
+      { id: "raw-1", type: "reply", content: "自然讨论原文", metadata: { structureStatus: "invalid" } },
+      { id: "raw-2", type: "command", content: "最近指令" },
+    ],
+    context: { seatCursors: {}, summaries: [] },
+  };
+
+  const result = compressSessionContext(session, {
+    prompt: "x".repeat(81),
+    buildPrompt,
+    estimatePromptTokens,
+    estimateEventTokens: () => 3,
+    idFactory: () => "compression-raw-fallback",
+  });
+
+  assert.deepEqual(result.compression.unclassified.map((entry) => entry.text), ["自然讨论原文"]);
+  assert.equal(result.compression.consensus.length, 0);
+  assert.equal(result.compression.evidence.length, 0);
+  assert.equal(result.compression.disagreements.length, 0);
+  assert.equal(result.compression.decisions.length, 0);
+});
+
 test("compression stays inactive below the trigger and is idempotent at one boundary", () => {
   const below = createSession();
   const untouched = compressSessionContext(below, {

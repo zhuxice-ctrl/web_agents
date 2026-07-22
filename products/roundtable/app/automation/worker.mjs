@@ -75,8 +75,39 @@ export class BrowserWorker {
     }
     if (!String(request.prompt || "").trim()) throw new AutomationError("EMPTY_PROMPT", "Browser worker received an empty prompt.");
     throwIfAborted(request.signal);
-    let page = await this.manager.getPage(request.providerId, { threadKey: request.threadKey || null });
+    const executionId = request.executionId || `turn:${request.sessionId || "session"}:${request.turnId || "turn"}`;
+    let lease = null;
+    let page;
+    const assertLease = () => this.manager.assertPageLease?.(request.providerId, {
+      threadKey: request.threadKey || null,
+      executionId,
+      leaseEpoch: lease?.leaseEpoch,
+    });
+    const heartbeatLease = () => Promise.resolve(this.manager.heartbeatPageLease?.(request.providerId, {
+      threadKey: request.threadKey || null,
+      executionId,
+      leaseEpoch: lease?.leaseEpoch,
+    }));
+    const releaseLease = () => Promise.resolve(this.manager.releasePageLease?.(request.providerId, {
+      threadKey: request.threadKey || null,
+      executionId,
+      leaseEpoch: lease?.leaseEpoch,
+    })).catch(() => {});
+    if (this.manager.leaseRegistry && this.manager.acquirePage) {
+      ({ page, lease } = await this.manager.acquirePage(request.providerId, {
+        threadKey: request.threadKey || null,
+        executionId,
+      }));
+    } else {
+      page = await this.manager.getPage(request.providerId, { threadKey: request.threadKey || null });
+    }
+    const heartbeatIntervalMs = Math.min(30000, Math.max(5000, Math.floor((this.manager.leaseRegistry?.leaseTtlMs || 120000) / 3)));
+    const heartbeatTimer = lease
+      ? setInterval(() => { void heartbeatLease().catch(() => {}); }, heartbeatIntervalMs)
+      : null;
+    heartbeatTimer?.unref?.();
     try {
+      await assertLease();
       await request.checkpoint?.("prepared", { providerId: request.providerId, threadKey: request.threadKey || null });
       const composerTimeout = Math.min(30000, Math.max(1000, Math.floor((request.timeoutMs || 180000) / 3)));
       let baseline;
@@ -89,6 +120,7 @@ export class BrowserWorker {
           page = await this.manager.getPage(request.providerId, { threadKey: request.threadKey || null });
         }
         try {
+          await assertLease();
           baseline = await adapter.collectResponseCandidates(page);
           composer = await adapter.findComposer(page, { timeoutMs: composerTimeout, signal: request.signal });
           await adapter.insertPrompt(page, composer, request.prompt);
@@ -107,6 +139,7 @@ export class BrowserWorker {
       }
       if (lastPreSubmitError || !composer) throw lastPreSubmitError || new AutomationError("COMPOSER_NOT_FOUND", "Composer retry failed.");
       await adapter.assertAutomationReady(page, { phase: "before_submit" });
+      await assertLease();
       if (!request.autoSend) {
         throw new AutomationError("MANUAL_SEND_REQUIRED", `${adapter.label} prompt is inserted and waiting for manual send.`, {
           providerId: adapter.id,
@@ -123,14 +156,22 @@ export class BrowserWorker {
           providerId: adapter.id,
         });
       }
+      await request.onCaptureStart?.({ providerId: request.providerId, threadKey: request.threadKey || null });
       const capture = await waitForCompletedResponse({
         page,
         adapter,
         baselineCandidates: baseline,
         timeoutMs: request.timeoutMs || 180000,
         settleMs: request.settleMs || 3000,
+        onProgress: this.manager.leaseRegistry
+          ? async (progress) => {
+            await heartbeatLease();
+            return request.onProgress?.(progress);
+          }
+          : request.onProgress,
         signal: request.signal,
       });
+      await assertLease();
       await request.checkpoint?.("captured", { providerId: request.providerId, threadKey: request.threadKey || null, settledAt: capture.settledAt });
       return {
         providerId: request.providerId,
@@ -138,6 +179,13 @@ export class BrowserWorker {
         capture: {
           selector: capture.selector,
           index: capture.index,
+          identity: capture.identity || null,
+          domIdentity: capture.identity || null,
+          providerMessageId: capture.providerMessageId || capture.messageId || null,
+          conversationId: capture.conversationId || null,
+          replyToUserMessageId: capture.replyToUserMessageId || capture.userMessageId || null,
+          role: capture.role || capture.speaker || "assistant",
+          status: capture.status || (capture.complete === false ? "streaming" : "complete"),
           observedBusy: capture.observedBusy,
           settledAt: capture.settledAt,
           url: page.url(),
@@ -146,7 +194,8 @@ export class BrowserWorker {
       };
     } catch (error) {
       let classifiedError = error;
-      if (!request.signal?.aborted && !["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(error?.code)) {
+      const leaseRejected = String(error?.code || "").startsWith("PAGE_LEASE_");
+      if (!request.signal?.aborted && !leaseRejected && !["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(error?.code)) {
         try {
           await adapter.assertAutomationReady(page, { phase: "error_reclassification" });
         } catch (blockingError) {
@@ -155,7 +204,7 @@ export class BrowserWorker {
           }
         }
       }
-      const diagnostics = await writeDiagnostics({ page, adapter, request, error: classifiedError });
+      const diagnostics = leaseRejected ? null : await writeDiagnostics({ page, adapter, request, error: classifiedError });
       if (["LOGIN_REQUIRED", "HUMAN_VERIFICATION_REQUIRED"].includes(classifiedError?.code)) {
         this.manager.forgetPage(request.providerId, page, { threadKey: request.threadKey || null });
       }
@@ -170,6 +219,9 @@ export class BrowserWorker {
         cause: classifiedError.message,
         diagnostics,
       });
+    } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      await releaseLease();
     }
   }
 }

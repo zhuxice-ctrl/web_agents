@@ -11,6 +11,7 @@ function publicRun(run) {
     updatedAt: run.updatedAt,
     failedTurnId: run.failedTurnId || null,
     error: run.error || null,
+    lastRecoveryDecision: run.lastRecoveryDecision || null,
   };
 }
 
@@ -46,6 +47,7 @@ export class RunRegistry {
       recovery: null,
       failedTurnId: null,
       error: null,
+      lastRecoveryDecision: null,
     };
     this.runs.set(runId, run);
     this.emit("run.started", run);
@@ -121,32 +123,44 @@ export class RunRegistry {
     return promise;
   }
 
-  resolveRecovery(runId, turnId, value) {
+  resolveRecovery(runId, turnId, value, decisionKey = null) {
     const run = this.require(runId);
-    if (!run.recovery || run.recovery.turnId !== turnId) throw new Error("TURN_NOT_WAITING_RECOVERY");
+    if (!run.recovery) {
+      if (decisionKey && run.lastRecoveryDecision?.decisionKey === decisionKey && run.lastRecoveryDecision.turnId === turnId) {
+        return publicRun(run);
+      }
+      throw new Error("TURN_NOT_WAITING_RECOVERY");
+    }
+    if (run.recovery.turnId !== turnId) throw new Error("TURN_NOT_WAITING_RECOVERY");
     const recovery = run.recovery;
     run.recovery = null;
     run.failedTurnId = null;
     run.error = null;
     run.status = "running";
     run.updatedAt = new Date().toISOString();
+    run.lastRecoveryDecision = {
+      decisionKey,
+      turnId,
+      action: value.action,
+      decidedAt: run.updatedAt,
+    };
     recovery.resolve(value);
     this.emit("run.recovery_selected", run, { turnId, recovery: value.action });
     return publicRun(run);
   }
 
-  retry(runId, turnId, { reuseExecutionId = false } = {}) {
-    return this.resolveRecovery(runId, turnId, { action: "retry", reuseExecutionId });
+  retry(runId, turnId, { reuseExecutionId = false, decisionKey = null } = {}) {
+    return this.resolveRecovery(runId, turnId, { action: "retry", reuseExecutionId }, decisionKey);
   }
 
-  skip(runId, turnId) {
-    return this.resolveRecovery(runId, turnId, { action: "skip" });
+  skip(runId, turnId, decisionKey = null) {
+    return this.resolveRecovery(runId, turnId, { action: "skip" }, decisionKey);
   }
 
-  manual(runId, turnId, content) {
+  manual(runId, turnId, content, decisionKey = null) {
     const normalized = String(content || "").trim();
     if (!normalized) throw new Error("EMPTY_MANUAL_REPLY");
-    return this.resolveRecovery(runId, turnId, { action: "manual", content: normalized });
+    return this.resolveRecovery(runId, turnId, { action: "manual", content: normalized }, decisionKey);
   }
 
   cancel(runId, reason = "Roundtable run was cancelled.") {
@@ -174,6 +188,16 @@ export class RunRegistry {
     run.failedTurnId = null;
     run.error = null;
     this.emit("run.completed", run);
+    return publicRun(run);
+  }
+
+  awaitContinuation(runId) {
+    const run = this.require(runId);
+    run.status = "awaiting_continuation";
+    run.updatedAt = new Date().toISOString();
+    run.failedTurnId = null;
+    run.error = null;
+    this.emit("run.awaiting_continuation", run);
     return publicRun(run);
   }
 

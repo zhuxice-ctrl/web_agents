@@ -80,7 +80,9 @@ test("scheduler persists one automatic compression before sending a turn", async
   assert.equal(saved.context.compression.active.revision, 1);
   assert.equal(saved.context.compression.active.reason, "automatic");
   assert.equal(saved.context.compression.revisions.length, 1);
-  assert.match(calls[0].prompt, /<compressed_roundtable_context>/);
+  assert.match(calls[0].prompt, /较早讨论中已经出现的主要判断包括/);
+  assert.match(calls[0].prompt, /仍未解决的分歧包括/);
+  assert.doesNotMatch(calls[0].prompt, /<compressed_roundtable_context>|revision|sourceEventIds/);
   assert.ok(estimateCalls >= 2);
 });
 

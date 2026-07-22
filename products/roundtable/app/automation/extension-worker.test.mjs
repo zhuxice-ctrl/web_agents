@@ -79,15 +79,18 @@ test("extension worker sends through the bound tab and waits for a stable new re
     captures: ["Old response", "New partial", "New complete response", "New complete response", "New complete response", "New complete response"],
   });
   const checkpoints = [];
+  const progress = [];
 
   const result = await worker.execute(request({
     checkpoint: async (phase, metadata) => checkpoints.push({ phase, metadata }),
+    onProgress: async (snapshot) => progress.push(snapshot.text),
   }));
   assert.equal(result.text, "New complete response");
   assert.equal(result.capture.tabId, 42);
   assert.equal(result.capture.url, "https://chatgpt.com/c/roundtable");
   assert.equal(calls.some((call) => call.type === "tab:auto-send-text" && call.text === "Discuss the topic"), true);
   assert.deepEqual(checkpoints.map((checkpoint) => checkpoint.phase), ["submitting", "submitted", "captured"]);
+  assert.deepEqual(progress, ["New partial", "New complete response"]);
 });
 
 test("extension worker invalidates a binding when authentication is lost", async () => {

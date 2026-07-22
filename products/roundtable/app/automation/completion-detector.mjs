@@ -1,4 +1,5 @@
 import { AutomationError, abortableDelay, throwIfAborted } from "./errors.mjs";
+import { createProgressReporter } from "./progress-reporter.mjs";
 
 export function normalizeResponseText(text) {
   return String(text || "")
@@ -25,6 +26,23 @@ export function selectNewResponseCandidate(candidates, baselineCandidates = []) 
   return null;
 }
 
+export function responseStructureComplete(text) {
+  const source = normalizeResponseText(text);
+  const fencedJson = /^```(?:json|jsonl)?\s*/i.test(source);
+  const firstBrace = source.indexOf("{");
+  if (firstBrace < 0) return !fencedJson;
+  if (!fencedJson && source.slice(0, firstBrace).trim()) return true;
+  let depth = 0;
+  for (let index = firstBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return true;
+    }
+  }
+  return false;
+}
+
 export async function waitForCompletedResponse({
   page,
   adapter,
@@ -32,6 +50,8 @@ export async function waitForCompletedResponse({
   timeoutMs = 180000,
   settleMs = 3000,
   pollMs = 350,
+  progressThrottleMs = 400,
+  onProgress,
   signal,
 }) {
   const deadline = Date.now() + timeoutMs;
@@ -39,6 +59,7 @@ export async function waitForCompletedResponse({
   let latestText = "";
   let changedAt = 0;
   let observedBusy = false;
+  const progressReporter = createProgressReporter({ onProgress, throttleMs: progressThrottleMs });
 
   while (Date.now() < deadline) {
     throwIfAborted(signal);
@@ -53,8 +74,14 @@ export async function waitForCompletedResponse({
       latest = candidate;
       latestText = candidate.text;
       changedAt = Date.now();
+      await progressReporter.report({
+        text: latestText,
+        selector: candidate.selector,
+        index: candidate.index,
+        identity: candidate.identity,
+      });
     }
-    if (latest && !busy && Date.now() - changedAt >= settleMs) {
+    if (latest && !busy && responseStructureComplete(latestText) && Date.now() - changedAt >= settleMs) {
       return {
         ...latest,
         observedBusy,

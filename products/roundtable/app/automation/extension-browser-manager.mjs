@@ -1,5 +1,6 @@
 import { sanitizePageUrl } from "./browser-manager.mjs";
 import { AutomationError } from "./errors.mjs";
+import { fingerprint as pageFingerprint } from "./page-lease-registry.mjs";
 
 const BRIDGE_ERROR_CODES = new Set([
   "ADAPTER_NOT_READY",
@@ -24,8 +25,17 @@ function statusScore(tab) {
   return Number(tab.ready) * 4 + Number(tab.authenticated) * 2 + Number(tab.canInsert);
 }
 
+function leaseError(error, providerId) {
+  if (error instanceof AutomationError || !String(error?.code || error?.message || "").startsWith("PAGE_LEASE_")) return error;
+  const code = error.code || error.message;
+  return new AutomationError(code, `The ${providerId} tab lease is no longer valid for this execution.`, {
+    providerId,
+    ...(error.details || {}),
+  });
+}
+
 export class ExtensionBrowserManager {
-  constructor({ relay, adapters } = {}) {
+  constructor({ relay, adapters, leaseRegistry = null } = {}) {
     if (!relay) throw new Error("EXTENSION_RELAY_REQUIRED");
     this.mode = "extension";
     this.relay = relay;
@@ -33,6 +43,12 @@ export class ExtensionBrowserManager {
     this.bindings = new Map();
     this.discoveredTabs = [];
     this.started = false;
+    this.leaseRegistry = leaseRegistry || null;
+  }
+
+  setLeaseRegistry(registry) {
+    this.leaseRegistry = registry || null;
+    return this.leaseRegistry;
   }
 
   getAdapter(providerId) {
@@ -139,7 +155,7 @@ export class ExtensionBrowserManager {
     return this;
   }
 
-  async bindProviderPage(providerId, value = {}) {
+  async bindProviderPage(providerId, value = {}, { threadKey = null, sessionId = null, seatId = null } = {}) {
     const adapter = this.getAdapter(providerId);
     const requested = typeof value === "object" && value ? value : { url: value };
     let tabId = Number.isInteger(requested.tabId) && requested.tabId >= 0
@@ -208,6 +224,17 @@ export class ExtensionBrowserManager {
         },
       );
     }
+    const lease = this.leaseRegistry
+      ? await this.leaseRegistry.reserve({
+        providerId,
+        sessionId,
+        threadKey,
+        browserContextId: "extension",
+        targetId: String(status.tabId),
+        url: status.url,
+        pageFingerprint: pageFingerprint({ providerId, url: status.url, title: status.title || "" }),
+      })
+      : null;
     const binding = {
       providerId,
       tabId: status.tabId,
@@ -215,8 +242,13 @@ export class ExtensionBrowserManager {
       status: "verified",
       authenticated: true,
       canInsert: true,
+      ...(threadKey ? { threadKey } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(seatId ? { seatId } : {}),
+      ...(lease || {}),
     };
     this.bindings.set(providerId, binding);
+    if (lease) await this.leaseRegistry.bind(lease.pageBindingId, { targetId: String(status.tabId), url: status.url });
     return { ...binding };
   }
 
@@ -244,6 +276,81 @@ export class ExtensionBrowserManager {
     return response.data;
   }
 
+  async acquirePage(providerId, { executionId = null } = {}) {
+    const binding = this.getBinding(providerId);
+    if (this.leaseRegistry && executionId) {
+      let lease;
+      try {
+        if (!binding.pageBindingId) {
+          const reserved = await this.leaseRegistry.reserve({
+            providerId,
+            sessionId: binding.sessionId || null,
+            threadKey: binding.threadKey || null,
+            browserContextId: "extension",
+            targetId: String(binding.tabId),
+            url: binding.url,
+            pageFingerprint: pageFingerprint({ providerId, url: binding.url }),
+          });
+          const bound = await this.leaseRegistry.bind(reserved.pageBindingId, {
+            targetId: String(binding.tabId),
+            url: binding.url,
+          });
+          Object.assign(binding, bound);
+        }
+        lease = await this.leaseRegistry.acquire(binding.pageBindingId, executionId);
+      } catch (error) {
+        throw leaseError(error, providerId);
+      }
+      Object.assign(binding, lease);
+      return { binding, lease };
+    }
+    return { binding, lease: binding.pageBindingId ? { ...binding } : null };
+  }
+
+  async assertPageLease(providerId, { executionId = null, leaseEpoch = null } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.getBinding(providerId);
+    try {
+      return await this.leaseRegistry.assert(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId);
+    } catch (error) {
+      throw leaseError(error, providerId);
+    }
+  }
+
+  async heartbeatPageLease(providerId, { executionId = null, leaseEpoch = null } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.getBinding(providerId);
+    return this.leaseRegistry.heartbeat(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId);
+  }
+
+  async releasePageLease(providerId, { executionId = null, leaseEpoch = null, state = "BOUND_IDLE" } = {}) {
+    if (!this.leaseRegistry || !executionId) return null;
+    const binding = this.getBinding(providerId);
+    const lease = await this.leaseRegistry.release(binding.pageBindingId, leaseEpoch ?? binding.leaseEpoch, executionId, { state });
+    Object.assign(binding, lease);
+    return lease;
+  }
+
+  async reconcilePageLeases({ refresh = true } = {}) {
+    if (!this.leaseRegistry) return { matched: [], orphaned: [], ambiguous: [] };
+    const tabs = refresh
+      ? await this.discover([...this.adapters.keys()])
+      : this.discoveredTabs;
+    const candidates = tabs.map((tab) => ({
+      providerId: tab.provider,
+      targetId: String(tab.tabId),
+      url: tab.url,
+      pageFingerprint: pageFingerprint({ providerId: tab.provider, url: tab.url, title: tab.title || "" }),
+    }));
+    const result = await this.leaseRegistry.reconcile(candidates);
+    for (const binding of result.matched) {
+      const candidate = candidates.find((item) => item.targetId === binding.targetId);
+      if (!candidate) continue;
+      this.bindings.set(binding.providerId, { ...binding, tabId: Number(binding.targetId), status: "verified", authenticated: true, canInsert: true });
+    }
+    return result;
+  }
+
   async openProviders(providerIds) {
     const pages = [];
     for (const providerId of providerIds) {
@@ -264,11 +371,18 @@ export class ExtensionBrowserManager {
   }
 
   unbindProvider(providerId) {
-    return this.bindings.delete(providerId);
+    const binding = this.bindings.get(providerId);
+    const removed = this.bindings.delete(providerId);
+    if (removed && this.leaseRegistry && binding?.pageBindingId) {
+      void this.leaseRegistry.release(binding.pageBindingId, binding.leaseEpoch, null, { state: "FREE" }).catch(() => {});
+    }
+    return removed;
   }
 
   forgetPage(providerId) {
+    const binding = this.bindings.get(providerId);
     this.bindings.delete(providerId);
+    if (this.leaseRegistry && binding?.pageBindingId) void this.leaseRegistry.markOrphaned(binding.pageBindingId, "INVALID").catch(() => {});
   }
 
   status() {

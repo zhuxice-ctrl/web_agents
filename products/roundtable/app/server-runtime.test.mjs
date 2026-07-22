@@ -19,9 +19,11 @@ async function startServer(t, options = {}) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(async () => {
+    await server.runtime.browserManager.close();
+    const closed = new Promise((resolve) => server.close(resolve));
+    server.closeIdleConnections?.();
     server.closeAllConnections?.();
-    server.close();
-    await once(server, "close");
+    await closed;
   });
   const { port } = server.address();
   return { repoRoot, server, baseUrl: `http://127.0.0.1:${port}` };
@@ -30,7 +32,7 @@ async function startServer(t, options = {}) {
 async function jsonRequest(url, options = {}) {
   const response = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json", Connection: "close", ...(options.headers || {}) },
   });
   const payload = await response.json();
   return { response, payload };
@@ -51,7 +53,7 @@ async function rawHttpRequest(url, options = {}) {
   });
 }
 
-async function createSession(baseUrl, settings = {}) {
+async function createSession(baseUrl, settings = {}, { openThreads = false } = {}) {
   const { payload } = await jsonRequest(`${baseUrl}/api/sessions`, {
     method: "POST",
     body: JSON.stringify({
@@ -59,6 +61,7 @@ async function createSession(baseUrl, settings = {}) {
       objective: "验证真实后台链路",
       participants: ["chatgpt", "deepseek", "doubao"],
       settings,
+      openThreads,
     }),
   });
   assert.equal(payload.ok, true);
@@ -68,7 +71,7 @@ async function createSession(baseUrl, settings = {}) {
 async function waitForSession(baseUrl, sessionId, predicate, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const payload = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`).then((response) => response.json());
+    const payload = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, { headers: { Connection: "close" } }).then((response) => response.json());
     if (predicate(payload.session)) return payload.session;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
@@ -123,6 +126,139 @@ test("local API exposes verifiable identity and rejects remote browser origins",
   });
   assert.equal(wrongContentType.status, 415);
   assert.equal((await wrongContentType.json()).error, "APPLICATION_JSON_REQUIRED");
+});
+
+test("discussion role and intervention APIs persist ordered editable queue state", async (t) => {
+  const { baseUrl, server } = await startServer(t, { sqliteControlEnabled: false });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 }, { openThreads: false });
+  const prepared = await server.runtime.scheduler.prepareCommand(session.id, {
+    text: "如何进行自学",
+    targets: ["chatgpt", "deepseek", "doubao"],
+    mentionTokens: [],
+    rounds: 5,
+  });
+
+  const role = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/participant-role`, {
+    method: "POST",
+    body: JSON.stringify({ providerId: "deepseek", role: "学习科学研究者" }),
+  });
+  assert.equal(role.response.status, 200);
+  assert.equal(role.payload.session.participantRoles.deepseek, "学习科学研究者");
+  const invalidRole = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/participant-role`, {
+    method: "POST",
+    body: JSON.stringify({ providerId: "qwen", role: "旁观者" }),
+  });
+  assert.equal(invalidRole.response.status, 404);
+
+  const first = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/interventions`, {
+    method: "POST",
+    body: JSON.stringify({ planId: prepared.plan.id, content: "先考虑时间限制" }),
+  });
+  const second = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/interventions`, {
+    method: "POST",
+    body: JSON.stringify({ planId: prepared.plan.id, content: "再考虑反馈周期" }),
+  });
+  assert.equal(first.response.status, 201);
+  assert.equal(second.response.status, 201);
+
+  const edited = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/interventions/${first.payload.intervention.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ content: "优先考虑每天可用时间" }),
+  });
+  assert.equal(edited.response.status, 200);
+  const reloaded = await fetch(`${baseUrl}/api/sessions/${session.id}`, { headers: { Connection: "close" } }).then((response) => response.json());
+  assert.deepEqual(reloaded.session.pendingInterventions.map((item) => item.content), [
+    "优先考虑每天可用时间",
+    "再考虑反馈周期",
+  ]);
+
+  const removed = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/interventions/${second.payload.intervention.id}`, {
+    method: "DELETE",
+  });
+  assert.equal(removed.response.status, 200);
+  await server.runtime.store.updateSession(session.id, (current) => {
+    current.pendingInterventions = [];
+    return current;
+  });
+  const consumedEdit = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/interventions/${first.payload.intervention.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ content: "不能再改" }),
+  });
+  assert.equal(consumedEdit.response.status, 409);
+});
+
+test("continuation API adds exactly one discussion cycle and enforces the cap", async (t) => {
+  const { baseUrl, server } = await startServer(t, {
+    sqliteControlEnabled: false,
+    worker: {
+      async execute(request) {
+        return { text: request.round === 1 ? "恢复后的第一周期观点" : "PASS" };
+      },
+    },
+  });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 }, { openThreads: false });
+  const prepared = await server.runtime.scheduler.prepareCommand(session.id, {
+    text: "继续讨论",
+    targets: ["chatgpt"],
+    mentionTokens: [],
+    rounds: 5,
+  });
+  await server.runtime.store.updateSession(session.id, (current) => {
+    const plan = current.plans.find((candidate) => candidate.id === prepared.plan.id);
+    plan.status = "awaiting_continuation";
+    plan.maxCycles = 10;
+    current.runtime.status = "awaiting_continuation";
+    return current;
+  });
+  const capped = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/plans/${prepared.plan.id}/continue`, {
+    method: "POST",
+    body: "{}",
+  });
+  assert.equal(capped.response.status, 409);
+
+  await server.runtime.store.updateSession(session.id, (current) => {
+    const plan = current.plans.find((candidate) => candidate.id === prepared.plan.id);
+    plan.status = "awaiting_continuation";
+    plan.maxCycles = 5;
+    plan.rounds = 5;
+    current.runtime.status = "awaiting_continuation";
+    return current;
+  });
+  const continued = await jsonRequest(`${baseUrl}/api/sessions/${session.id}/plans/${prepared.plan.id}/continue`, {
+    method: "POST",
+    body: "{}",
+  });
+  assert.equal(continued.response.status, 202);
+  assert.equal(continued.payload.plan.maxCycles, 6);
+  assert.equal(continued.payload.session.runtime.status, "running");
+  assert.equal(continued.payload.run.status, "running");
+  const completed = await waitForSession(
+    baseUrl,
+    session.id,
+    (current) => current.plans.find((plan) => plan.id === prepared.plan.id)?.status === "completed",
+    10000,
+  );
+  assert.equal(completed.runtime.status, "idle");
+  const runDeadline = Date.now() + 3000;
+  while (server.runtime.runRegistry.get(continued.payload.run.runId)?.status !== "completed" && Date.now() < runDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(server.runtime.runRegistry.get(continued.payload.run.runId)?.status, "completed");
+});
+
+test("roundtable serves pinned markdown and sanitizer browser assets locally", async (t) => {
+  const { baseUrl } = await startServer(t);
+  const [markedResponse, purifyResponse] = await Promise.all([
+    fetch(`${baseUrl}/vendor/marked.umd.js`),
+    fetch(`${baseUrl}/vendor/purify.min.js`),
+  ]);
+
+  assert.equal(markedResponse.status, 200);
+  assert.match(markedResponse.headers.get("content-type"), /javascript/);
+  assert.match(await markedResponse.text(), /marked/);
+  assert.equal(purifyResponse.status, 200);
+  assert.match(purifyResponse.headers.get("content-type"), /javascript/);
+  assert.match(await purifyResponse.text(), /DOMPurify/);
 });
 
 test("unknown internal NOT_FOUND messages remain server errors", async (t) => {
@@ -559,6 +695,7 @@ test("playwright command returns 202 and publishes completion through SSE", asyn
   });
 
   const sseController = new AbortController();
+  t.after(() => sseController.abort());
   const sseResponse = await fetch(`${baseUrl}/api/events?sessionId=${encodeURIComponent(session.id)}`, {
     signal: sseController.signal,
   });
@@ -591,8 +728,19 @@ test("playwright command returns 202 and publishes completion through SSE", asyn
   assert.equal(command.payload.run.status, "running");
 
   const completed = await waitForSession(baseUrl, session.id, (value) => value.plans.at(-1)?.status === "completed");
-  await consume;
-  sseController.abort();
+  let completionTimer;
+  try {
+    await Promise.race([
+      consume,
+      new Promise((_, reject) => {
+        completionTimer = setTimeout(() => reject(new Error(`SSE_COMPLETION_TIMEOUT:${seen.join(",")}`)), 5000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(completionTimer);
+    await reader.cancel().catch(() => {});
+    sseController.abort();
+  }
   assert.equal(completed.events.at(-1).content, "deepseek real-worker reply");
   assert.ok(seen.includes("turn.started"));
   assert.ok(seen.includes("turn.completed"));

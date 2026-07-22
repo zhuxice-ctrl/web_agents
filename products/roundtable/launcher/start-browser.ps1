@@ -2,6 +2,7 @@ param(
   [switch] $Stop,
   [string] $LaunchStatePath,
   [string] $CleanupLaunchStatePath,
+  [string] $OpenUrl,
   [ValidateRange(1, 65535)]
   [int] $CdpPort = 9223
 )
@@ -43,6 +44,22 @@ function Resolve-ChromePath {
     }
   }
   Throw-BrowserLauncherError -ExitCode $ExitPreflight -Message "Google Chrome was not found."
+}
+
+function Open-UrlInDedicatedBrowser {
+  param([string] $Url)
+  if (-not $Url) { return }
+  if ($Url -notmatch '^https?://127\.0\.0\.1(?::\d+)?(?:/|$)') {
+    Throw-BrowserLauncherError -ExitCode $ExitPreflight -Message "Only loopback Web Agents URLs may be opened by the dedicated browser launcher."
+  }
+  $pages = @(Invoke-RestMethod -Uri "$cdpEndpoint/json/list" -Method Get -TimeoutSec 2)
+  $existing = $pages | Where-Object { $_.type -eq "page" -and $_.url -eq $Url } | Select-Object -First 1
+  if ($existing) {
+    Invoke-RestMethod -Uri "$cdpEndpoint/json/activate/$($existing.id)" -Method Get -TimeoutSec 2 | Out-Null
+    return
+  }
+  $encodedUrl = [Uri]::EscapeDataString($Url)
+  Invoke-RestMethod -Uri "$cdpEndpoint/json/new?$encodedUrl" -Method Put -TimeoutSec 2 | Out-Null
 }
 
 function Test-SamePath {
@@ -298,6 +315,10 @@ try {
         }
         Write-BrowserLaunchState -Path $LaunchStatePath -Identity $identity -StartedByInvocation $true -OwnershipToken $startedOwnershipToken
         Write-Host "Manual Web Agents browser started. PID: $($identity.Pid)" -ForegroundColor Green
+      }
+      if ($OpenUrl) {
+        Open-UrlInDedicatedBrowser -Url $OpenUrl
+        Write-Host "Opened $OpenUrl in the dedicated Web Agents Chrome profile." -ForegroundColor Cyan
       }
       Write-Host "Profile: $profileDir"
       Write-Host "CDP: $cdpEndpoint"

@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS } from "../core/providers.mjs";
+import { isContextEvent } from "./reply-lifecycle.mjs";
 
 function clampIndex(value, total, fallback = -1) {
   const numeric = Number.parseInt(String(value), 10);
@@ -16,7 +17,9 @@ function numericValue(...values) {
 }
 
 function eventIsPublic(event) {
-  return event?.metadata?.visibility !== "private" && event?.visibility !== "private";
+  return event?.metadata?.visibility !== "private"
+    && event?.visibility !== "private"
+    && isContextEvent(event);
 }
 
 function seatThread(session, providerId) {

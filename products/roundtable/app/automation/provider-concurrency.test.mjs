@@ -31,6 +31,26 @@ test("same browser thread is serial while different threads share the provider l
   assert.equal(guard.stats()[0].active, 0);
 });
 
+test("default provider concurrency is single-channel across different thread keys", async () => {
+  const guard = new ProviderConcurrency();
+  let active = 0;
+  let maxActive = 0;
+  const operation = (thread, wait) => guard.run("chatgpt", thread, async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await sleep(wait);
+    active -= 1;
+  });
+
+  await Promise.all([
+    operation("round-1", 20),
+    operation("round-2", 1),
+  ]);
+
+  assert.equal(maxActive, 1);
+  assert.equal(guard.stats()[0].limit, 1);
+});
+
 test("provider congestion creates bounded adaptive backoff", () => {
   const guard = new ProviderConcurrency({ baseBackoffMs: 10, maxBackoffMs: 25 });
   assert.equal(guard.reportSignal("doubao", "OTHER"), null);

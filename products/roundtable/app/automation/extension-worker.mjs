@@ -1,7 +1,12 @@
 import { AutomationError, throwIfAborted } from "./errors.mjs";
+import { createProgressReporter, normalizeProgressText } from "./progress-reporter.mjs";
 
 function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeCapturedText(value) {
+  return normalizeProgressText(value);
 }
 
 function baselineAssistantText(capture) {
@@ -37,7 +42,25 @@ export class ExtensionBrowserWorker {
     if (!providerId) throw new AutomationError("UNSUPPORTED_PROVIDER", "Extension worker requires a provider id.");
     if (!normalizeText(request.prompt)) throw new AutomationError("EMPTY_PROMPT", "Extension worker received an empty prompt.");
     throwIfAborted(request.signal);
-    const binding = this.manager.getBinding(providerId);
+    const executionId = request.executionId || `turn:${request.sessionId || "session"}:${request.turnId || "turn"}`;
+    const acquired = this.manager.acquirePage
+      ? await this.manager.acquirePage(providerId, { executionId })
+      : { binding: this.manager.getBinding(providerId), lease: null };
+    const binding = acquired.binding;
+    const lease = acquired.lease;
+    const assertLease = () => this.manager.assertPageLease
+      ? this.manager.assertPageLease(providerId, { executionId, leaseEpoch: lease?.leaseEpoch })
+      : null;
+    const heartbeatLease = () => this.manager.heartbeatPageLease
+      ? this.manager.heartbeatPageLease(providerId, { executionId, leaseEpoch: lease?.leaseEpoch })
+      : null;
+    const releaseLease = () => this.manager.releasePageLease
+      ? this.manager.releasePageLease(providerId, { executionId, leaseEpoch: lease?.leaseEpoch }).catch(() => {})
+      : null;
+    let lastLeaseHeartbeatAt = this.now();
+
+    try {
+      await assertLease();
 
     const auth = await this.manager.sendToBoundTab(providerId, { type: "tab:auth-probe" }, {
       timeoutMs: Math.min(20000, request.timeoutMs || 20000),
@@ -78,6 +101,7 @@ export class ExtensionBrowserWorker {
     let submission;
 
     if (!request.autoSend) {
+      await assertLease();
       const inserted = await this.manager.sendToBoundTab(providerId, {
         type: "tab:insert-text",
         text: request.prompt,
@@ -106,6 +130,7 @@ export class ExtensionBrowserWorker {
     }
 
     await request.checkpoint?.("submitting", { providerId, threadKey: request.threadKey || null });
+    await assertLease();
     const sent = await this.manager.sendToBoundTab(providerId, {
       type: "tab:auto-send-text",
       text: request.prompt,
@@ -127,6 +152,7 @@ export class ExtensionBrowserWorker {
       });
     }
 
+    await request.onCaptureStart?.({ providerId, threadKey: request.threadKey || null });
     const timeoutMs = Math.max(1000, Number(request.timeoutMs) || 180000);
     const promptText = normalizeText(request.prompt);
     const settleMs = Math.max(250, Number(request.settleMs) || 3000);
@@ -136,10 +162,16 @@ export class ExtensionBrowserWorker {
     let latestSnapshot = null;
     let firstChangedAt = null;
     let lastChangedAt = null;
+    const progressReporter = createProgressReporter({ onProgress: request.onProgress, now: this.now, throttleMs: 400 });
 
     while (this.now() < deadline) {
       throwIfAborted(request.signal);
       try {
+        if (lease && this.now() - lastLeaseHeartbeatAt >= 30000) {
+          await heartbeatLease();
+          lastLeaseHeartbeatAt = this.now();
+        }
+        await assertLease();
         const status = await this.manager.sendToBoundTab(providerId, { type: "tab:detect" }, {
           timeoutMs: Math.min(10000, Math.max(1000, deadline - this.now())),
         });
@@ -166,10 +198,13 @@ export class ExtensionBrowserWorker {
             detectedProviderId: snapshot?.provider || null,
           });
         }
-        const text = normalizeText(snapshot?.text);
+        const text = normalizeCapturedText(snapshot?.text);
+        const comparisonText = normalizeText(text);
         const isAssistantResponse = snapshot?.speaker === "assistant";
-        const isUnverifiedPromptEcho = text === promptText && !isAssistantResponse;
-        if (isAssistantResponse && !isUnverifiedPromptEcho && text && text !== baselineText) {
+        const isUnverifiedPromptEcho = comparisonText === promptText && !isAssistantResponse;
+        if (isAssistantResponse && !isUnverifiedPromptEcho && text && comparisonText !== baselineText) {
+          await heartbeatLease();
+          await progressReporter.report({ text, at: snapshot?.capturedAt, source: snapshot?.source || null });
           if (text !== latestText) {
             latestText = text;
             latestSnapshot = snapshot;
@@ -181,6 +216,7 @@ export class ExtensionBrowserWorker {
             && this.now() - firstChangedAt >= Math.min(1000, settleMs)
             && this.now() - lastChangedAt >= settleMs
           ) {
+            await assertLease();
             await request.checkpoint?.("captured", {
               providerId,
               threadKey: request.threadKey || null,
@@ -193,6 +229,13 @@ export class ExtensionBrowserWorker {
                 tabId: binding.tabId,
                 url: binding.url,
                 source: latestSnapshot?.source || null,
+                providerMessageId: latestSnapshot?.providerMessageId || latestSnapshot?.messageId || null,
+                conversationId: latestSnapshot?.conversationId || latestSnapshot?.threadId || null,
+                replyToUserMessageId: latestSnapshot?.replyToUserMessageId || latestSnapshot?.userMessageId || null,
+                domIdentity: latestSnapshot?.domIdentity || latestSnapshot?.identity || null,
+                identity: latestSnapshot?.identity || null,
+                role: latestSnapshot?.speaker || latestSnapshot?.role || "assistant",
+                status: latestSnapshot?.status || "complete",
                 capturedAt: latestSnapshot?.capturedAt || new Date().toISOString(),
                 submission,
                 baselineChanged: true,
@@ -211,7 +254,10 @@ export class ExtensionBrowserWorker {
       timeoutMs,
       observedNewResponse: Boolean(latestText),
     });
+    } finally {
+      await releaseLease();
+    }
   }
 }
 
-export { baselineAssistantText, normalizeText };
+export { baselineAssistantText, normalizeCapturedText, normalizeText };
