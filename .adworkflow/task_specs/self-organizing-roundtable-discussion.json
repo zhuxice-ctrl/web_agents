@@ -1,16 +1,6 @@
 {
-  "schema": "ADworkflo.task_spec.v1",
-  "configured": true,
   "task_id": "self-organizing-roundtable-discussion",
-  "task_type": "code",
   "goal": "Turn fixed mandatory rounds into persistent self-organizing discussion cycles with natural public replies.",
-  "scope": [
-    "products/roundtable/**",
-    ".adworkflow/artifacts/self-organizing-roundtable-discussion/**",
-    ".adworkflow/task_specs/self-organizing-roundtable-discussion.json",
-    "docs/superpowers/specs/2026-07-23-self-organizing-roundtable-discussion-design.md",
-    "docs/superpowers/plans/2026-07-23-self-organizing-roundtable-discussion.md"
-  ],
   "non_goals": [
     "Do not add a fourth moderator model or moderator browser thread.",
     "Do not expose structured compression or program control fields in public discussion.",
@@ -20,9 +10,15 @@
   "acceptance_criteria": [
     "Cycle one requires independent replies from every available target.",
     "Later cycles accept spoken replies or exact PASS from one immutable snapshot.",
+    "A passed seat emits no public message and may speak in a later cycle.",
+    "Explicit provider names become lightweight reply relations without stance labels.",
     "Pending user interventions persist and enter the next cycle in order.",
     "Ordinary discussion prompts are natural transcripts and keep raw content primary.",
     "The east-host alone performs the final natural closure.",
     "Restart recovery does not replay already submitted work."
-  ]
+  ],
+  "risk_level": "high",
+  "execution_mode": "inline_with_review",
+  "allowed_actions": ["read", "edit", "test"],
+  "required_outputs": ["requirements.md", "verification_result.json"]
 }
