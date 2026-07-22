@@ -1,0 +1,23 @@
+{
+  "task_id": "roundtable-binding-streaming-polish",
+  "goal": "Keep provider page bindings live and make streamed model output compact and controllable.",
+  "non_goals": [
+    "Do not rewrite final provider replies.",
+    "Do not silently steal a page from an active execution.",
+    "Do not persist progress disclosure state.",
+    "Do not change round scheduling or the local tool protocol."
+  ],
+  "acceptance_criteria": [
+    "A persisted verified thread without an exact live binding displays reconnect required.",
+    "Explicit reconnect orphans idle same-page bindings before assigning the current thread.",
+    "Missing page bindings are attempted once, not twice.",
+    "Streaming text is collapsible and follows its own bottom until the user takes control.",
+    "Prompts request human conversational tone and coherent paragraphs.",
+    "The roundtable center displays the active command or latest user command.",
+    "Roundtable tests and rendered QA pass."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "inline_with_review",
+  "allowed_actions": ["read", "edit", "test"],
+  "required_outputs": ["requirements.md", "verification_result.json"]
+}
