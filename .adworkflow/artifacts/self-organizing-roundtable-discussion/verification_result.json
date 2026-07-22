@@ -1,0 +1,99 @@
+{
+  "schema": "ADworkflo.verification_result.v1",
+  "task_id": "self-organizing-roundtable-discussion",
+  "status": "passed",
+  "verified_at": "2026-07-23T03:44:09.5101979+08:00",
+  "branch": "codex/roundtable-development",
+  "focused_tests": {
+    "command": "node --test products/roundtable/app/orchestrator/participation-result.test.mjs products/roundtable/app/orchestrator/reply-relations.test.mjs products/roundtable/app/core/discussion-session-state.test.mjs products/roundtable/app/orchestrator/discussion-cycle.test.mjs products/roundtable/app/orchestrator/orchestrator.test.mjs products/roundtable/app/orchestrator/reply-lifecycle-scheduler.test.mjs products/roundtable/app/orchestrator/idempotency.test.mjs products/roundtable/app/server-runtime.test.mjs products/roundtable/app/public/discussion-view-model.test.mjs products/roundtable/app/public/turn-progress-store.test.mjs products/roundtable/app/public/ui-contract.test.mjs",
+    "exit_code": 0,
+    "passed": 83,
+    "failed": 0,
+    "skipped": 0
+  },
+  "full_suites": [
+    {
+      "name": "test:core",
+      "exit_code": 0,
+      "passed": 275,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test:browser",
+      "exit_code": 0,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "test:launcher",
+      "exit_code": 0,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "service_restart": {
+    "command": "products/roundtable/start-roundtable.bat -Restart -NoOpen",
+    "exit_code": 0,
+    "roundtable_pid": 43880,
+    "roundtable_port": 3020,
+    "chrome_cdp_port": 9223,
+    "playwright_mcp_port": 8931,
+    "health_ok": true,
+    "browser_mode": "cdp",
+    "browser_connected": true,
+    "doubao_binding_verified": true
+  },
+  "rendered_qa": {
+    "browser_path": "Browser plugin selected Codex In-app Browser for the localhost URL; dedicated Chrome CDP health was verified separately.",
+    "fixture_session_id": "20260722-194039-b5270483",
+    "real_provider_commands_sent": 0,
+    "desktop": {
+      "viewport": "1440x1000",
+      "horizontal_overflow": false,
+      "console_errors_or_warnings": 0,
+      "screenshot": "C:/tmp/self-organizing-roundtable-discussion-desktop.png"
+    },
+    "mobile": {
+      "viewport": "390x844",
+      "document_scroll_width": 375,
+      "horizontal_overflow": false,
+      "console_errors_or_warnings": 0,
+      "screenshot": "C:/tmp/self-organizing-roundtable-discussion-mobile.png"
+    },
+    "checks": {
+      "page_identity": true,
+      "not_blank": true,
+      "no_framework_overlay": true,
+      "current_command_centered": true,
+      "cycle_progress_visible": true,
+      "passed_seat_listening_state_visible": true,
+      "reply_relation_buttons": 5,
+      "reply_navigation_highlighted_target": true,
+      "intervention_edited": true,
+      "intervention_persisted_after_reload": true,
+      "intervention_withdrawn": true,
+      "intervention_committed_in_cycle_4": true
+    }
+  },
+  "acceptance": {
+    "cycle_one_independent": true,
+    "later_cycle_pass_or_speak": true,
+    "private_pass_and_rejoin": true,
+    "direct_mention_correction": true,
+    "completion_order_persistence": true,
+    "reply_relations_without_camps": true,
+    "persistent_roles_and_overrides": true,
+    "persistent_editable_interventions": true,
+    "natural_prompts_without_protocol_blocks": true,
+    "raw_first_hidden_compression": true,
+    "east_host_only_closure": true,
+    "restart_does_not_replay_submitted_work": true
+  },
+  "notes": [
+    "The mock rendering fixture intentionally had no real provider thread bindings; no provider prompt was submitted during visual QA.",
+    "A stale compression test was updated to assert natural background prose and the absence of structured compression tags."
+  ]
+}
