@@ -614,6 +614,8 @@ export async function createSession(payload = {}, options = {}) {
     handoffs: [],
     transactions: [],
     pendingParticipants: [],
+    participantRoles: {},
+    pendingInterventions: [],
     checkpoints: [],
     actionJournal: [],
     unreadCount: 0,
