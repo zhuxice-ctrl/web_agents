@@ -1,0 +1,20 @@
+{
+  "task_id": "roundtable-raw-first-output",
+  "goal": "Use provider raw replies as the authoritative roundtable discussion content while retaining optional derived structure for compression.",
+  "non_goals": [
+    "Do not migrate historical sessions.",
+    "Do not change the JSONL local-tool protocol.",
+    "Do not redesign scheduling, rounds, or layout."
+  ],
+  "acceptance_criteria": [
+    "Ordinary discussion prompts do not require a fixed JSON reply schema.",
+    "The UI and recent shared context use event.content even when structuredReply exists.",
+    "Strict reply commit does not reject a reply only because structure extraction is unavailable.",
+    "Derived structure can assist compression without promoting claims into false consensus.",
+    "Roundtable tests pass."
+  ],
+  "risk_level": "medium",
+  "execution_mode": "inline_with_review",
+  "allowed_actions": ["read", "edit", "test"],
+  "required_outputs": ["requirements.md", "verification_result.json"]
+}
