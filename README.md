@@ -1,174 +1,81 @@
-# Web AI Local MCP Bridge
+# Web Agents Roundtable
 
-让网页端 AI 访问本地文件的开源模板。
+让多个网页大模型围绕同一个命题自然讨论的本地圆桌工作台。
 
-English summary: A Windows-first template for connecting web ChatGPT, Gemini, DeepSeek, and similar browser-based AI tools to local files through MCP-compatible bridges.
+你给出一个问题，ChatGPT、DeepSeek、豆包等模型先各自形成判断，再根据公共会话继续回应、质疑或修正观点。界面优先展示模型原文；结构化提取和上下文压缩只在程序内部工作，不会把讨论变成一排固定格式的摘要。
 
-目标：
+![圆桌会议工作台](products/roundtable/docs/assets/roundtable-overview.png)
 
-- ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。
-- Gemini、DeepSeek 等网页端通过 MCP SuperAssistant 访问本地文件。
-- 可选：用一个终端中控网页 GPT / Gemini / DeepSeek / Zhipu 等网页模型，并组织成 agent 工作流。
-- 可选：把第二个 ChatGPT 浏览器账号作为 `gpt3` worker agent 接入同一个工作流。
-- 可选：让多个网页模型通过会话文档 `chat.md` / `protocol.md` / `outbox` 协作，减少终端复制转述。
+## 讨论如何进行
 
-本仓库只提供通用模板，不包含任何个人路径、账号、域名、token 或本地数据。
+第一周期里，每个席位都要独立发言，避免后发模型过早跟随已有答案。进入下一周期时，同一周期的参与者读取相同的会话快照，因此彼此不会偷看到本周期尚未完成的输出。
 
-## 适合谁
+后续讨论不要求每个模型机械地重复观点。模型可以展开新论点，也可以用一两句话表示赞同或回应点名；没有值得公开补充的内容时，可以在内部返回 `PASS`，本周期显示为旁听，之后仍能重新加入讨论。
 
-- 想让网页 ChatGPT 读取本地项目文件。
-- 想让 Gemini / DeepSeek 网页端通过 MCP SuperAssistant 读取本地文件。
-- 想把网页 AI 协作流程沉淀成可复用目录。
+当模型明确提到另一席位时，系统会保留这条回复关系，方便回到被回应的原文。它不会据此推断固定阵营：两位模型可以暂时站在同一边，也可以在后面的周期改变立场。
 
-## 前置条件
+圆桌没有额外调用一个主持模型。“东家”由现有席位担任，只在讨论结束时负责自然收束；如果东家不可用，系统会从已有席位中选择临时收束者。
 
-必需：
+## 工作台里有什么
 
-- Windows 10/11
-- PowerShell
-- Node.js 20 或更高版本
-- 一个本地 MCP 文件系统服务
-- ChatGPT 支持自定义 MCP / Developer Mode / DevSpace 类型连接
+- 圆桌中央显示当前命令，席位状态会区分发言、旁听、等待和异常。
+- 公共会话按时间保留原文，点按“回应某模型”可以跳回对应消息。
+- 模型生成中的流式内容放在可折叠区域内，并跟随最新内容自动滚动。
+- 用户中途补充的内容先进入“下一周期插话”，发送前可以编辑或撤回。
+- 每个席位可以设置默认角色，也可以只为本次讨论临时指定角色。
+- 讨论达到周期上限或自然完成后，由东家结合原始会话给出收束。
 
-按需要安装：
+## 快速启动
 
-- DevSpace Local，给 ChatGPT 网页端使用
-- MCP SuperAssistant 浏览器扩展，给 Gemini / DeepSeek 网页端使用
-- Cloudflare Tunnel 或固定域名隧道，给 ChatGPT 从公网访问本地 DevSpace
-- Playwright，如果需要终端中控网页
+环境要求：Windows 10/11、Node.js 20 或更高版本，以及已登录所需模型网页的 Chrome 环境。
 
-## 基本目录结构
-
-```text
-workspace/
-  START.ps1
-  config.example.json
-  docs/
-    chatgpt-devspace.md
-    gemini-mcp-superassistant.md
-    fixed-domain.md
-    troubleshooting.md
-  scripts/
-    start-gemini-backend.example.ps1
-    start-chatgpt-devspace.example.ps1
-    start-agent-console.example.ps1
-  agent-sessions/        # 本地运行时生成，不应提交
-```
-
-## 快速理解
-
-ChatGPT 网页端和 Gemini 网页端不是同一种接法。
-
-ChatGPT：
-
-```text
-ChatGPT 网页 -> 公网 HTTPS MCP URL -> 本地 DevSpace -> 本地文件
-```
-
-Gemini / DeepSeek：
-
-```text
-网页模型 -> MCP SuperAssistant 扩展 -> 本地 SSE MCP 服务 -> 本地文件
-```
-
-MCP SuperAssistant 通常不是“模型原生工具”。它会让模型输出工具调用格式，然后由浏览器扩展执行，再把结果插回网页对话。
-
-## 安全提醒
-
-不要把这些内容提交到 Git：
-
-- 本机绝对路径
-- 个人用户名
-- 微信、QQ、浏览器缓存路径
-- ngrok token
-- Cloudflare token
-- DevSpace 私有配置
-- 真实项目敏感数据
-- 临时公网地址如果能暴露你的机器，也不建议提交
-
-请复制：
-
-```text
-config.example.json -> config.local.json
-```
-
-然后在 `config.local.json` 里写自己的路径。`config.local.json` 默认应被 `.gitignore` 忽略。
-
-## 推荐流程
-
-1. 配置允许访问的本地目录。
-2. 启动 Gemini / DeepSeek 本地 MCP 后端。
-3. 在 MCP SuperAssistant 中连接：
-
-```text
-http://127.0.0.1:3006/sse
-```
-
-4. 启动 ChatGPT DevSpace 服务。
-5. 把终端显示的公网 MCP URL 填到 ChatGPT。
-6. 如果需要长期稳定，使用自己的域名配置固定 HTTPS 地址。
-
-## 当前主线：web_Agent 本地插件
-
-当前可用主线是旧插件增强版：
-
-```text
-extensions/mcp-superassistant-local-fixed
-```
-
-它已经改名为 `web_Agent`，并保留网页内 MCP 按钮、右侧栏、连接状态、工具列表、使用说明、工具执行等完整体验。后续新增站点、权限提示、默认配置和使用说明，优先都改在这个插件里。
-
-加载方式：
-
-```text
-chrome://extensions -> 开发者模式 -> 加载已解压的扩展程序
-F:\web_agents\extensions\mcp-superassistant-local-fixed
-```
-
-推荐先启动本地 MCP 后端：
+从仓库根目录运行：
 
 ```powershell
-.\scripts\start-gemini-backend.local.ps1
+.\products\roundtable\start-roundtable.bat
 ```
 
-然后在扩展里使用：
+也可以只启动工作台服务：
 
-```text
-Connection Type: SSE
-Server URI: http://127.0.0.1:3006/sse
+```powershell
+npm run start:roundtable
 ```
 
-当前本地固定版已包含 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、GLM/Zhipu、豆包等站点权限。`extensions/web-agents-extension` 只保留为后续重构实验，不作为当前实机使用入口。
+默认会使用以下本地端口：
 
-## 终端 Agent 推荐协作方式
+| 服务 | 地址或端口 |
+| --- | --- |
+| 圆桌工作台 | `http://127.0.0.1:3020` |
+| 专用 Chrome CDP | `9223` |
+| Playwright MCP | `8931` |
 
-推荐默认使用“文档协作模式”：
+圆桌默认使用独立的 Chrome profile，不会占用日常浏览器会话。兼容扩展是可选通道，不是默认运行依赖。
 
-```text
-用户 -> 终端 Agent
-终端 Agent -> 发送短指令给网页模型
-网页模型 -> 通过本地文件工具读写会话目录
-多个模型 -> 在 chat.md 里交流
-终端 Agent -> 检测文件变化并推进下一步
+## 测试
+
+```powershell
+npm run test:roundtable
 ```
 
-这样比把每个网页模型的长回复复制给下一个网页更稳定，也更容易恢复历史会话。
+只运行不依赖扩展的核心测试：
 
-详见：
+```powershell
+npm --workspace @web-agents/roundtable-product run test:core
+```
 
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
+验证可选的兼容扩展：
 
-## 文档
+```powershell
+npm --workspace @web-agents/roundtable-product run test:compat
+```
 
-- [ChatGPT + DevSpace](docs/chatgpt-devspace.md)
-- [Gemini / DeepSeek + MCP SuperAssistant](docs/gemini-mcp-superassistant.md)
-- [本地魔改版 MCP SuperAssistant 扩展](docs/local-fixed-extension.md)
-- [固定域名方案](docs/fixed-domain.md)
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
-- [排错](docs/troubleshooting.md)
-- [隐私检查清单](docs/privacy-checklist.md)
+## 本地数据与隐私
+
+工作区会话保存在 `<workspace>/.web-agents`。浏览器 profile、账号状态和运行日志默认位于 `products/roundtable/data`，这些都是本机数据，不应提交到 Git。
+
+仓库中也不应出现个人路径、账号信息、令牌或真实会话内容。用于文档的界面图来自模拟会话。
+
+圆桌实现位于 [`products/roundtable`](products/roundtable)。
 
 ## License
 
