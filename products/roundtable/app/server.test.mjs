@@ -91,6 +91,7 @@ test("roundtable HTTP API creates session and returns prompts", async () => {
         title: "Roundtable API",
         objective: "验证接口",
         participants: ["chatgpt", "deepseek"],
+        openThreads: false,
       }),
     }).then((response) => response.json());
 
@@ -129,7 +130,7 @@ test("execution API reads SQLite first and falls back to JSON when disabled", as
   const created = await fetch(`${sqliteBase}/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: "SQLite primary", objective: "", participants: ["chatgpt"] }),
+    body: JSON.stringify({ title: "SQLite primary", objective: "", participants: ["chatgpt"], openThreads: false }),
   }).then((response) => response.json());
   const stale = {
     executionId: "exec-primary",
@@ -170,7 +171,7 @@ test("execution API reads SQLite first and falls back to JSON when disabled", as
   const jsonCreated = await fetch(`${jsonBase}/api/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: "JSON fallback", objective: "", participants: ["chatgpt"] }),
+    body: JSON.stringify({ title: "JSON fallback", objective: "", participants: ["chatgpt"], openThreads: false }),
   }).then((response) => response.json());
   const fallback = await fetch(`${jsonBase}/api/sessions/${encodeURIComponent(jsonCreated.session.id)}/executions`)
     .then((response) => response.json());

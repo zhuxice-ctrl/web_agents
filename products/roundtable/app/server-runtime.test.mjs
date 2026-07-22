@@ -19,9 +19,11 @@ async function startServer(t, options = {}) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(async () => {
+    await server.runtime.browserManager.close();
+    const closed = new Promise((resolve) => server.close(resolve));
+    server.closeIdleConnections?.();
     server.closeAllConnections?.();
-    server.close();
-    await once(server, "close");
+    await closed;
   });
   const { port } = server.address();
   return { repoRoot, server, baseUrl: `http://127.0.0.1:${port}` };
@@ -30,7 +32,7 @@ async function startServer(t, options = {}) {
 async function jsonRequest(url, options = {}) {
   const response = await fetch(url, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json", Connection: "close", ...(options.headers || {}) },
   });
   const payload = await response.json();
   return { response, payload };
@@ -51,7 +53,7 @@ async function rawHttpRequest(url, options = {}) {
   });
 }
 
-async function createSession(baseUrl, settings = {}) {
+async function createSession(baseUrl, settings = {}, { openThreads = false } = {}) {
   const { payload } = await jsonRequest(`${baseUrl}/api/sessions`, {
     method: "POST",
     body: JSON.stringify({
@@ -59,6 +61,7 @@ async function createSession(baseUrl, settings = {}) {
       objective: "验证真实后台链路",
       participants: ["chatgpt", "deepseek", "doubao"],
       settings,
+      openThreads,
     }),
   });
   assert.equal(payload.ok, true);
@@ -68,7 +71,7 @@ async function createSession(baseUrl, settings = {}) {
 async function waitForSession(baseUrl, sessionId, predicate, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const payload = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`).then((response) => response.json());
+    const payload = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, { headers: { Connection: "close" } }).then((response) => response.json());
     if (predicate(payload.session)) return payload.session;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
@@ -126,8 +129,8 @@ test("local API exposes verifiable identity and rejects remote browser origins",
 });
 
 test("discussion role and intervention APIs persist ordered editable queue state", async (t) => {
-  const { baseUrl, server } = await startServer(t);
-  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 });
+  const { baseUrl, server } = await startServer(t, { sqliteControlEnabled: false });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 }, { openThreads: false });
   const prepared = await server.runtime.scheduler.prepareCommand(session.id, {
     text: "如何进行自学",
     targets: ["chatgpt", "deepseek", "doubao"],
@@ -163,7 +166,7 @@ test("discussion role and intervention APIs persist ordered editable queue state
     body: JSON.stringify({ content: "优先考虑每天可用时间" }),
   });
   assert.equal(edited.response.status, 200);
-  const reloaded = await fetch(`${baseUrl}/api/sessions/${session.id}`).then((response) => response.json());
+  const reloaded = await fetch(`${baseUrl}/api/sessions/${session.id}`, { headers: { Connection: "close" } }).then((response) => response.json());
   assert.deepEqual(reloaded.session.pendingInterventions.map((item) => item.content), [
     "优先考虑每天可用时间",
     "再考虑反馈周期",
@@ -186,13 +189,14 @@ test("discussion role and intervention APIs persist ordered editable queue state
 
 test("continuation API adds exactly one discussion cycle and enforces the cap", async (t) => {
   const { baseUrl, server } = await startServer(t, {
+    sqliteControlEnabled: false,
     worker: {
       async execute(request) {
         return { text: request.round === 1 ? "恢复后的第一周期观点" : "PASS" };
       },
     },
   });
-  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 });
+  const session = await createSession(baseUrl, { conversationMode: "discussion", mode: "mock", defaultRounds: 5 }, { openThreads: false });
   const prepared = await server.runtime.scheduler.prepareCommand(session.id, {
     text: "继续讨论",
     targets: ["chatgpt"],
