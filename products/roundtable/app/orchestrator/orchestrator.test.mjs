@@ -277,8 +277,8 @@ test("context builder labels shared event speakers and respects context limits",
   ];
   const prompt = buildPrompt(session, "chatgpt", { commandText: "继续" });
   assert.doesNotMatch(prompt, /ChatGPT: one/);
-  assert.match(prompt, /DeepSeek: two/);
-  assert.match(prompt, /用户: four/);
+  assert.match(prompt, /DeepSeek：two/);
+  assert.match(prompt, /用户：four/);
 });
 
 test("context builder requests natural discussion output without a fixed reply schema", async () => {
@@ -354,12 +354,10 @@ test("context builder separates compressed state from recent raw events", async 
     },
   });
 
-  assert.match(prompt, /<compressed_roundtable_context>/);
-  assert.match(prompt, /压缩修订：7/);
-  assert.match(prompt, /覆盖事件：0\.\.1/);
-  assert.match(prompt, /原始记录保留.*event-1/s);
-  assert.match(prompt, /摘要生成方式.*event-2/s);
-  assert.match(prompt, /<shared_roundtable_context>[\s\S]*近期原文/);
+  assert.match(prompt, /较早讨论中已经出现的主要判断包括：原始记录保留/);
+  assert.match(prompt, /仍未解决的分歧包括：摘要生成方式/);
+  assert.match(prompt, /DeepSeek：近期原文/);
+  assert.doesNotMatch(prompt, /压缩修订|覆盖事件|event-1|event-2|compressed_roundtable_context|shared_roundtable_context/);
   assert.doesNotMatch(prompt, /被覆盖的旧原文/);
 });
 
