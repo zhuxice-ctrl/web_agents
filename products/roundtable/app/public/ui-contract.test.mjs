@@ -3,13 +3,14 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 test("the approved roundtable layout has one task input and advanced settings stay in a drawer", async () => {
-  const [html, app, css, threadStatusModel, commandModel, disclosureController] = await Promise.all([
+  const [html, app, css, threadStatusModel, commandModel, disclosureController, scrollController] = await Promise.all([
     fs.readFile(new URL("./index.html", import.meta.url), "utf8"),
     fs.readFile(new URL("./app.js", import.meta.url), "utf8"),
     fs.readFile(new URL("./styles.css", import.meta.url), "utf8"),
     fs.readFile(new URL("./thread-status-model.mjs", import.meta.url), "utf8"),
     fs.readFile(new URL("./roundtable-command-model.mjs", import.meta.url), "utf8"),
     fs.readFile(new URL("./progress-disclosure-controller.mjs", import.meta.url), "utf8"),
+    fs.readFile(new URL("./conversation-scroll-controller.mjs", import.meta.url), "utf8"),
   ]);
 
   assert.equal((html.match(/<textarea\b/g) || []).length, 1);
@@ -32,6 +33,8 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(html, /id="collapseDetailSidebarButton"/);
   assert.match(html, /id="restoreDetailSidebarButton"/);
   assert.match(html, /id="workspaceDivider"/);
+  assert.match(html, /id="scrollConversationBottomButton"/);
+  assert.match(html, /aria-label="滚动到最新消息"/);
   assert.match(html, /role="separator"/);
   assert.match(html, /aria-orientation="vertical"/);
   assert.match(html, /src="\/vendor\/marked\.umd\.js"/);
@@ -48,12 +51,14 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(css, /--canvas:\s*#fff[0-9a-f]{3,4}/i);
   assert.match(css, /\.roundtable-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(/s);
   assert.match(css, /\.conversation-pane\s*\{[^}]*grid-column:\s*3/s);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*\.conversation-pane\s*\{[^}]*height:\s*min\(62vh, 560px\)/);
   assert.match(css, /\.composer-pane\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
   assert.match(app, /data-action="reconnect"/);
   assert.match(app, /重新登录\/刷新/);
   assert.match(app, /web-agents-roundtable:last-session/);
   assert.match(app, /createDetailSidebarController/);
   assert.match(app, /createWorkspaceSplitController/);
+  assert.match(app, /createConversationScrollController/);
   assert.match(app, /renderSafeMarkdown/);
   assert.match(app, /hardenRenderedLinks/);
   assert.match(app, /resolveThreadStatus/);
@@ -78,7 +83,14 @@ test("the approved roundtable layout has one task input and advanced settings st
   assert.match(commandModel, /resolveRoundtableCommand/);
   assert.match(disclosureController, /captureProgressView/);
   assert.match(disclosureController, /restoreProgressView/);
+  assert.match(scrollController, /preserveScroll/);
+  assert.match(scrollController, /generating/);
+  assert.match(app, /waiting_recovery/);
+  assert.match(app, /state\.activeRun\?\.status \|\| state\.session\?\.runtime\?\.status/);
+  assert.doesNotMatch(app, /nearBottom/);
   assert.match(css, /\.chat-event\s*\{[^}]*display:\s*block/s);
+  assert.match(css, /\.conversation-scroll-bottom\s*\{/);
+  assert.match(css, /overflow-anchor:\s*none/);
   assert.match(css, /\.event-meta\s*\{[^}]*display:\s*flex/s);
   assert.match(css, /\.event-content\s*\{[^}]*width:\s*100%/s);
   assert.doesNotMatch(css, /grid-template-columns:\s*92px\s+minmax\(0,\s*1fr\)/);

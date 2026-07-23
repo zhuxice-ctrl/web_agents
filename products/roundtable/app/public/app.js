@@ -8,6 +8,7 @@ import { findSnappedHost, HOST_POINT, stepRoundtablePhysics } from "./roundtable
 import { createDetailSidebarController } from "./detail-sidebar-controller.mjs";
 import { resolveDiscussionView } from "./discussion-view-model.mjs";
 import { hardenRenderedLinks, markdownForEvent, renderSafeMarkdown } from "./conversation-renderer.mjs";
+import { createConversationScrollController } from "./conversation-scroll-controller.mjs";
 import { bindProgressDisclosure, captureProgressView, restoreProgressView } from "./progress-disclosure-controller.mjs";
 import { resolveRoundtableCommand } from "./roundtable-command-model.mjs";
 import { resolveThreadStatus } from "./thread-status-model.mjs";
@@ -51,6 +52,11 @@ const detailSidebarController = createDetailSidebarController({
   storage: window.localStorage,
 });
 const turnProgressStore = new TurnProgressStore();
+const conversationScrollController = createConversationScrollController({
+  scroller: $("#chatStream"),
+  button: $("#scrollConversationBottomButton"),
+  reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+});
 const workspaceSplitController = createWorkspaceSplitController({
   workspace: $(".roundtable-workspace"),
   separator: $("#workspaceDivider"),
@@ -303,48 +309,62 @@ function renderConversation() {
   const progressItems = turnProgressStore.list(state.session?.id);
   $("#eventCount").textContent = String(events.length + progressItems.length);
   if (!events.length && !progressItems.length) {
-    root.className = "chat-stream empty-state";
-    root.innerHTML = "<p>第一条消息会命名当前圆桌，并进入公共上下文。</p>";
+    conversationScrollController.preserveScroll(() => {
+      root.className = "chat-stream empty-state";
+      root.innerHTML = "<p>第一条消息会命名当前圆桌，并进入公共上下文。</p>";
+    });
+    conversationScrollController.setState({ generating: false, hasContent: false });
     return;
   }
-  root.className = "chat-stream";
-  const nearBottom = root.scrollHeight - root.clientHeight - root.scrollTop <= 96;
-  for (const child of [...root.children]) {
-    if (!child.dataset.conversationKey) child.remove();
-  }
-  const items = [
-    ...events.map((event, index) => ({ kind: "event", key: `event:${event.id || index}`, event })),
-    ...progressItems.map((progress) => ({ kind: "progress", key: `progress:${progress.turnId}`, progress })),
-  ];
-  const existing = new Map([...root.querySelectorAll("[data-conversation-key]")].map((node) => [node.dataset.conversationKey, node]));
-  const retained = new Set();
-  for (const item of items) {
-    const node = existing.get(item.key) || document.createElement("article");
-    retained.add(item.key);
-    node.dataset.conversationKey = item.key;
-    if (item.kind === "event" && item.event.id) node.dataset.eventId = item.event.id;
-    else delete node.dataset.eventId;
-    const signature = item.kind === "event"
-      ? JSON.stringify([item.event.content, item.event.metadata, item.event.createdAt])
-      : JSON.stringify([item.progress.executionId, item.progress.partialText, item.progress.status, item.progress.updatedAt]);
-    if (node.dataset.renderSignature !== signature) {
-      const progressView = item.kind === "progress" ? captureProgressView(node) : null;
-      node.dataset.renderSignature = signature;
-      const rendered = item.kind === "event" ? renderConversationEvent(item.event) : renderProgressItem(item.progress);
-      node.className = rendered.className;
-      node.innerHTML = rendered.html;
-      node.querySelectorAll(".markdown-body").forEach((content) => hardenRenderedLinks(content));
-      if (item.kind === "progress") {
-        restoreProgressView(node, progressView);
-        bindProgressDisclosure(node);
-      }
+  conversationScrollController.preserveScroll(() => {
+    root.className = "chat-stream";
+    for (const child of [...root.children]) {
+      if (!child.dataset.conversationKey) child.remove();
     }
-    root.append(node);
-  }
-  for (const node of existing.values()) {
-    if (!retained.has(node.dataset.conversationKey)) node.remove();
-  }
-  if (nearBottom) root.scrollTop = root.scrollHeight;
+    const items = [
+      ...events.map((event, index) => ({ kind: "event", key: `event:${event.id || index}`, event })),
+      ...progressItems.map((progress) => ({ kind: "progress", key: `progress:${progress.turnId}`, progress })),
+    ];
+    const existing = new Map([...root.querySelectorAll("[data-conversation-key]")].map((node) => [node.dataset.conversationKey, node]));
+    const retained = new Set();
+    for (const item of items) {
+      const node = existing.get(item.key) || document.createElement("article");
+      retained.add(item.key);
+      node.dataset.conversationKey = item.key;
+      if (item.kind === "event" && item.event.id) node.dataset.eventId = item.event.id;
+      else delete node.dataset.eventId;
+      const signature = item.kind === "event"
+        ? JSON.stringify([item.event.content, item.event.metadata, item.event.createdAt])
+        : JSON.stringify([item.progress.executionId, item.progress.partialText, item.progress.status, item.progress.updatedAt]);
+      if (node.dataset.renderSignature !== signature) {
+        const progressView = item.kind === "progress" ? captureProgressView(node) : null;
+        node.dataset.renderSignature = signature;
+        const rendered = item.kind === "event" ? renderConversationEvent(item.event) : renderProgressItem(item.progress);
+        node.className = rendered.className;
+        node.innerHTML = rendered.html;
+        node.querySelectorAll(".markdown-body").forEach((content) => hardenRenderedLinks(content));
+        if (item.kind === "progress") {
+          restoreProgressView(node, progressView);
+          bindProgressDisclosure(node);
+        }
+      }
+      root.append(node);
+    }
+    for (const node of existing.values()) {
+      if (!retained.has(node.dataset.conversationKey)) node.remove();
+    }
+  });
+  conversationScrollController.setState({
+    generating: progressItems.length > 0 || [
+      "planned",
+      "queued",
+      "running",
+      "paused",
+      "waiting_recovery",
+      "waiting_login",
+    ].includes(state.activeRun?.status || state.session?.runtime?.status),
+    hasContent: true,
+  });
 }
 
 function renderConversationEvent(event) {

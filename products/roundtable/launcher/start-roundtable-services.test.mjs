@@ -6,6 +6,16 @@ import test from "node:test";
 
 import { startRoundtableServices } from "./start-roundtable-services.mjs";
 
+async function waitForFileMatch(file, pattern, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const content = await fs.readFile(file, "utf8").catch(() => "");
+    if (pattern.test(content)) return content;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return fs.readFile(file, "utf8").catch(() => "");
+}
+
 test("roundtable service host owns no plugin service", async (t) => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-roundtable-services-"));
   const productRoot = path.join(repoRoot, "roundtable-product");
@@ -58,9 +68,11 @@ test("roundtable service host starts Playwright MCP with append-only log files",
   });
 
   assert.ok(services.playwrightProcess?.pid);
-  await new Promise((resolve) => setTimeout(resolve, 100));
   assert.match(
-    await fs.readFile(path.join(productRoot, "data", "logs", "playwright-mcp.out.log"), "utf8"),
+    await waitForFileMatch(
+      path.join(productRoot, "data", "logs", "playwright-mcp.out.log"),
+      /fake playwright mcp ready/,
+    ),
     /fake playwright mcp ready/,
   );
 });

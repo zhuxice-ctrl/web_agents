@@ -14,12 +14,12 @@ async function write(root, relative, content) {
   await fs.writeFile(target, content, "utf8");
 }
 
-async function fixture(t) {
+async function fixture(t, { version = "1.0.1" } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tablellm-v1-boundary-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await write(root, "package.json", JSON.stringify({ name: "tablellm", version: "1.0.0", scripts: {} }));
+  await write(root, "package.json", JSON.stringify({ name: "tablellm", version, scripts: {} }));
   await write(root, "products/roundtable/package.json", JSON.stringify({
-    version: "1.0.0",
+    version,
     scripts: { test: "node --test", "test:compat": "node --test compat/*.test.mjs" },
     dependencies: { "@web-agents/local-core": coreDependency },
   }));
@@ -41,5 +41,13 @@ test("rejects a vendored plugin product", async (t) => {
 test("rejects a tracked local whitelist", async (t) => {
   const root = await fixture(t);
   await write(root, "config/allowed-directories.local.txt", "C:\\\\private");
+  await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
+});
+
+test("rejects a non-v1 or mismatched product version", async (t) => {
+  const root = await fixture(t, { version: "2.0.0" });
+  await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
+
+  await write(root, "package.json", JSON.stringify({ name: "tablellm", version: "1.0.1", scripts: {} }));
   await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
 });
