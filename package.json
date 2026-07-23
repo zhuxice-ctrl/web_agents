@@ -1,11 +1,30 @@
 {
-  "name": "web-ai-local-mcp-bridge",
-  "private": true,
+  "name": "@web-agents/local-core",
+  "version": "1.0.1",
+  "description": "Shared filesystem safety, permission, transaction, and tool primitives for web_Agent products.",
   "type": "module",
-  "scripts": {
-    "test:council-browser": "node --test scripts/council-browser.test.mjs"
+  "license": "MIT",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=24"
   },
-  "devDependencies": {
-    "playwright": "^1.61.1"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhuxice-ctrl/web_agents.git"
+  },
+  "exports": {
+    "./paths": "./src/path-lock-manager.mjs",
+    "./real-paths": "./src/real-path-policy.mjs",
+    "./atomic-file": "./src/atomic-file.mjs",
+    "./permissions": "./src/permission-broker.mjs",
+    "./permission-store": "./src/permission-store.mjs",
+    "./transactions": "./src/transaction-manager.mjs",
+    "./tool-registry": "./src/tool-registry.mjs",
+    "./filesystem-tools": "./src/filesystem-tools.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
   }
 }

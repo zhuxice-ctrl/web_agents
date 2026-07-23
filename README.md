@@ -1,174 +1,67 @@
-# Web AI Local MCP Bridge
+# Web Agents
 
-让网页端 AI 访问本地文件的开源模板。
+本仓库包含一个共享底座和两个相互独立的产品方向。三个正式分支独立发布，插件与圆桌不互相合并，只通过带版本标签的 `@web-agents/local-core` 共享文件系统能力。
 
-English summary: A Windows-first template for connecting web ChatGPT, Gemini, DeepSeek, and similar browser-based AI tools to local files through MCP-compatible bridges.
+| 正式分支 | 当前版本 | 职责 | Core 依赖 |
+| --- | --- | --- | --- |
+| [`main`](https://github.com/zhuxice-ctrl/web_agents/tree/main) | `local-core 1.0.1` | 路径、权限、事务和文件工具共享底座 | 独立底座 |
+| [`webagent`](https://github.com/zhuxice-ctrl/web_agents/tree/webagent) | `web_Agent 1.0.2` | 网页大模型浏览器插件与本地 MCP 服务 | `local-core 1.0.1` |
+| [`tablellm`](https://github.com/zhuxice-ctrl/web_agents/tree/tablellm) | `TableLLM 1.0.1` | 多模型圆桌工作台与调度运行时 | `local-core 1.0.0` |
 
-目标：
+`webagent-v1`、`tablellm-v1` 和 `local-core-v1` 保留为第一代发布线。日常功能开发从对应正式分支创建短期功能分支；跨产品共享能力先在 `main` 发布 Core 标签，再由两个产品分别升级和验证。
 
-- ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。
-- Gemini、DeepSeek 等网页端通过 MCP SuperAssistant 访问本地文件。
-- 可选：用一个终端中控网页 GPT / Gemini / DeepSeek / Zhipu 等网页模型，并组织成 agent 工作流。
-- 可选：把第二个 ChatGPT 浏览器账号作为 `gpt3` worker agent 接入同一个工作流。
-- 可选：让多个网页模型通过会话文档 `chat.md` / `protocol.md` / `outbox` 协作，减少终端复制转述。
+## Shared Local Core
 
-本仓库只提供通用模板，不包含任何个人路径、账号、域名、token 或本地数据。
+`@web-agents/local-core` is the versioned filesystem and permission foundation shared by web_Agent and TableLLM. It contains no browser UI, provider adapter, HTTP server, or product runtime.
 
-## 适合谁
+## Version
 
-- 想让网页 ChatGPT 读取本地项目文件。
-- 想让 Gemini / DeepSeek 网页端通过 MCP SuperAssistant 读取本地文件。
-- 想把网页 AI 协作流程沉淀成可复用目录。
+Current release: `1.0.1`
 
-## 前置条件
+The Git branch `main` is the stable Core integration branch. `local-core-v1` retains the first-generation release history, while immutable tags identify exact package versions.
 
-必需：
+## Install
 
-- Windows 10/11
-- PowerShell
-- Node.js 20 或更高版本
-- 一个本地 MCP 文件系统服务
-- ChatGPT 支持自定义 MCP / Developer Mode / DevSpace 类型连接
-
-按需要安装：
-
-- DevSpace Local，给 ChatGPT 网页端使用
-- MCP SuperAssistant 浏览器扩展，给 Gemini / DeepSeek 网页端使用
-- Cloudflare Tunnel 或固定域名隧道，给 ChatGPT 从公网访问本地 DevSpace
-- Playwright，如果需要终端中控网页
-
-## 基本目录结构
-
-```text
-workspace/
-  START.ps1
-  config.example.json
-  docs/
-    chatgpt-devspace.md
-    gemini-mcp-superassistant.md
-    fixed-domain.md
-    troubleshooting.md
-  scripts/
-    start-gemini-backend.example.ps1
-    start-chatgpt-devspace.example.ps1
-    start-agent-console.example.ps1
-  agent-sessions/        # 本地运行时生成，不应提交
+```json
+{
+  "dependencies": {
+    "@web-agents/local-core": "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.1.tar.gz"
+  }
+}
 ```
 
-## 快速理解
+## Exports
 
-ChatGPT 网页端和 Gemini 网页端不是同一种接法。
+- `@web-agents/local-core/paths`
+- `@web-agents/local-core/real-paths`
+- `@web-agents/local-core/atomic-file`
+- `@web-agents/local-core/permissions`
+- `@web-agents/local-core/permission-store`
+- `@web-agents/local-core/transactions`
+- `@web-agents/local-core/tool-registry`
+- `@web-agents/local-core/filesystem-tools`
 
-ChatGPT：
+## Security boundary
 
-```text
-ChatGPT 网页 -> 公网 HTTPS MCP URL -> 本地 DevSpace -> 本地文件
-```
+The package owns path normalization, real-path validation, mutation locking, permission decisions, one-time permission tokens, transactions, atomic writes, and filesystem tool definitions.
 
-Gemini / DeepSeek：
+The filesystem tool set includes permission-gated single-file deletion through `delete_file`. Recursive directory deletion is intentionally not exposed.
 
-```text
-网页模型 -> MCP SuperAssistant 扩展 -> 本地 SSE MCP 服务 -> 本地文件
-```
+Products remain responsible for their own UI, HTTP transport, browser integration, workspace selection, and user-facing approval flow.
 
-MCP SuperAssistant 通常不是“模型原生工具”。它会让模型输出工具调用格式，然后由浏览器扩展执行，再把结果插回网页对话。
-
-## 安全提醒
-
-不要把这些内容提交到 Git：
-
-- 本机绝对路径
-- 个人用户名
-- 微信、QQ、浏览器缓存路径
-- ngrok token
-- Cloudflare token
-- DevSpace 私有配置
-- 真实项目敏感数据
-- 临时公网地址如果能暴露你的机器，也不建议提交
-
-请复制：
-
-```text
-config.example.json -> config.local.json
-```
-
-然后在 `config.local.json` 里写自己的路径。`config.local.json` 默认应被 `.gitignore` 忽略。
-
-## 推荐流程
-
-1. 配置允许访问的本地目录。
-2. 启动 Gemini / DeepSeek 本地 MCP 后端。
-3. 在 MCP SuperAssistant 中连接：
-
-```text
-http://127.0.0.1:3006/sse
-```
-
-4. 启动 ChatGPT DevSpace 服务。
-5. 把终端显示的公网 MCP URL 填到 ChatGPT。
-6. 如果需要长期稳定，使用自己的域名配置固定 HTTPS 地址。
-
-## 当前主线：web_Agent 本地插件
-
-当前可用主线是旧插件增强版：
-
-```text
-extensions/mcp-superassistant-local-fixed
-```
-
-它已经改名为 `web_Agent`，并保留网页内 MCP 按钮、右侧栏、连接状态、工具列表、使用说明、工具执行等完整体验。后续新增站点、权限提示、默认配置和使用说明，优先都改在这个插件里。
-
-加载方式：
-
-```text
-chrome://extensions -> 开发者模式 -> 加载已解压的扩展程序
-F:\web_agents\extensions\mcp-superassistant-local-fixed
-```
-
-推荐先启动本地 MCP 后端：
+## Test
 
 ```powershell
-.\scripts\start-gemini-backend.local.ps1
+npm test
 ```
 
-然后在扩展里使用：
+## Release policy
 
-```text
-Connection Type: SSE
-Server URI: http://127.0.0.1:3006/sse
-```
-
-当前本地固定版已包含 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、GLM/Zhipu、豆包等站点权限。`extensions/web-agents-extension` 只保留为后续重构实验，不作为当前实机使用入口。
-
-## 终端 Agent 推荐协作方式
-
-推荐默认使用“文档协作模式”：
-
-```text
-用户 -> 终端 Agent
-终端 Agent -> 发送短指令给网页模型
-网页模型 -> 通过本地文件工具读写会话目录
-多个模型 -> 在 chat.md 里交流
-终端 Agent -> 检测文件变化并推进下一步
-```
-
-这样比把每个网页模型的长回复复制给下一个网页更稳定，也更容易恢复历史会话。
-
-详见：
-
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
-
-## 文档
-
-- [ChatGPT + DevSpace](docs/chatgpt-devspace.md)
-- [Gemini / DeepSeek + MCP SuperAssistant](docs/gemini-mcp-superassistant.md)
-- [本地魔改版 MCP SuperAssistant 扩展](docs/local-fixed-extension.md)
-- [固定域名方案](docs/fixed-domain.md)
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
-- [排错](docs/troubleshooting.md)
-- [隐私检查清单](docs/privacy-checklist.md)
+- Patch releases keep the exported API compatible.
+- Minor releases may add exports or optional behavior.
+- Major releases may change permission or filesystem contracts.
+- web_Agent and TableLLM upgrade this package independently; their product branches are never merged together.
+- Product branches consume immutable Core tags rather than copying Core source.
 
 ## License
 
