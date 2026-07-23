@@ -1,33 +1,30 @@
 {
-  "name": "web-ai-local-mcp-bridge",
-  "private": true,
+  "name": "@web-agents/local-core",
+  "version": "1.0.0",
+  "description": "Shared filesystem safety, permission, transaction, and tool primitives for web_Agent products.",
   "type": "module",
-  "workspaces": [
-    "packages/*",
-    "products/*",
-    "products/*/*"
+  "license": "MIT",
+  "files": [
+    "src"
   ],
   "engines": {
     "node": ">=24"
   },
-  "scripts": {
-    "check:boundaries": "node tools/check-product-boundaries.mjs",
-    "test:core": "npm --workspace @web-agents/local-core test",
-    "test:council-browser": "node --test products/roundtable/tests/legacy-council/council-browser.test.mjs",
-    "test:config-gateway": "node --test products/plugin/services/config-gateway.test.mjs",
-    "test:roundtable-compat-extension": "node --test products/roundtable/compat-extension/test/*.test.mjs",
-    "test:plugin": "npm --workspace @web-agents/plugin-product test",
-    "build:plugin": "npm --workspace @web-agents/plugin-product run build",
-    "test:launcher": "npm --workspace @web-agents/roundtable-product run test:launcher",
-    "test:roundtable-web": "npm --workspace @web-agents/roundtable-product run test:core",
-    "test:roundtable-browser": "npm --workspace @web-agents/roundtable-product run test:browser",
-    "test:roundtable": "npm --workspace @web-agents/roundtable-product test",
-    "start:roundtable": "npm --workspace @web-agents/roundtable-product start",
-    "test:all": "npm run check:boundaries && npm run test:core && npm run test:plugin && npm run test:roundtable",
-    "test:local-runtime": "npm run test:config-gateway && npm run test:plugin && npm run test:roundtable-compat-extension && npm run test:roundtable-web && npm run test:council-browser && npm run test:roundtable-browser && npm run test:launcher"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhuxice-ctrl/web_agents.git"
   },
-  "dependencies": {
-    "@playwright/mcp": "0.0.78",
-    "playwright": "^1.61.1"
+  "exports": {
+    "./paths": "./src/path-lock-manager.mjs",
+    "./real-paths": "./src/real-path-policy.mjs",
+    "./atomic-file": "./src/atomic-file.mjs",
+    "./permissions": "./src/permission-broker.mjs",
+    "./permission-store": "./src/permission-store.mjs",
+    "./transactions": "./src/transaction-manager.mjs",
+    "./tool-registry": "./src/tool-registry.mjs",
+    "./filesystem-tools": "./src/filesystem-tools.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
   }
 }
