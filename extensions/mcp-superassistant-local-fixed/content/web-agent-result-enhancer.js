@@ -6,14 +6,15 @@
   const autoSaveLines = 40;
   const autoRunFallbackDelay = 1600;
   const autoRunWarmupDelay = 2000;
+  const explicitPathIntentCommand = "webAgentRecordExplicitPathIntent";
   const dismissedPermissionMarkerKeys = new Set();
   const observedAutoRunCards = new WeakSet();
   const pendingAutoRunCards = new WeakSet();
   let autoRunArmed = false;
   let activeAutoRunCard = null;
   let autoRunInFlight = false;
-  let kimiPermissionLookupPromise = null;
-  let lastKimiPermissionLookupAt = 0;
+  let permissionLookupPromise = null;
+  let lastPermissionLookupAt = 0;
   const actionLabels = new Set([
     "显示原始信息",
     "运行",
@@ -35,6 +36,43 @@
 
   function normalizeLine(line) {
     return String(line || "").replace(/\u00a0/g, " ").trim();
+  }
+
+  function hasWindowsAbsolutePath(text) {
+    return /(?:^|[\s"'`(\[])\b[A-Za-z]:[\\/]/u.test(String(text || ""));
+  }
+
+  function editableText(node) {
+    if (!node) return "";
+    if (typeof node.value === "string") return node.value;
+    if (node.isContentEditable || node.getAttribute?.("contenteditable") === "true") {
+      return node.innerText || node.textContent || "";
+    }
+    const editable = node.closest?.('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]');
+    if (!editable || editable === node) return "";
+    return editableText(editable);
+  }
+
+  function recordExplicitPathIntent(text) {
+    const value = String(text || "").trim();
+    if (!value || value.length > 20000 || !hasWindowsAbsolutePath(value)) return false;
+    if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return false;
+    chrome.runtime.sendMessage({
+      command: explicitPathIntentCommand,
+      payload: { text: value, recordedAt: Date.now() },
+    }, () => void chrome.runtime.lastError);
+    return true;
+  }
+
+  function captureExplicitPathIntent(event) {
+    if (event.type === "keydown") {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      recordExplicitPathIntent(editableText(event.target));
+      return;
+    }
+    const target = event.target?.closest?.("button, [role=button]");
+    if (!target) return;
+    recordExplicitPathIntent(editableText(document.activeElement));
   }
 
   function trimBlankEdges(lines) {
@@ -931,17 +969,15 @@
     }
   }
 
-  function syncKimiPermissionFromBackground() {
+  function syncPermissionFromBackground() {
     if (
-      typeof location === "undefined" ||
-      !isKimiPermissionBridgeHost(location.hostname) ||
-      kimiPermissionLookupPromise ||
-      Date.now() - lastKimiPermissionLookupAt < 1000
+      permissionLookupPromise ||
+      Date.now() - lastPermissionLookupAt < 1000
     ) {
-      return kimiPermissionLookupPromise;
+      return permissionLookupPromise;
     }
-    lastKimiPermissionLookupAt = Date.now();
-    kimiPermissionLookupPromise = sendPermissionMessage("webAgentPermissionGetLatest", {})
+    lastPermissionLookupAt = Date.now();
+    permissionLookupPromise = sendPermissionMessage("webAgentPermissionGetLatest", {})
       .then((response) => {
         const marker = response && response.result ? response.result.marker : null;
         if (marker) {
@@ -952,9 +988,9 @@
       })
       .catch(() => null)
       .finally(() => {
-        kimiPermissionLookupPromise = null;
+        permissionLookupPromise = null;
       });
-    return kimiPermissionLookupPromise;
+    return permissionLookupPromise;
   }
 
   function enhancePermissionRequests() {
@@ -963,7 +999,7 @@
     if (marker) {
       ensurePermissionDock(marker);
     } else {
-      void syncKimiPermissionFromBackground();
+      void syncPermissionFromBackground();
     }
   }
 
@@ -1245,11 +1281,17 @@
       install.pendingTimer = window.setTimeout(enhanceAll, 250);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    document.addEventListener("keydown", captureExplicitPathIntent, true);
+    document.addEventListener("pointerdown", captureExplicitPathIntent, true);
     window.setTimeout(() => {
       autoRunArmed = true;
       autoClickRunButtons();
     }, autoRunWarmupDelay);
-    window.addEventListener("beforeunload", () => observer.disconnect(), { once: true });
+    window.addEventListener("beforeunload", () => {
+      observer.disconnect();
+      document.removeEventListener("keydown", captureExplicitPathIntent, true);
+      document.removeEventListener("pointerdown", captureExplicitPathIntent, true);
+    }, { once: true });
   }
 
   const api = {
@@ -1267,6 +1309,8 @@
     isPlaceholderToolCard,
     normalizeGrokJsonlText,
     isKimiPermissionBridgeHost,
+    hasWindowsAbsolutePath,
+    recordExplicitPathIntent,
   };
 
   if (typeof module !== "undefined" && module.exports) {

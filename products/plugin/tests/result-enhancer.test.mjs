@@ -427,9 +427,15 @@ test("canonical JSONL and unrelated JSON remain unchanged", () => {
   assert.equal(activeEnhancer.normalizeGrokJsonlText(unrelated), unrelated);
 });
 
-test("Kimi permission fallback is isolated from every other provider", () => {
-  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("kimi.com"), true);
-  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("www.kimi.com"), true);
-  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("chatgpt.com"), false);
-  assert.equal(activeEnhancer.isKimiPermissionBridgeHost("grok.com"), false);
+test("explicit path intent recognizes Windows absolute paths only", () => {
+  assert.equal(activeEnhancer.hasWindowsAbsolutePath("写入 C:\\Users\\Lenovo\\Desktop\\作品集"), true);
+  assert.equal(activeEnhancer.hasWindowsAbsolutePath("删除 F:/project/note.md"), true);
+  assert.equal(activeEnhancer.hasWindowsAbsolutePath("只说删除这个文件"), false);
+  assert.equal(activeEnhancer.hasWindowsAbsolutePath("读取 ./relative.md"), false);
+});
+
+test("permission fallback polls the background on every supported provider", () => {
+  assert.match(enhancerSource, /function syncPermissionFromBackground\(\)/);
+  assert.doesNotMatch(enhancerSource, /!isKimiPermissionBridgeHost\(location\.hostname\)/);
+  assert.match(enhancerSource, /webAgentPermissionGetLatest/);
 });

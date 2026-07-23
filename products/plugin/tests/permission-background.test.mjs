@@ -24,5 +24,11 @@ test("active background keeps permission request payloads for approve-and-retry"
   assert.ok(backgroundSource.includes('e.command === "webAgentPermissionApprove"'));
   assert.ok(backgroundSource.includes('e.command === "webAgentPermissionReject"'));
   assert.ok(backgroundSource.includes('e.command === "webAgentPermissionGetLatest"'));
-  assert.ok(backgroundSource.includes('t === "kimi.com" || t.endsWith(".kimi.com")'));
+  assert.ok(backgroundSource.includes('e.command === "webAgentRecordExplicitPathIntent"'));
+  assert.ok(backgroundSource.includes("WEB_AGENT_EXPLICIT_PATH_INTENTS_KEY"));
+  assert.ok(backgroundSource.includes("webAgentIntentCoversPermission"));
+  assert.ok(backgroundSource.includes("hasWebAgentExplicitPathIntent"));
+  assert.ok(backgroundSource.includes('approvalMode: "directory"'));
+  assert.ok(backgroundSource.includes("isWebAgentPermissionSender"));
+  assert.ok(backgroundSource.includes('error: "PERMISSION_LOOKUP_DENIED"'));
 });

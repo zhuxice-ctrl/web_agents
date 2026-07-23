@@ -33,7 +33,7 @@ test("local fixed MCP extension loads the Grok automation sidecar after its inpu
   assert.ok(manifest.host_permissions.includes("*://*.doubao.com/*"));
   assert.equal(manifest.default_locale, "zh_CN");
   assert.equal(manifest.name, "web_Agent");
-  assert.equal(manifest.version, "1.0.1");
+  assert.equal(manifest.version, "1.0.2");
 });
 
 test("Grok automation sidecar uses the typed gateway without adding a replacement overlay", async () => {
@@ -91,4 +91,19 @@ test("provider-specific model instructions expose safe single-file deletion", as
 
   assert.match(mainEntry, /delete_file：path（仅删除单个文件）/);
   assert.match(mainEntry, /read_multiple_files、write_file、delete_file、list_directory/);
+});
+
+test("model instructions treat user-entered absolute paths as explicit authorization", async () => {
+  const mainEntry = await fs.readFile(path.join(extensionRoot, "content/index-main.iife.js"), "utf8");
+
+  assert.match(mainEntry, /视为对该路径的主动操作授权/);
+  assert.match(mainEntry, /不要先调用 list_allowed_directories/);
+  assert.match(mainEntry, /插件会核对用户输入并自动保存目录授权/);
+});
+
+test("delete_file is migrated into existing saved tool selections", async () => {
+  const mainEntry = await fs.readFile(path.join(extensionRoot, "content/index-main.iife.js"), "utf8");
+
+  assert.match(mainEntry, /availableTools\.some\([^)]*name==="delete_file"/);
+  assert.match(mainEntry, /s\.add\("delete_file"\),await qh\(s\)/);
 });

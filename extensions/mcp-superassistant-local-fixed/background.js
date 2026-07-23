@@ -1,3 +1,9 @@
+import {
+  hasWebAgentWindowsAbsolutePath,
+  WEB_AGENT_EXPLICIT_PATH_INTENT_TTL_MS,
+  webAgentIntentCoversPermission,
+} from "./permission-intent.js";
+
 var ju = Object.defineProperty;
 var qu = (e, t, r) => t in e ? ju(e, t, { enumerable: !0, configurable: !0, writable: !0, value: r }) : e[t] = r;
 var J = (e, t, r) => qu(e, typeof t != "symbol" ? t + "" : t, r);
@@ -15391,6 +15397,7 @@ x.debug("Edit 'chrome-extension/src/background/index.ts' and save to reload.");
 const WEB_AGENT_PERMISSION_APPROVE_ENDPOINT = "http://127.0.0.1:3017/permissions/approve";
 const WEB_AGENT_PERMISSION_REJECT_ENDPOINT = "http://127.0.0.1:3017/permissions/reject";
 const WEB_AGENT_PERMISSION_PENDING_CALLS_KEY = "webAgentPermissionPendingCalls";
+const WEB_AGENT_EXPLICIT_PATH_INTENTS_KEY = "webAgentExplicitPathIntents";
 const WEB_AGENT_PERMISSION_MARKER_START = "WEB_AGENT_PERMISSION_REQUEST";
 const WEB_AGENT_PERMISSION_MARKER_END = "END_WEB_AGENT_PERMISSION_REQUEST";
 function parseWebAgentPermissionMarker(e) {
@@ -15447,6 +15454,34 @@ async function getWebAgentPermissionPendingCalls() {
 }
 async function setWebAgentPermissionPendingCalls(e) {
   await chrome.storage.local.set({ [WEB_AGENT_PERMISSION_PENDING_CALLS_KEY]: e });
+}
+function webAgentIntentStorage() {
+  return chrome.storage.session || chrome.storage.local;
+}
+async function getWebAgentExplicitPathIntents() {
+  const e = webAgentIntentStorage(), t = await e.get([WEB_AGENT_EXPLICIT_PATH_INTENTS_KEY]), r = t[WEB_AGENT_EXPLICIT_PATH_INTENTS_KEY];
+  return r && typeof r == "object" && !Array.isArray(r) ? r : {};
+}
+async function setWebAgentExplicitPathIntents(e) {
+  await webAgentIntentStorage().set({ [WEB_AGENT_EXPLICIT_PATH_INTENTS_KEY]: e });
+}
+async function recordWebAgentExplicitPathIntent(e, t) {
+  const r = t && t.tab && t.tab.id, n = e && e.payload && String(e.payload.text || "").trim();
+  if (!Number.isInteger(r))
+    throw new Error("EXPLICIT_PATH_INTENT_TAB_REQUIRED");
+  if (!n || n.length > 2e4 || !hasWebAgentWindowsAbsolutePath(n))
+    return { ok: !0, recorded: !1 };
+  const o = await getWebAgentExplicitPathIntents(), s = Date.now();
+  o[r] = { text: n, recordedAt: s };
+  for (const [i, a] of Object.entries(o))
+    s - Number(a && a.recordedAt || 0) > WEB_AGENT_EXPLICIT_PATH_INTENT_TTL_MS && delete o[i];
+  await setWebAgentExplicitPathIntents(o);
+  return { ok: !0, recorded: !0 };
+}
+async function hasWebAgentExplicitPathIntent(e, t) {
+  if (!Number.isInteger(e)) return !1;
+  const r = await getWebAgentExplicitPathIntents(), n = r[e];
+  return !!n && Date.now() - Number(n.recordedAt || 0) <= WEB_AGENT_EXPLICIT_PATH_INTENT_TTL_MS && webAgentIntentCoversPermission(n, t);
 }
 async function rememberWebAgentPermissionCall(e, t) {
   if (!e || !e.requestId || !t || !t.toolName)
@@ -15531,10 +15566,10 @@ async function manualWebAgentToolCall(e) {
   const s = await Uy(Pt(), r, n, o), i = findWebAgentPermissionMarker(s);
   return i && await rememberWebAgentPermissionCall(i, { toolName: r, args: n || {}, adapterName: o }), { ok: !0, toolName: r, result: s };
 }
-function isKimiPermissionSender(e) {
+function isWebAgentPermissionSender(e) {
   try {
-    const t = new URL(e && (e.url || e.tab && e.tab.url) || "").hostname.toLowerCase();
-    return t === "kimi.com" || t.endsWith(".kimi.com");
+    const t = new URL(e && (e.url || e.tab && e.tab.url) || "");
+    return (t.protocol === "https:" || t.protocol === "http:") && !!(e && e.tab && Number.isInteger(e.tab.id));
   } catch {
     return !1;
   }
@@ -15551,6 +15586,16 @@ chrome.runtime.onMessage.addListener((e, t, r) => {
     const { isConnected: n, error: o } = e.payload;
     return gt(n), ct(n, o), !1;
   }
+  if (e.command === "webAgentRecordExplicitPathIntent") {
+    recordWebAgentExplicitPathIntent(e, t).then((n) => {
+      r({ success: !0, result: n });
+    }).catch((n) => {
+      const o = n instanceof Error ? n.message : String(n);
+      x.error("[Background] Failed to record explicit path intent:", n);
+      r({ success: !1, error: o });
+    });
+    return !0;
+  }
   if (e.command === "webAgentManualToolCall") {
     manualWebAgentToolCall(e).then((n) => {
       r({ success: !0, result: n });
@@ -15562,8 +15607,8 @@ chrome.runtime.onMessage.addListener((e, t, r) => {
     return !0;
   }
   if (e.command === "webAgentPermissionGetLatest") {
-    if (!isKimiPermissionSender(t)) {
-      r({ success: !1, error: "KIMI_PERMISSION_LOOKUP_DENIED" });
+    if (!isWebAgentPermissionSender(t)) {
+      r({ success: !1, error: "PERMISSION_LOOKUP_DENIED" });
       return !1;
     }
     getLatestWebAgentPermissionMarker().then((n) => {
@@ -15611,7 +15656,14 @@ async function Gy(e, t, r) {
           throw new Error("Tool name is required");
         x.debug(`Calling tool: ${c} from adapter: ${d || "unknown"}`), s = await Uy(Pt(), c, l || {}, d);
         const m = findWebAgentPermissionMarker(s);
-        m && await rememberWebAgentPermissionCall(m, { toolName: c, args: l || {}, adapterName: d }), x.debug(`Tool call completed: ${c}`);
+        if (m) {
+          await rememberWebAgentPermissionCall(m, { toolName: c, args: l || {}, adapterName: d });
+          if (await hasWebAgentExplicitPathIntent(t && t.tab && t.tab.id, m)) {
+            const u = await approveAndRetryWebAgentPermission({ payload: { ...m, approvalMode: "directory" } });
+            s = u.retry;
+          }
+        }
+        x.debug(`Tool call completed: ${c}`);
         break;
       }
       case "mcp:get-connection-status": {
