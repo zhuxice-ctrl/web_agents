@@ -8,7 +8,7 @@
 | [`webagent`](https://github.com/zhuxice-ctrl/web_agents/tree/webagent) | `web_Agent 1.0.2` | 网页大模型浏览器插件与本地 MCP 服务 | `local-core 1.0.1` |
 | [`tablellm`](https://github.com/zhuxice-ctrl/web_agents/tree/tablellm) | `TableLLM 1.0.1` | 多模型圆桌工作台与调度运行时 | `local-core 1.0.0` |
 
-`webagent-v1`、`tablellm-v1` 和 `local-core-v1` 保留为第一代发布线。日常功能开发从对应正式分支创建短期功能分支；跨产品共享能力先在 `main` 发布 Core 标签，再由两个产品分别升级和验证。
+仓库永久保留的分支只有 `main`、`webagent` 和 `tablellm`。历史版本由 `local-core-v*`、`webagent-v*`、`tablellm-v*` 标签保存；日常功能开发从对应正式分支创建短期功能分支，合入后删除。跨产品共享能力先在 `main` 发布 Core 标签，再由两个产品分别升级和验证。
 
 ## Shared Local Core
 
@@ -18,7 +18,7 @@
 
 Current release: `1.0.1`
 
-The Git branch `main` is the stable Core integration branch. `local-core-v1` retains the first-generation release history, while immutable tags identify exact package versions.
+The Git branch `main` is the stable Core integration branch. Immutable `local-core-v*` tags identify exact package versions and retain release history without permanent version branches.
 
 ## Install
 
