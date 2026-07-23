@@ -2,93 +2,62 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const CORE_DEPENDENCY = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz";
 const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".ts", ".tsx"]);
-const SKIP_DIRECTORIES = new Set(["node_modules", "data"]);
 const STATIC_IMPORT = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 
-async function walkFiles(root) {
-  const output = [];
-  let entries;
-  try {
-    entries = await fs.readdir(root, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return output;
-    throw error;
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory() && SKIP_DIRECTORIES.has(entry.name)) continue;
+async function exists(target) {
+  return fs.access(target).then(() => true, () => false);
+}
+
+async function walk(root) {
+  const files = [];
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    if (["node_modules", "data", ".runtime"].includes(entry.name)) continue;
     const item = path.join(root, entry.name);
-    if (entry.isDirectory()) output.push(...await walkFiles(item));
-    else output.push(item);
+    if (entry.isDirectory()) files.push(...await walk(item));
+    else files.push(item);
   }
-  return output;
-}
-
-async function scanImports(root, inspect) {
-  for (const file of await walkFiles(root)) {
-    if (!SOURCE_EXTENSIONS.has(path.extname(file))) continue;
-    const source = await fs.readFile(file, "utf8");
-    for (const match of source.matchAll(STATIC_IMPORT)) inspect(match[1] || match[2], file);
-  }
-}
-
-function importsProduct(specifier, file, productRoot, packagePattern) {
-  if (packagePattern.test(specifier)) return true;
-  if (!specifier.startsWith(".")) return false;
-  const resolvedProduct = path.resolve(productRoot);
-  const resolvedImport = path.resolve(path.dirname(file), specifier);
-  return resolvedImport === resolvedProduct || resolvedImport.startsWith(`${resolvedProduct}${path.sep}`);
-}
-
-async function scanCoreForProductTerms(root, violations) {
-  const forbidden = /products[\\/]|apps[\\/]|extensions[\\/]|node:http|chrome\.|document\.|localhost|127\.0\.0\.1|\b(?:3006|3017|3020|8931|9223)\b/i;
-  for (const file of await walkFiles(root)) {
-    if (!SOURCE_EXTENSIONS.has(path.extname(file))) continue;
-    const source = await fs.readFile(file, "utf8");
-    if (forbidden.test(source)) violations.push({ file, rule: "product-neutral-core" });
-  }
-}
-
-async function checkNormalPlugin(root, violations) {
-  for (const file of await walkFiles(root)) {
-    if (path.basename(file) !== "manifest.json") continue;
-    const source = await fs.readFile(file, "utf8");
-    if (/roundtable/i.test(source)) {
-      violations.push({ file, rule: "normal-plugin-roundtable-manifest" });
-    }
-  }
-  for (const directory of ["extension/src", "extension/public", "extension/dist", "legacy-extension"]) {
-    for (const file of await walkFiles(path.join(root, directory))) {
-      if (!/\.(?:js|mjs|ts|tsx|json|css)$/.test(file)) continue;
-      const source = await fs.readFile(file, "utf8");
-      if (/roundtable/i.test(source)) violations.push({ file, rule: "normal-plugin-roundtable-code" });
-    }
-  }
+  return files;
 }
 
 export async function checkProductBoundaries({ repoRoot }) {
-  const resolvedRoot = path.resolve(repoRoot);
+  const root = path.resolve(repoRoot);
   const violations = [];
-  const pluginRoot = path.join(resolvedRoot, "products/plugin");
-  const roundtableRoot = path.join(resolvedRoot, "products/roundtable");
-  await scanImports(pluginRoot, (specifier, file) => {
-    if (importsProduct(specifier, file, roundtableRoot, /products[\\/]roundtable|@web-agents[\\/]roundtable/i)) {
-      violations.push({ file, rule: "plugin-imports-roundtable", specifier });
-    }
-  });
-  await scanImports(roundtableRoot, (specifier, file) => {
-    if (importsProduct(specifier, file, pluginRoot, /products[\\/]plugin|@web-agents[\\/]plugin/i)) {
-      violations.push({ file, rule: "roundtable-imports-plugin", specifier });
-    }
-  });
-  await scanCoreForProductTerms(path.join(resolvedRoot, "packages/local-core/src"), violations);
-  await checkNormalPlugin(path.join(resolvedRoot, "products/plugin"), violations);
-  const roundtablePackage = JSON.parse(
-    await fs.readFile(path.join(resolvedRoot, "products/roundtable/package.json"), "utf8")
-  );
-  if (/test:compat/.test(roundtablePackage.scripts?.test || "")) {
-    violations.push({ file: "products/roundtable/package.json", rule: "compat-in-default-test" });
+  for (const relative of ["products/plugin", "packages/local-core", "config/allowed-directories.local.txt"]) {
+    if (await exists(path.join(root, relative))) violations.push({ file: relative, rule: "foreign-vendored-or-local-state" });
   }
+
+  const productRoot = path.join(root, "products/roundtable");
+  for (const file of await walk(productRoot)) {
+    if (!SOURCE_EXTENSIONS.has(path.extname(file))) continue;
+    const source = await fs.readFile(file, "utf8");
+    for (const match of source.matchAll(STATIC_IMPORT)) {
+      const specifier = match[1] || match[2];
+      if (/products[\\/]plugin|@web-agents[\\/]plugin|packages[\\/]local-core/i.test(specifier)) {
+        violations.push({ file, rule: "roundtable-imports-non-package-runtime", specifier });
+      }
+    }
+  }
+
+  const rootPackage = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  const productPackage = JSON.parse(await fs.readFile(path.join(productRoot, "package.json"), "utf8"));
+  if (rootPackage.name !== "tablellm" || rootPackage.version !== "1.0.0") {
+    violations.push({ file: "package.json", rule: "invalid-product-version" });
+  }
+  if (productPackage.version !== "1.0.0") {
+    violations.push({ file: "products/roundtable/package.json", rule: "invalid-product-version" });
+  }
+  if (productPackage.dependencies?.["@web-agents/local-core"] !== CORE_DEPENDENCY) {
+    violations.push({ file: "products/roundtable/package.json", rule: "unpinned-local-core" });
+  }
+  if (/plugin|test:core/i.test(JSON.stringify(rootPackage.scripts))) {
+    violations.push({ file: "package.json", rule: "foreign-product-script" });
+  }
+  if (/test:compat/.test(productPackage.scripts?.test || "")) {
+    violations.push({ file: "products/roundtable/package.json", rule: "compat-in-default-product-test" });
+  }
+
   if (violations.length) {
     const error = new Error("PRODUCT_BOUNDARY_VIOLATION");
     error.violations = violations;
@@ -101,7 +70,7 @@ const currentFile = fileURLToPath(import.meta.url);
 if (path.resolve(process.argv[1] || "") === currentFile) {
   try {
     await checkProductBoundaries({ repoRoot: path.resolve(path.dirname(currentFile), "..") });
-    console.log("Product boundaries: OK");
+    console.log("tablellm v1 boundaries: OK");
   } catch (error) {
     console.error(JSON.stringify({ error: error.message, violations: error.violations || [] }, null, 2));
     process.exitCode = 1;

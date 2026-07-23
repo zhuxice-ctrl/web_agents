@@ -6,42 +6,40 @@ import test from "node:test";
 
 import { checkProductBoundaries } from "./check-product-boundaries.mjs";
 
-async function writeFixture(root, relativePath, content) {
-  const file = path.join(root, relativePath);
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, content, "utf8");
+const coreDependency = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz";
+
+async function write(root, relative, content) {
+  const target = path.join(root, relative);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, content, "utf8");
 }
 
-async function createValidFixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "web-agents-boundaries-"));
+async function fixture(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tablellm-v1-boundary-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await writeFixture(root, "products/plugin/legacy-extension/manifest.json", "{}");
-  await writeFixture(root, "products/plugin/extension/public/manifest.json", "{}");
-  await writeFixture(root, "products/roundtable/package.json", JSON.stringify({
+  await write(root, "package.json", JSON.stringify({ name: "tablellm", version: "1.0.0", scripts: {} }));
+  await write(root, "products/roundtable/package.json", JSON.stringify({
+    version: "1.0.0",
     scripts: { test: "node --test", "test:compat": "node --test compat/*.test.mjs" },
+    dependencies: { "@web-agents/local-core": coreDependency },
   }));
-  await fs.mkdir(path.join(root, "packages/local-core/src"), { recursive: true });
+  await write(root, "products/roundtable/index.mjs", 'import "@web-agents/local-core/paths";');
   return root;
 }
 
-for (const fixture of [
-  ["plugin-imports-roundtable", "products/plugin/index.mjs", 'import "@web-agents/roundtable";'],
-  ["plugin-relative-imports-roundtable", "products/plugin/nested/index.mjs", 'import "../../roundtable/index.mjs";'],
-  ["roundtable-imports-plugin", "products/roundtable/index.mjs", 'import "@web-agents/plugin";'],
-  ["roundtable-relative-imports-plugin", "products/roundtable/nested/index.mjs", 'import "../../plugin/index.mjs";'],
-  ["core-imports-product", "packages/local-core/src/index.mjs", 'import "../../../products/plugin/index.mjs";'],
-  ["normal-manifest-has-roundtable", "products/plugin/legacy-extension/manifest.json", '{"name":"roundtable"}'],
-]) {
-  test(`rejects ${fixture[0]}`, async (t) => {
-    const root = await createValidFixture(t);
-    await writeFixture(root, fixture[1], fixture[2]);
-    await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
-  });
-}
-
-test("accepts products that share only local-core exports", async (t) => {
-  const root = await createValidFixture(t);
-  await writeFixture(root, "products/plugin/index.mjs", 'import "@web-agents/local-core/paths";');
-  await writeFixture(root, "products/roundtable/index.mjs", 'import "@web-agents/local-core/paths";');
+test("accepts the independent tablellm v1 layout", async (t) => {
+  const root = await fixture(t);
   assert.deepEqual(await checkProductBoundaries({ repoRoot: root }), { ok: true, violations: [] });
+});
+
+test("rejects a vendored plugin product", async (t) => {
+  const root = await fixture(t);
+  await write(root, "products/plugin/package.json", "{}");
+  await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
+});
+
+test("rejects a tracked local whitelist", async (t) => {
+  const root = await fixture(t);
+  await write(root, "config/allowed-directories.local.txt", "C:\\\\private");
+  await assert.rejects(() => checkProductBoundaries({ repoRoot: root }), /PRODUCT_BOUNDARY_VIOLATION/);
 });

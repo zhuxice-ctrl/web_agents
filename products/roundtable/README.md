@@ -1,6 +1,8 @@
-# Web Agents Roundtable
+# TableLLM v1
 
 The roundtable is a standalone local workbench. Its default browser path uses a dedicated Chrome profile over CDP and Playwright; the compatibility extension is optional and tested separately.
+
+Version `1.0.0` depends on the independently versioned `local-core-v1` branch. It contains no web_Agent plugin source or vendored core copy.
 
 ## Commands
 

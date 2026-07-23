@@ -1,6 +1,6 @@
 {
   "name": "@web-agents/roundtable-product",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,9 +13,9 @@
   },
   "dependencies": {
     "@playwright/mcp": "0.0.78",
-    "@web-agents/local-core": "0.1.0",
+    "@web-agents/local-core": "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz",
     "dompurify": "3.4.12",
-    "marked": "18.0.6",
+    "marked": "18.0.7",
     "playwright": "^1.61.1"
   }
 }
