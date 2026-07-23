@@ -1,16 +1,16 @@
 # web_Agent 本地固定版
 
-这是 GitHub `main` 分支 `extensions/mcp-superassistant-local-fixed` 的中文入口适配版，同时保留本地开发分支的 Grok 反向任务通道。
+这是 `webagent-v1` 分支唯一的活动扩展入口，版本为 `1.0.0`，包含中文面板、网页适配、权限回路、连续任务和 Grok 反向任务通道。
 
 ## 加载路径
 
 在 Chrome 或 Edge 打开 `chrome://extensions` / `edge://extensions`，启用开发者模式，选择“加载已解压的扩展程序”：
 
 ```text
-F:\web_agent\extensions\mcp-superassistant-local-fixed
+<仓库目录>\extensions\mcp-superassistant-local-fixed
 ```
 
-不要加载 `products/plugin/extension/dist`；那个目录是另一套源码构建产物。
+v1 已移除其他插件副本。浏览器中不要同时启用商店版或旧工作区加载的扩展。
 
 ## MCP 连接
 
@@ -35,7 +35,7 @@ Server URI: http://127.0.0.1:3006/sse
 - BigModel / Zhipu / GLM、Chat Z、Mistral、OpenRouter
 - GitHub Copilot、Perplexity、Grok / X
 
-所有已适配站点统一加载从 GitHub `main` 提取的 `content/index-main.iife.js` 中文 bundle。Grok / X 使用已经合入主 bundle 的 `GrokAdapter`，并额外加载 `local-automation-bridge.js` 保留反向任务能力；不再加载旧的英文 `content/index.iife.js`。
+所有已适配站点统一加载 `content/index-main.iife.js` 中文 bundle。Grok / X 使用已经合入主 bundle 的 `GrokAdapter`，并额外加载 `local-automation-bridge.js` 保留反向任务能力；v1 已删除不再使用的旧英文 bundle。
 
 Grok / X 还会加载 `grok-zh-localization.js`，仅翻译插件自己的 MCP 按钮、弹层、侧栏、状态提示和结果卡操作，不改动 Grok 网页正文或对话内容。
 
@@ -59,7 +59,7 @@ products/plugin/config/allowed-directories.local.txt
 
 ## 运行
 
-从 `F:\web_agent` 启动：
+从当前仓库根目录启动：
 
 ```powershell
 products\plugin\start-plugin.bat

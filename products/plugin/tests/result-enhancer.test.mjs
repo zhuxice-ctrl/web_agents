@@ -13,7 +13,10 @@ function loadContentScriptExports(filePath) {
 }
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const enhancer = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-result-enhancer.js"));
+const enhancer = loadContentScriptExports(path.join(
+  testDir,
+  "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js"
+));
 const activeEnhancer = loadContentScriptExports(path.join(
   testDir,
   "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js",
@@ -224,21 +227,34 @@ test("getCardTextWithoutStableOutput removes existing stable output before extra
 });
 
 test("auto-run clicks only a recognized MCP tool card", () => {
+  const toolName = { textContent: "write_file" };
+  const callId = { textContent: "1" };
   const toolCard = {
     innerText: [
       "write_file",
+      "1",
+      "显示原始信息",
       "运行",
-      "执行历史",
-      "工具: write_file",
     ].join("\n"),
     dataset: {},
+    isConnected: true,
+    classList: { contains: (name) => name === "function-complete" },
+    matches: (selector) => selector === ".function-block",
+    querySelector(selector) {
+      if (selector === ".function-name-text") return toolName;
+      if (selector === ".call-id") return callId;
+      if (selector === ".function-reexecute-button") return null;
+      return null;
+    },
     parentElement: null,
   };
   const toolButton = {
     textContent: "运行",
     disabled: false,
+    isConnected: true,
+    classList: { contains: (name) => name === "execute-button" },
     parentElement: toolCard,
-    closest() { return null; },
+    closest(selector) { return selector === ".function-block" ? toolCard : null; },
   };
   const unrelatedParent = { innerText: "Run the build", dataset: {}, parentElement: null };
   const unrelatedButton = {
@@ -248,10 +264,11 @@ test("auto-run clicks only a recognized MCP tool card", () => {
     closest() { return null; },
   };
 
-  assert.equal(enhancer.shouldAutoClickRunButton(toolButton), true);
-  assert.equal(enhancer.shouldAutoClickRunButton(unrelatedButton), false);
+  const automationState = { autoExecute: true };
+  assert.equal(enhancer.shouldAutoClickRunButton(toolButton, automationState), true);
+  assert.equal(enhancer.shouldAutoClickRunButton(unrelatedButton, automationState), false);
   toolCard.dataset.webAgentStableResultHash = "already-finished";
-  assert.equal(enhancer.shouldAutoClickRunButton(toolButton), false);
+  assert.equal(enhancer.shouldAutoClickRunButton(toolButton, automationState), false);
 });
 
 test("active extension auto-run requires the automatic execution preference", () => {

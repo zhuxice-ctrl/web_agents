@@ -14,7 +14,8 @@ config/workspace.local.json
 config/*.local.*
 products/*/config/*.local.*
 products/*/data/
-.codegraph/*.lock
+.codegraph/
+.codex/
 
 config.local.json
 *.local.ps1

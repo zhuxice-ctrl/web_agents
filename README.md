@@ -1,10 +1,11 @@
-# web_Agent
+# web_Agent v1
 
 web_Agent 是一个面向网页大模型的本地浏览器插件产品。它让 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、豆包、Grok 等网页通过 MCP 工具读取本地文件，并在授权后执行写入、编辑、移动等操作。
 
 本分支只维护插件产品：
 
-- 插件分支：`webagent`
+- 稳定基线分支：`webagent`
+- 独立 v1 分支：`webagent-v1`
 - 圆桌产品分支：`tablellm`
 - 两个分支独立开发、独立发布，不互相合并
 
@@ -27,10 +28,9 @@ products/plugin/
   services/                              文件系统 MCP 与插件网关
   tests/                                 插件、服务和边界测试
   start-plugin.bat                       Windows 启动脚本
-packages/local-core/                     文件系统安全与共享基础能力
 ```
 
-`products/plugin/legacy-extension` 仅保留历史来源和对照文件，不是当前加载入口。不要加载已经移除或废弃的 React/Vite 插件重写版本。
+文件系统安全底座使用独立版本 `@web-agents/local-core@1.0.0`，来源固定为仓库的 `local-core-v1` 分支。本分支不再包含圆桌代码、core 源码副本或历史扩展副本。
 
 ## 环境要求
 
@@ -110,7 +110,7 @@ npm run test:plugin
 npm run build:plugin
 ```
 
-检查插件和圆桌的代码边界：
+检查插件产品、独立 core 依赖和扩展版本边界：
 
 ```powershell
 npm run check:boundaries

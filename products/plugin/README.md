@@ -1,6 +1,8 @@
-# Web Agents Plugin
+# web_Agent Plugin v1
 
 The plugin product contains the normal browser extension experience and its local filesystem and permission gateway services. It does not start or package the roundtable workbench.
+
+Version `1.0.0` depends on the independently versioned `local-core-v1` branch and contains no vendored core or legacy extension copy.
 
 ## Commands
 

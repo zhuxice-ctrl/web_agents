@@ -13,7 +13,10 @@ function loadContentScriptExports(filePath) {
 }
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const insertFallback = loadContentScriptExports(path.join(testDir, "../legacy-extension/content/web-agent-insert-fallback.js"));
+const insertFallback = loadContentScriptExports(path.join(
+  testDir,
+  "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-insert-fallback.js"
+));
 const activeInsertFallback = loadContentScriptExports(path.join(
   testDir,
   "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-insert-fallback.js",
