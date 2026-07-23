@@ -245,7 +245,7 @@
     const toolName = marker && (marker.toolName || marker.operation) ? (marker.toolName || marker.operation) : "write_file";
     const targets = Array.isArray(marker && marker.targetPaths) ? marker.targetPaths.join("\n") : "";
     const directories = Array.isArray(marker && marker.directoriesToApprove) ? marker.directoriesToApprove.join("\n") : "";
-    return [`tool: ${toolName}`, targets ? `target:\n${targets}` : "", directories ? `approve:\n${directories}` : ""]
+    return [`工具: ${toolName}`, targets ? `目标路径:\n${targets}` : "", directories ? `授权目录:\n${directories}` : ""]
       .filter(Boolean)
       .join("\n");
   }
@@ -641,13 +641,22 @@
 
     const permissionMarker = parsePermissionMarker(resultText);
     if (permissionMarker) {
-      actions.appendChild(createButton("批准并重试", async () => {
+      actions.appendChild(createButton("仅本次批准并重试", async () => {
         status.textContent = "正在批准...";
         try {
-          const response = await sendPermissionMessage("webAgentPermissionApprove", permissionMarker);
+          const response = await sendPermissionMessage("webAgentPermissionApprove", { ...permissionMarker, approvalMode: "once" });
           status.textContent = response && response.result && response.result.retry ? "已批准，重试完成" : "已批准，正在重试";
         } catch (error) {
           status.textContent = `批准失败: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }));
+      actions.appendChild(createButton("始终允许此目录", async () => {
+        status.textContent = "正在保存目录授权...";
+        try {
+          const response = await sendPermissionMessage("webAgentPermissionApprove", { ...permissionMarker, approvalMode: "directory" });
+          status.textContent = response && response.result && response.result.retry ? "目录已授权，重试完成" : "目录已授权，正在重试";
+        } catch (error) {
+          status.textContent = `授权失败: ${error instanceof Error ? error.message : String(error)}`;
         }
       }));
       actions.appendChild(createButton("拒绝", async () => {
@@ -809,7 +818,7 @@
 
     const title = document.createElement("div");
     title.className = "web-agent-permission-dock-title";
-    title.textContent = "\u5f85\u6388\u6743\u5199\u5165";
+    title.textContent = "\u5f85\u6388\u6743\u672c\u5730\u64cd\u4f5c";
 
     const close = document.createElement("button");
     close.type = "button";
@@ -851,32 +860,38 @@
       }
     });
 
-    const allowButton = document.createElement("button");
-    allowButton.type = "button";
-    allowButton.className = "web-agent-permission-allow";
-    allowButton.textContent = "\u5141\u8bb8\u6267\u884c";
-    allowButton.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setPermissionDockButtonsDisabled(buttons, true);
-      status.textContent = "\u6b63\u5728\u6388\u6743\u5e76\u91cd\u8bd5...";
-      try {
-        const response = await sendPermissionMessage("webAgentPermissionApprove", marker);
-        status.textContent = "\u5df2\u5141\u8bb8\u6267\u884c";
-        const retryResult = response && response.result && response.result.retry ? response.result.retry : response && response.result;
-        const resultText = toolResultToText(retryResult);
-        if (resultText) {
-          createStableOutput(dock, resultText, marker.toolName || marker.operation || "write_file");
+    function createPermissionAllowButton(label, approvalMode) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "web-agent-permission-allow";
+      button.textContent = label;
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setPermissionDockButtonsDisabled(buttons, true);
+        status.textContent = approvalMode === "directory" ? "\u6b63\u5728\u4fdd\u5b58\u76ee\u5f55\u6388\u6743..." : "\u6b63\u5728\u6388\u6743\u5e76\u91cd\u8bd5...";
+        try {
+          const response = await sendPermissionMessage("webAgentPermissionApprove", { ...marker, approvalMode });
+          status.textContent = approvalMode === "directory" ? "\u5df2\u6c38\u4e45\u6388\u6743\u5e76\u6267\u884c" : "\u5df2\u5141\u8bb8\u672c\u6b21\u6267\u884c";
+          const retryResult = response && response.result && response.result.retry ? response.result.retry : response && response.result;
+          const resultText = toolResultToText(retryResult);
+          if (resultText) {
+            createStableOutput(dock, resultText, marker.toolName || marker.operation || "write_file");
+          }
+        } catch (error) {
+          setPermissionDockButtonsDisabled(buttons, false);
+          status.textContent = `\u6388\u6743\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`;
         }
-      } catch (error) {
-        setPermissionDockButtonsDisabled(buttons, false);
-        status.textContent = `\u6388\u6743\u5931\u8d25: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    });
-    buttons.push(rejectButton, allowButton);
+      });
+      return button;
+    }
+    const allowOnceButton = createPermissionAllowButton("\u4ec5\u672c\u6b21", "once");
+    const allowDirectoryButton = createPermissionAllowButton("\u59cb\u7ec8\u5141\u8bb8\u6b64\u76ee\u5f55", "directory");
+    buttons.push(rejectButton, allowOnceButton, allowDirectoryButton);
 
     actions.appendChild(rejectButton);
-    actions.appendChild(allowButton);
+    actions.appendChild(allowOnceButton);
+    actions.appendChild(allowDirectoryButton);
     actions.appendChild(status);
     dock.appendChild(title);
     dock.appendChild(summary);

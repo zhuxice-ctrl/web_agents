@@ -15502,10 +15502,11 @@ async function approveAndRetryWebAgentPermission(e) {
   const t = getWebAgentPermissionMarkerFromMessage(e), r = await getWebAgentPermissionCall(t.requestId);
   if (!r)
     throw new Error("PERMISSION_ORIGINAL_CALL_NOT_FOUND");
+  const a = e && e.payload && e.payload.approvalMode === "directory" ? "directory" : "once";
   const n = await postWebAgentPermission(WEB_AGENT_PERMISSION_APPROVE_ENDPOINT, {
     requestId: t.requestId,
     argsHash: t.argsHash,
-    mode: "once"
+    mode: a
   }), o = cloneWebAgentValue(r.args || {});
   delete o._webAgentPermission, delete o.__webAgentPermission, o._webAgentPermission = { requestId: t.requestId, token: n.token };
   try {

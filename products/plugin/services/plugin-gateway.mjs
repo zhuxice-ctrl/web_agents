@@ -29,6 +29,7 @@ const allowedMimeTypes = new Map([
 ]);
 const imagePathExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
 const imagePathLocks = new PathLockManager();
+const permissionConfigLocks = new PathLockManager();
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -254,12 +255,16 @@ async function saveToolResult(payload, runtime = createGatewayRuntime()) {
 }
 
 async function approvePermissionViaGateway(payload, runtime = createGatewayRuntime()) {
+  const mode = payload?.mode === "directory" ? "directory" : "once";
   const result = await approvePermissionRequest({
     storeDir: payload?.storeDir || runtime.permissionStoreDir,
     requestId: payload?.requestId,
     argsHash: payload?.argsHash,
-    mode: payload?.mode || "once",
+    mode,
   });
+  const persistedDirectories = mode === "directory"
+    ? await persistAllowedDirectories(runtime.configFile, result.directoriesToApprove)
+    : [];
   return {
     ok: true,
     requestId: result.requestId,
@@ -268,7 +273,50 @@ async function approvePermissionViaGateway(payload, runtime = createGatewayRunti
     expiresAt: result.expiresAt,
     targetPaths: result.targetPaths,
     directoriesToApprove: result.directoriesToApprove,
+    approvalMode: result.approvalMode,
+    persistedDirectories,
   };
+}
+
+function normalizePathKey(value) {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+async function persistAllowedDirectories(configFile, directories) {
+  const resolvedConfigFile = path.resolve(configFile);
+  return permissionConfigLocks.runExclusive(resolvedConfigFile, async () => {
+    await fs.mkdir(path.dirname(resolvedConfigFile), { recursive: true });
+    let current = "";
+    try {
+      current = await fs.readFile(resolvedConfigFile, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+
+    const existingKeys = new Set(
+      current.split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("#"))
+        .map(normalizePathKey)
+    );
+    const additions = [];
+    for (const directory of directories || []) {
+      const value = String(directory || "").trim();
+      if (!value) continue;
+      const resolved = path.resolve(value);
+      const key = normalizePathKey(resolved);
+      if (!existingKeys.has(key)) {
+        existingKeys.add(key);
+        additions.push(resolved);
+      }
+    }
+    if (!additions.length) return [];
+
+    const prefix = current && !current.endsWith("\n") ? `${current}\n` : current;
+    await atomicWriteFile(resolvedConfigFile, `${prefix}${additions.join("\n")}\n`);
+    return additions;
+  });
 }
 
 async function rejectPermissionViaGateway(payload, runtime = createGatewayRuntime()) {
@@ -392,6 +440,7 @@ if (path.resolve(process.argv[1] || "") === __filename) {
 
 export {
   approvePermissionViaGateway,
+  persistAllowedDirectories,
   rejectPermissionViaGateway,
   saveImage,
   saveToolResult,

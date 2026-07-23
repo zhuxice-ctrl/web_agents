@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CORE_DEPENDENCY = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz";
+const CORE_DEPENDENCY = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.1.tar.gz";
 const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".ts", ".tsx"]);
 const STATIC_IMPORT = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 
@@ -42,7 +42,7 @@ export async function checkProductBoundaries({ repoRoot }) {
 
   const rootPackage = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
   const pluginPackage = JSON.parse(await fs.readFile(path.join(pluginRoot, "package.json"), "utf8"));
-  if (rootPackage.name !== "webagent" || rootPackage.version !== "1.0.0") {
+  if (rootPackage.name !== "webagent" || rootPackage.version !== "1.0.1") {
     violations.push({ file: "package.json", rule: "invalid-product-version" });
   }
   if (pluginPackage.dependencies?.["@web-agents/local-core"] !== CORE_DEPENDENCY) {
@@ -53,7 +53,7 @@ export async function checkProductBoundaries({ repoRoot }) {
     path.join(root, "extensions/mcp-superassistant-local-fixed/manifest.json"),
     "utf8"
   ));
-  if (manifest.version !== "1.0.0" || /roundtable/i.test(JSON.stringify(manifest))) {
+  if (manifest.version !== "1.0.1" || /roundtable/i.test(JSON.stringify(manifest))) {
     violations.push({ file: "extensions/mcp-superassistant-local-fixed/manifest.json", rule: "invalid-manifest-boundary" });
   }
 

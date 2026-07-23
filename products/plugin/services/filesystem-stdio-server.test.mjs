@@ -46,7 +46,7 @@ test("reloads writable whitelist without restarting the process", async () => {
   assert.deepEqual(second, [path.resolve(repoRoot), path.resolve(extraRoot)]);
 });
 
-test("write outside whitelist returns a reusable Chinese approval command", async () => {
+test("write outside whitelist returns scoped browser approval guidance", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "web-agent-fs-"));
   const repoRoot = path.join(tempRoot, "repo");
   const outsideRoot = path.join(tempRoot, "outside");
@@ -70,10 +70,11 @@ test("write outside whitelist returns a reusable Chinese approval command", asyn
   });
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /需要手动授权/);
-  assert.match(result.content[0].text, /add-allowed-directory\.local\.ps1/);
-  assert.match(result.content[0].text, /不需要重启/);
-  assert.match(result.content[0].text, /重新运行|Run again/);
+  assert.match(result.content[0].text, /需要授权/);
+  assert.match(result.content[0].text, /仅本次/);
+  assert.match(result.content[0].text, /始终允许此目录/);
+  assert.match(result.content[0].text, /无需重启/);
+  assert.doesNotMatch(result.content[0].text, /F:\\web_agents/);
 });
 
 test("all mutating tools reject targets outside the writable whitelist", async () => {
@@ -85,11 +86,13 @@ test("all mutating tools reject targets outside the writable whitelist", async (
   const editTarget = path.join(outsideRoot, "edit.md");
   const moveSource = path.join(outsideRoot, "move-source.md");
   const moveDestination = path.join(outsideRoot, "move-destination.md");
+  const deleteTarget = path.join(outsideRoot, "delete-target.md");
 
   await fs.mkdir(repoRoot, { recursive: true });
   await fs.mkdir(outsideRoot, { recursive: true });
   await fs.writeFile(editTarget, "before edit", "utf8");
   await fs.writeFile(moveSource, "before move", "utf8");
+  await fs.writeFile(deleteTarget, "before delete", "utf8");
   await fs.writeFile(configFile, `${repoRoot}\n`, "utf8");
   const context = { repoRoot, configFile, permissionStoreDir };
 
@@ -105,6 +108,10 @@ test("all mutating tools reject targets outside the writable whitelist", async (
     {
       name: "create_directory",
       args: { path: path.join(outsideRoot, "created-directory") },
+    },
+    {
+      name: "delete_file",
+      args: { path: deleteTarget },
     },
     {
       name: "move_file",
@@ -130,6 +137,7 @@ test("all mutating tools reject targets outside the writable whitelist", async (
   assert.equal(await fs.readFile(editTarget, "utf8"), "before edit");
   await assert.rejects(fs.access(path.join(outsideRoot, "created-directory")), /ENOENT/);
   assert.equal(await fs.readFile(moveSource, "utf8"), "before move");
+  assert.equal(await fs.readFile(deleteTarget, "utf8"), "before delete");
   await assert.rejects(fs.access(moveDestination), /ENOENT/);
 });
 
@@ -173,6 +181,10 @@ test("allowed mutating tools keep working without permission tokens", async () =
   );
   assert.equal(moved.isError, undefined);
   assert.equal(await fs.readFile(movedFile, "utf8"), "version 2");
+
+  const deleted = await callTool("delete_file", { path: movedFile }, context);
+  assert.equal(deleted.isError, undefined);
+  await assert.rejects(fs.access(movedFile), /ENOENT/);
 });
 
 test("controller capability bypasses only the legacy whitelist after controller authorization", async () => {

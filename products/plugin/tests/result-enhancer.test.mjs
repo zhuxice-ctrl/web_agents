@@ -21,6 +21,17 @@ const activeEnhancer = loadContentScriptExports(path.join(
   testDir,
   "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js",
 ));
+const enhancerSource = fs.readFileSync(path.join(
+  testDir,
+  "../../../extensions/mcp-superassistant-local-fixed/content/web-agent-result-enhancer.js"
+), "utf8");
+
+test("permission panel distinguishes one-time and persistent directory approval", () => {
+  assert.match(enhancerSource, /仅本次批准并重试/);
+  assert.match(enhancerSource, /始终允许此目录/);
+  assert.match(enhancerSource, /approvalMode: "directory"/);
+  assert.match(enhancerSource, /待授权本地操作|\\u5f85\\u6388\\u6743\\u672c\\u5730\\u64cd\\u4f5c/);
+});
 
 test("extractToolResultText returns text between Run and execution history", () => {
   const cardText = [
@@ -41,26 +52,24 @@ test("extractToolResultText returns text between Run and execution history", () 
   assert.equal(enhancer.extractToolResultText(cardText), "[FILE] a.txt\n[DIR] docs");
 });
 
-test("extractToolResultText keeps permission instructions intact", () => {
+test("extractToolResultText keeps browser permission instructions intact", () => {
   const cardText = [
     "write_file",
     "显示原始信息",
     "运行",
-    "需要手动授权后才能执行本次本地文件写入/修改操作。",
+    "需要授权后才能执行本次本地文件修改操作。",
     "",
     "工具: write_file",
-    "请在 F:\\web_agents 的 PowerShell 里运行:",
-    "powershell -ExecutionPolicy Bypass -File .\\scripts\\add-allowed-directory.local.ps1 \"C:\\Users\\Lenovo\\Desktop\"",
-    "授权后回到网页工具卡片点击“重新运行 / Run again”即可继续本次执行。",
+    "请在网页授权面板中选择“仅本次”或“始终允许此目录”。",
     "插入",
     "执行历史",
     "工具: write_file",
   ].join("\n");
 
   const result = enhancer.extractToolResultText(cardText);
-  assert.match(result, /需要手动授权/);
-  assert.match(result, /add-allowed-directory\.local\.ps1/);
-  assert.match(result, /Run again/);
+  assert.match(result, /需要授权/);
+  assert.match(result, /仅本次/);
+  assert.match(result, /始终允许此目录/);
 });
 
 test("parsePermissionMarker extracts structured approval details from tool output", () => {
@@ -118,7 +127,7 @@ test("formatPermissionMarkerSummary keeps target and approval roots visible", ()
     directoriesToApprove: ["F:\\"],
   });
 
-  assert.match(summary, /tool: write_file/);
+  assert.match(summary, /工具: write_file/);
   assert.match(summary, /F:\\reverse\\hello\.md/);
   assert.match(summary, /F:\\/);
 });

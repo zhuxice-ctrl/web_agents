@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { checkProductBoundaries } from "./check-product-boundaries.mjs";
 
-const coreDependency = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.0.tar.gz";
+const coreDependency = "https://github.com/zhuxice-ctrl/web_agents/archive/refs/tags/local-core-v1.0.1.tar.gz";
 
 async function write(root, relative, content) {
   const target = path.join(root, relative);
@@ -17,14 +17,14 @@ async function write(root, relative, content) {
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "webagent-v1-boundary-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  await write(root, "package.json", JSON.stringify({ name: "webagent", version: "1.0.0" }));
+  await write(root, "package.json", JSON.stringify({ name: "webagent", version: "1.0.1" }));
   await write(root, "products/plugin/package.json", JSON.stringify({
     dependencies: { "@web-agents/local-core": coreDependency },
   }));
   await write(root, "products/plugin/index.mjs", 'import "@web-agents/local-core/paths";');
   await write(root, "extensions/mcp-superassistant-local-fixed/manifest.json", JSON.stringify({
     name: "web_Agent",
-    version: "1.0.0",
+    version: "1.0.1",
   }));
   return root;
 }

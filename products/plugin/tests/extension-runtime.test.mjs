@@ -33,7 +33,7 @@ test("local fixed MCP extension loads the Grok automation sidecar after its inpu
   assert.ok(manifest.host_permissions.includes("*://*.doubao.com/*"));
   assert.equal(manifest.default_locale, "zh_CN");
   assert.equal(manifest.name, "web_Agent");
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.0.1");
 });
 
 test("Grok automation sidecar uses the typed gateway without adding a replacement overlay", async () => {
@@ -84,4 +84,11 @@ test("main model instructions keep multi-step tool work queued until one final r
   assert.match(mainEntry, /多步骤任务必须维护待办队列/);
   assert.match(mainEntry, /全部步骤完成后再统一汇报/);
   assert.match(mainEntry, /收到每个工具结果后继续执行队列中的下一项/);
+});
+
+test("provider-specific model instructions expose safe single-file deletion", async () => {
+  const mainEntry = await fs.readFile(path.join(extensionRoot, "content/index-main.iife.js"), "utf8");
+
+  assert.match(mainEntry, /delete_file：path（仅删除单个文件）/);
+  assert.match(mainEntry, /read_multiple_files、write_file、delete_file、list_directory/);
 });
