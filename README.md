@@ -1,174 +1,122 @@
-# Web AI Local MCP Bridge
+# web_Agent
 
-让网页端 AI 访问本地文件的开源模板。
+web_Agent 是一个面向网页大模型的本地浏览器插件产品。它让 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、豆包、Grok 等网页通过 MCP 工具读取本地文件，并在授权后执行写入、编辑、移动等操作。
 
-English summary: A Windows-first template for connecting web ChatGPT, Gemini, DeepSeek, and similar browser-based AI tools to local files through MCP-compatible bridges.
+本分支只维护插件产品：
 
-目标：
+- 插件分支：`webagent`
+- 圆桌产品分支：`tablellm`
+- 两个分支独立开发、独立发布，不互相合并
 
-- ChatGPT 网页端通过 DevSpace Local / MCP 访问本地工作区。
-- Gemini、DeepSeek 等网页端通过 MCP SuperAssistant 访问本地文件。
-- 可选：用一个终端中控网页 GPT / Gemini / DeepSeek / Zhipu 等网页模型，并组织成 agent 工作流。
-- 可选：把第二个 ChatGPT 浏览器账号作为 `gpt3` worker agent 接入同一个工作流。
-- 可选：让多个网页模型通过会话文档 `chat.md` / `protocol.md` / `outbox` 协作，减少终端复制转述。
+## 主要能力
 
-本仓库只提供通用模板，不包含任何个人路径、账号、域名、token 或本地数据。
+- 在已适配的模型网页中提供中文 MCP 面板、连接状态、工具列表和使用说明。
+- 连接本地文件系统 MCP，执行读取目录、读取文件、搜索、写入、编辑和移动等工具。
+- 对写入白名单之外的目录显示授权请求，并使用一次性令牌重试原始调用。
+- 支持多步骤任务按顺序执行：每次只运行一个工具，前一步结果返回模型后再继续下一步，最后统一汇报。
+- 为不同网页维护独立适配，包括 Kimi 授权回退、豆包绝对路径约束和 Grok 工具调用兼容。
+- 提供本地网关，用于权限审批、工具结果保存和自动化任务队列。
 
-## 适合谁
+## 目录
 
-- 想让网页 ChatGPT 读取本地项目文件。
-- 想让 Gemini / DeepSeek 网页端通过 MCP SuperAssistant 读取本地文件。
-- 想把网页 AI 协作流程沉淀成可复用目录。
+```text
+extensions/mcp-superassistant-local-fixed/  当前实际加载的 web_Agent 扩展
+products/plugin/
+  config/                                插件本地配置说明
+  data/                                  运行时数据，默认不提交 Git
+  services/                              文件系统 MCP 与插件网关
+  tests/                                 插件、服务和边界测试
+  start-plugin.bat                       Windows 启动脚本
+packages/local-core/                     文件系统安全与共享基础能力
+```
 
-## 前置条件
+`products/plugin/legacy-extension` 仅保留历史来源和对照文件，不是当前加载入口。不要加载已经移除或废弃的 React/Vite 插件重写版本。
 
-必需：
+## 环境要求
 
 - Windows 10/11
-- PowerShell
-- Node.js 20 或更高版本
-- 一个本地 MCP 文件系统服务
-- ChatGPT 支持自定义 MCP / Developer Mode / DevSpace 类型连接
+- Node.js 24 或更高版本
+- Chrome 或 Edge
 
-按需要安装：
-
-- DevSpace Local，给 ChatGPT 网页端使用
-- MCP SuperAssistant 浏览器扩展，给 Gemini / DeepSeek 网页端使用
-- Cloudflare Tunnel 或固定域名隧道，给 ChatGPT 从公网访问本地 DevSpace
-- Playwright，如果需要终端中控网页
-
-## 基本目录结构
-
-```text
-workspace/
-  START.ps1
-  config.example.json
-  docs/
-    chatgpt-devspace.md
-    gemini-mcp-superassistant.md
-    fixed-domain.md
-    troubleshooting.md
-  scripts/
-    start-gemini-backend.example.ps1
-    start-chatgpt-devspace.example.ps1
-    start-agent-console.example.ps1
-  agent-sessions/        # 本地运行时生成，不应提交
-```
-
-## 快速理解
-
-ChatGPT 网页端和 Gemini 网页端不是同一种接法。
-
-ChatGPT：
-
-```text
-ChatGPT 网页 -> 公网 HTTPS MCP URL -> 本地 DevSpace -> 本地文件
-```
-
-Gemini / DeepSeek：
-
-```text
-网页模型 -> MCP SuperAssistant 扩展 -> 本地 SSE MCP 服务 -> 本地文件
-```
-
-MCP SuperAssistant 通常不是“模型原生工具”。它会让模型输出工具调用格式，然后由浏览器扩展执行，再把结果插回网页对话。
-
-## 安全提醒
-
-不要把这些内容提交到 Git：
-
-- 本机绝对路径
-- 个人用户名
-- 微信、QQ、浏览器缓存路径
-- ngrok token
-- Cloudflare token
-- DevSpace 私有配置
-- 真实项目敏感数据
-- 临时公网地址如果能暴露你的机器，也不建议提交
-
-请复制：
-
-```text
-config.example.json -> config.local.json
-```
-
-然后在 `config.local.json` 里写自己的路径。`config.local.json` 默认应被 `.gitignore` 忽略。
-
-## 推荐流程
-
-1. 配置允许访问的本地目录。
-2. 启动 Gemini / DeepSeek 本地 MCP 后端。
-3. 在 MCP SuperAssistant 中连接：
-
-```text
-http://127.0.0.1:3006/sse
-```
-
-4. 启动 ChatGPT DevSpace 服务。
-5. 把终端显示的公网 MCP URL 填到 ChatGPT。
-6. 如果需要长期稳定，使用自己的域名配置固定 HTTPS 地址。
-
-## 当前主线：web_Agent 本地插件
-
-当前可用主线是旧插件增强版：
-
-```text
-extensions/mcp-superassistant-local-fixed
-```
-
-它已经改名为 `web_Agent`，并保留网页内 MCP 按钮、右侧栏、连接状态、工具列表、使用说明、工具执行等完整体验。后续新增站点、权限提示、默认配置和使用说明，优先都改在这个插件里。
-
-加载方式：
-
-```text
-chrome://extensions -> 开发者模式 -> 加载已解压的扩展程序
-F:\web_agents\extensions\mcp-superassistant-local-fixed
-```
-
-推荐先启动本地 MCP 后端：
+安装依赖：
 
 ```powershell
-.\scripts\start-gemini-backend.local.ps1
+npm install
 ```
 
-然后在扩展里使用：
+## 启动本地服务
+
+在仓库根目录运行：
+
+```powershell
+.\products\plugin\start-plugin.bat
+```
+
+默认服务：
+
+| 服务 | 地址 |
+| --- | --- |
+| 文件系统 MCP | `http://127.0.0.1:3006/sse` |
+| 插件网关 | `http://127.0.0.1:3017` |
+| 文件系统健康检查 | `http://127.0.0.1:3006/health` |
+| 网关健康检查 | `http://127.0.0.1:3017/health` |
+
+## 加载扩展
+
+1. 打开 `chrome://extensions` 或 `edge://extensions`。
+2. 开启开发者模式。
+3. 选择“加载已解压的扩展程序”。
+4. 选择仓库中的 `extensions/mcp-superassistant-local-fixed`。
+5. 修改扩展代码后，在扩展管理页重新加载扩展，并刷新模型网页。
+
+扩展中的 MCP 连接使用：
 
 ```text
 Connection Type: SSE
 Server URI: http://127.0.0.1:3006/sse
 ```
 
-当前本地固定版已包含 ChatGPT、Gemini、DeepSeek、Kimi、Qwen、GLM/Zhipu、豆包等站点权限。`extensions/web-agents-extension` 只保留为后续重构实验，不作为当前实机使用入口。
+不要同时启用商店版和本地开发版扩展，否则可能出现重复面板、旧适配器覆盖或结果卡重复执行。
 
-## 终端 Agent 推荐协作方式
+## 权限与本地数据
 
-推荐默认使用“文档协作模式”：
+读取操作可以访问用户明确提供的绝对路径。写入、编辑、创建和移动操作受可写目录白名单与一次性授权保护。
+
+本地可写目录配置位于：
 
 ```text
-用户 -> 终端 Agent
-终端 Agent -> 发送短指令给网页模型
-网页模型 -> 通过本地文件工具读写会话目录
-多个模型 -> 在 chat.md 里交流
-终端 Agent -> 检测文件变化并推进下一步
+products/plugin/config/allowed-directories.local.txt
 ```
 
-这样比把每个网页模型的长回复复制给下一个网页更稳定，也更容易恢复历史会话。
+以下内容不应提交 Git：
 
-详见：
+- `products/plugin/data/`
+- `products/plugin/config/*.local.*`
+- `node_modules/`
+- 本机绝对路径、账号信息、令牌和真实会话内容
+- 浏览器 profile、日志和临时测试文件
 
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
+## 验证
 
-## 文档
+运行插件完整测试：
 
-- [ChatGPT + DevSpace](docs/chatgpt-devspace.md)
-- [Gemini / DeepSeek + MCP SuperAssistant](docs/gemini-mcp-superassistant.md)
-- [本地魔改版 MCP SuperAssistant 扩展](docs/local-fixed-extension.md)
-- [固定域名方案](docs/fixed-domain.md)
-- [文档协作模式](docs/document-collaboration.md)
-- [终端 Agent 中控](docs/agent-console-workflows.md)
-- [排错](docs/troubleshooting.md)
-- [隐私检查清单](docs/privacy-checklist.md)
+```powershell
+npm run test:plugin
+```
+
+验证未解压扩展及 Manifest 声明的运行文件：
+
+```powershell
+npm run build:plugin
+```
+
+检查插件和圆桌的代码边界：
+
+```powershell
+npm run check:boundaries
+```
+
+更具体的开发说明见 [`products/plugin/README.md`](products/plugin/README.md) 和 [`extensions/mcp-superassistant-local-fixed/README.md`](extensions/mcp-superassistant-local-fixed/README.md)。
 
 ## License
 
