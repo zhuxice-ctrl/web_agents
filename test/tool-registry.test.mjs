@@ -19,6 +19,8 @@ test("default filesystem tools have every explicit permission metadata field", (
     assert.notEqual(descriptor.metadata.readOnly, descriptor.metadata.mutating, descriptor.name);
   }
   assert.equal(defaultToolRegistry.get("write_file").mutating, true);
+  assert.equal(defaultToolRegistry.get("delete_file").destructive, true);
+  assert.equal(defaultToolRegistry.get("delete_file").reversible, false);
   assert.equal(defaultToolRegistry.get("read_text_file").readOnly, true);
 });
 

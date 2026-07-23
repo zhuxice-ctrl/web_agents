@@ -233,6 +233,17 @@ const DEFAULT_DEFINITIONS = Object.freeze({
     },
     pathArguments: ["path"],
   },
+  delete_file: {
+    metadata: {
+      readOnly: false,
+      mutating: true,
+      destructive: true,
+      reversible: false,
+      openWorld: false,
+      idempotent: true,
+    },
+    pathArguments: ["path"],
+  },
   create_directory: {
     metadata: {
       readOnly: false,

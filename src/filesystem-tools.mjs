@@ -113,6 +113,15 @@ export const toolDefinitions = [
     },
   },
   {
+    name: "delete_file",
+    description: "Delete one file in an allowed directory or with explicit approval. Directories are never removed. Deletions are audited.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
+  },
+  {
     name: "create_directory",
     description: "Create a directory within an allowed directory or with one-time approval. Changes are audited.",
     inputSchema: {
@@ -243,25 +252,6 @@ async function pathExists(value) {
   }
 }
 
-async function nearestExistingDirectory(value) {
-  let current = path.resolve(value);
-  while (true) {
-    try {
-      const stat = await fs.stat(current);
-      if (stat.isDirectory()) {
-        return current;
-      }
-      return path.dirname(current);
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return current;
-      }
-      current = parent;
-    }
-  }
-}
-
 async function initializeAllowedDirectoriesFile({ repoRoot, configFile } = {}) {
   if (!repoRoot || !configFile) throw new Error("FILESYSTEM_TOOL_PATHS_REQUIRED");
   const configDir = path.dirname(configFile);
@@ -315,7 +305,7 @@ export async function getWritablePermissionCheck(targetPath, allowedDirectories)
   if (resolved.error) return resolved.error;
   if (resolved.allowed) return { allowed: true, targetPath: resolved.path, directoriesToApprove: [] };
 
-  const approvalDirectory = await nearestExistingDirectory(path.dirname(resolved.path));
+  const approvalDirectory = path.dirname(resolved.path);
   return {
     allowed: false,
     targetPath: resolved.path,
@@ -362,7 +352,7 @@ async function getWritablePermissionForTargets(targets, allowedDirectories) {
     }
 
     const approvalBase = target.kind === "directory" ? resolved.path : path.dirname(resolved.path);
-    deniedDirectories.push(await nearestExistingDirectory(approvalBase));
+    deniedDirectories.push(approvalBase);
   }
 
   return {
@@ -372,32 +362,21 @@ async function getWritablePermissionForTargets(targets, allowedDirectories) {
   };
 }
 
-function quotePowerShellPath(value) {
-  return `"${String(value).replace(/`/g, "``").replace(/"/g, '`"')}"`;
-}
-
 export function buildPermissionRequiredResult({ operation, targetPaths, directoriesToApprove }) {
   const directories = uniqueResolvedPaths(directoriesToApprove || []);
-  const commands = directories.map(
-    (directory) =>
-      `powershell -ExecutionPolicy Bypass -File .\\scripts\\add-allowed-directory.local.ps1 ${quotePowerShellPath(directory)}`
-  );
 
   const text = [
-    "需要手动授权后才能执行本次本地文件写入/修改操作。",
+    "需要授权后才能执行本次本地文件修改操作。",
     "",
     `工具: ${operation}`,
     "目标路径:",
     ...targetPaths.map((targetPath) => `  - ${path.resolve(targetPath)}`),
     "",
-    "需要加入白名单的目录:",
+    "建议授权目录:",
     ...directories.map((directory) => `  - ${directory}`),
     "",
-    "请在 F:\\web_agents 的 PowerShell 里运行:",
-    ...commands.map((command) => `  ${command}`),
-    "",
-    "授权会永久写入 config\\allowed-directories.local.txt。",
-    "当前 web_Agent 文件服务会动态读取白名单，不需要重启；授权后回到网页工具卡片点击“重新运行 / Run again”即可继续本次执行。",
+    "请在网页授权面板中选择“仅本次”或“始终允许此目录”。",
+    "选择“始终允许此目录”后会永久写入本机白名单，立即生效且无需重启服务。",
   ].join("\n");
 
   return errorTextResult(text);
@@ -495,6 +474,7 @@ function normalizeToolPathArgs(name, args) {
     case "read_media_file":
     case "write_file":
     case "edit_file":
+    case "delete_file":
     case "create_directory":
     case "list_directory":
     case "list_directory_with_sizes":
@@ -523,6 +503,7 @@ function getMutationTargets(name, args) {
   switch (name) {
     case "write_file":
     case "edit_file":
+    case "delete_file":
       return [{ path: requireString(args, "path"), kind: "file" }];
     case "create_directory":
       return [{ path: requireString(args, "path"), kind: "directory" }];
@@ -705,6 +686,18 @@ async function editFile(args, allowedDirectories, options = {}) {
   await appendWriteAudit(options.auditFile, { operation: "edit_file", path: resolved, editCount: applied });
   await fs.writeFile(resolved, updated, "utf8");
   return textResult(`Successfully applied ${applied} edit(s) to ${resolved}.`);
+}
+
+async function deleteFile(args, allowedDirectories, options = {}) {
+  const filePath = requireString(args, "path");
+  const resolved = path.resolve(filePath);
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) {
+    throw new Error(`Path is not a file; directories cannot be deleted: ${resolved}`);
+  }
+  await appendWriteAudit(options.auditFile, { operation: "delete_file", path: resolved, size: stat.size });
+  await fs.unlink(resolved);
+  return textResult(`Successfully deleted file ${resolved}`);
 }
 
 async function createDirectory(args, allowedDirectories, options = {}) {
@@ -923,6 +916,8 @@ async function callToolImpl(name, args = {}, context = {}) {
       return writeFile(toolArgs, allowedDirectories, permissionOptions);
     case "edit_file":
       return editFile(toolArgs, allowedDirectories, permissionOptions);
+    case "delete_file":
+      return deleteFile(toolArgs, allowedDirectories, permissionOptions);
     case "create_directory":
       return createDirectory(toolArgs, allowedDirectories, permissionOptions);
     case "list_directory":

@@ -161,19 +161,19 @@ export async function approvePermissionRequest({
   if (argsHash && argsHash !== request.argsHash) {
     throw new Error("ARGS_HASH_MISMATCH");
   }
-  if (mode !== "once") {
+  if (mode !== "once" && mode !== "directory") {
     throw new Error("UNSUPPORTED_APPROVAL_MODE");
   }
   const token = randomId("wapt");
   Object.assign(request, {
     status: "approved",
     approvedAt: nowIso(),
-    approvalMode: "once",
+    approvalMode: mode,
     token,
     tokenUsed: false,
   });
   await writeRequests(storeDir, requests);
-  await appendAudit(storeDir, { event: "approve", requestId: request.requestId, mode: "once" });
+  await appendAudit(storeDir, { event: "approve", requestId: request.requestId, mode });
   return { ...request };
 }
 

@@ -4,7 +4,7 @@
 
 ## Version
 
-Current release: `1.0.0`
+Current release: `1.0.1`
 
 The Git branch `local-core-v1` is the immutable integration target for the first independently versioned product releases.
 
@@ -32,6 +32,8 @@ The Git branch `local-core-v1` is the immutable integration target for the first
 ## Security boundary
 
 The package owns path normalization, real-path validation, mutation locking, permission decisions, one-time permission tokens, transactions, atomic writes, and filesystem tool definitions.
+
+The filesystem tool set includes permission-gated single-file deletion through `delete_file`. Recursive directory deletion is intentionally not exposed.
 
 Products remain responsible for their own UI, HTTP transport, browser integration, workspace selection, and user-facing approval flow.
 
